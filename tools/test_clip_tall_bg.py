@@ -74,8 +74,8 @@ def test_every_camera_top_shows_sonic2s_row_and_band(clip):
     """AFTER: every camera top of every tall zone is exact against Sonic 2. BEFORE (the one
     window, the booking's measurement): not, which is what makes this row say something."""
     act = _act(clip)
-    tall = CRB.tall_plans(act)
-    chains = CRB.tall_chains(act)
+    tall = CRB.tall_plans(act, joined=True)
+    chains = CRB.tall_chains(act, joined=True)
     assert tall, f"{clip} has no tall zone: nothing below is checked"
     tree = {c.zone_key: c.tree_key for c in act.clips}
     for key, ext in tall.items():
@@ -101,7 +101,7 @@ def test_each_switch_lies_where_both_layouts_are_exact(clip):
     """A switch row sits inside the overlap of the two layouts it joins, and the overlap is at
     least SWITCH_MARGIN wide, so a scroll trailing its camera still meets an exact layout."""
     act = _act(clip)
-    for key, ch in CRB.tall_chains(act).items():
+    for key, ch in CRB.tall_chains(act, joined=True).items():
         for i, v in enumerate(ch["switch_rows"]):
             a0, a1 = ch["specs"][i]["tall"]["valid"]
             b0, b1 = ch["specs"][i + 1]["tall"]["valid"]
@@ -114,11 +114,21 @@ def test_each_switch_lies_where_both_layouts_are_exact(clip):
                             for sp in ch["specs"]}) == 1
 
 
+def test_a_multi_zone_act_stays_windowed_until_crossing_into_a_tall_map_is_modelled():
+    """TALL_JOINED_ZONES (clip_rom_bake): crossing INTO a tall region costs a rate-clamped
+    scroll slide and the CPU wipe, which Z2 and the woven connectors do not carry (measured:
+    29 and 9 glitch ticks on hpz_to_ooz / hpz_to_mtz). So the woven act bakes as before, and
+    the one-zone solo acts go tall."""
+    assert CRB.TALL_JOINED_ZONES is False
+    assert CRB.tall_plans(_act("s2_woven")) == {}
+    assert sorted(len(CRB.tall_plans(_act(c))) for c in ("s2_hpz_solo", "s2_wfz_solo")) == [1, 1]
+
+
 def test_only_the_zones_the_window_cannot_hold_go_tall():
     """OOZ's clips reach screen tops 80..288, inside its window: it stays windowed, and so does
     every EHZ / CPZ / MTZ zone of the woven act (their transcriptions have no tall path)."""
     act = _act("s2_woven")
-    tall = CRB.tall_plans(act)
+    tall = CRB.tall_plans(act, joined=True)
     zone_of = {c.zone_key: c.zone for c in act.clips}
     assert sorted(zone_of[k] for k in tall) == ["HPZ", "WFZ"]
     assert CRB.tall_plans(_act("s2_ooz_solo")) == {}

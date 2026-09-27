@@ -138,6 +138,8 @@ async def _probe(b, sym, camx, camy, rates=None, plane=False):
              ("Parallax_Deform_Phase_BG", 2)]
     if "Parallax_Drift_Acc" in sym:
         reads.append(("Parallax_Drift_Acc", 4 * DRIFT_BANDS))
+    if plane and "BG_Plane_Top" in sym:
+        reads.append(("BG_Plane_Top", 2))
     if plane:
         # the NAMETABLE leg of a tall zone: the whole Plane B, read from VRAM
         # (4096 bytes a call, as tools/bg_window_gate.py reads it; a short read is COULD NOT
@@ -303,7 +305,19 @@ def main():
                 p = (m & 63) * PLANE_ROW_BYTES
                 if pb[p:p + PLANE_ROW_BYTES] != blob[m * PLANE_ROW_BYTES:(m + 1) * PLANE_ROW_BYTES]:
                     nt_bad.append(m)
-            line += f" plane rows {'OK' if not nt_bad else 'WRONG ' + str(nt_bad[:8])}"
+            if nt_bad:
+                # WHAT the wrong rows hold: the map row(s) whose bytes they are, or none
+                held = {}
+                for m in nt_bad[:6]:
+                    p = (m & 63) * PLANE_ROW_BYTES
+                    held[m] = [k for k in range(span // 8)
+                               if blob[k * PLANE_ROW_BYTES:(k + 1) * PLANE_ROW_BYTES]
+                               == pb[p:p + PLANE_ROW_BYTES]][:4]
+                line += (f" plane rows WRONG {len(nt_bad)} of the visible, first {nt_bad[:8]};"
+                         f" they hold map rows {held} (BG_Plane_Top "
+                         f"{int.from_bytes(rd.get('BG_Plane_Top', b''), 'big') if rd.get('BG_Plane_Top') else '?'})")
+            else:
+                line += " plane rows OK"
             ok = ok and not nt_bad
         extra = ""
         if zone == "EHZ" and ok:

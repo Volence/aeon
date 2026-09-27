@@ -368,7 +368,7 @@ async def rescan(client, b, rows, button, gsp, direction, syms, equs, start_x, f
     return out
 
 
-def analyse(rows, scans, pals, names, geo, blobs_seen, rom=None, axis="x"):
+def analyse(rows, scans, pals, names, geo, blobs_seen, rom=None, axis="x", map_rows=None):
     """`geo` is (zone A's far edge, zone B's near edge, connector start, connector end) on
     the connector's AXIS: x for a corridor (A left of B), y for a shaft (A above B). The
     screen's extent on that axis is SCREEN_W or SCREEN_H; everything else is axis-free."""
@@ -403,17 +403,29 @@ def analyse(rows, scans, pals, names, geo, blobs_seen, rom=None, axis="x"):
         # the VBlank that follows tick i is read at the SAME sample (see above); the rows the screen shows are
         # BG_SCREEN_ROWS from the top visible one (a one-plane map: map row = plane row).
         # Each is compared, whole, with the zone's layout row in ROM.
-        top = (r["vs_bg"] >> 3) & (BG_PLANE_ROWS - 1)
-        vis = [(top + k) % BG_PLANE_ROWS for k in range(BG_SCREEN_ROWS)]
+        # A TALL map (rg_bg_span past the plane, WINDOWED-BG-VERTICAL-CLAMP): the screen shows
+        # MAP rows m = vs/8 + k, held by plane row m & 63, and the ROM row to compare is m
+        # itself. `map_rows` {layout pointer: rows} comes from the ROM's region table; a
+        # layout it does not name as tall is one plane, where m & 63 is both.
+        top = r["vs_bg"] >> 3
+        vis = [top + k for k in range(BG_SCREEN_ROWS)]
         bg_visible_ok, bad_rows = {}, {}
         for z in names:
             ptr = lay_ptr.get(z)
             if nxt is None or rom is None or ptr is None:
                 wrong = None
             else:
-                wrong = [p for p in vis
-                         if nxt["plane"][p * ROW_BYTES:(p + 1) * ROW_BYTES]
-                         != rom[ptr + p * ROW_BYTES:ptr + (p + 1) * ROW_BYTES]]
+                nrows = (map_rows or {}).get(ptr, 0)
+                tall = nrows > BG_PLANE_ROWS
+                wrong = []
+                # a row past a tall map's end is never on screen (Step 5 clamps the scroll to
+                # span - 224; the BG_SCREEN_ROWS-th row only shows when vs is not row-aligned)
+                for m in (m for m in vis if not tall or m < nrows):
+                    p = m % BG_PLANE_ROWS
+                    src = m if tall else p
+                    if nxt["plane"][p * ROW_BYTES:(p + 1) * ROW_BYTES] != \
+                            rom[ptr + src * ROW_BYTES:ptr + (src + 1) * ROW_BYTES]:
+                        wrong.append(p)
             bad_rows[z] = wrong
             bg_visible_ok[z] = (bg_blob in (z, "*") and not r["bg_tgt"]
                                 and wrong is not None and not wrong)
@@ -533,8 +545,10 @@ def main():
     if "OJZ_Act1_Descriptor" not in syms:
         raise SystemExit("crossing_witness: the listing carries no OJZ_Act1_Descriptor — "
                          "COULD NOT RUN (the crossing is read off the region table's presets)")
-    preset_of = {r["addr"]: r["effects"]
-                 for r in RT.read_regions(rom, syms["OJZ_Act1_Descriptor"])}
+    region_rows = RT.read_regions(rom, syms["OJZ_Act1_Descriptor"])
+    preset_of = {r["addr"]: r["effects"] for r in region_rows}
+    map_rows = {r["bg_layout"]: r["bg_span"] // 8 for r in region_rows
+                if r.get("bg_layout") and r.get("bg_span")}
     if "VRAM_PLANE_B_BYTES" not in equs or "Parallax_Current_Vscroll_BG" not in syms:
         raise SystemExit("crossing_witness: the listing carries no VRAM_PLANE_B_BYTES / "
                          "Parallax_Current_Vscroll_BG — COULD NOT RUN")
@@ -570,7 +584,8 @@ def main():
             blobs = ({first["bg_cur"]: "*"} if shared else
                      {first["bg_cur"]: start_zone, last["bg_cur"]: end_zone})
             blobs.update({("lay", first["bg_lay"]): start_zone, ("lay", last["bg_lay"]): end_zone})
-            out_rows, glitches = analyse(rows, {}, pals, names, geo, blobs, rom=rom, axis=axis)
+            out_rows, glitches = analyse(rows, {}, pals, names, geo, blobs, rom=rom, axis=axis,
+                                         map_rows=map_rows)
             scans = {}
             if a.scan:
                 with aether_emulator(a.rom, symbols=a.lst) as sock:

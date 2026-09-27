@@ -1229,8 +1229,22 @@ def _lowered_tiles(donor, zone, tall=None):
 #: no faster than it (1:1 at most, for every zone this path takes).
 TALL_X_MARGIN = 512
 
+#: WHETHER A ZONE THAT OTHER ZONES CROSS INTO MAY GO TALL. False, MEASURED, not assumed: on
+#: s2_woven with HPZ and WFZ tall (DEBUG crc cfc3e006) crossing_witness counted 29 glitch ticks
+#: on hpz_to_ooz (leftward, INTO Hidden Palace, slack -6 frames) and 9 on hpz_to_mtz (the drop
+#: into Hidden Palace, slack -9), against 0 on the window path; the other 9 connectors stayed at
+#: 0. Entering a TALL region costs what entering a one-plane region no longer does: Step 5's
+#: rate clamp slides the scroll 16 px a frame from the zone left (OOZ 142 -> HPZ 651 at
+#: hpz_to_ooz: 32 frames) and the tall-map wipe is the CPU sweep, BG_WIPE_ROWS_PER_FRAME rows a
+#: frame, not the DMA one. Neither Z2's crossing model nor the connector lengths derived from
+#: it carry that, so an act with more than one zone keeps every zone WINDOWED until one of the
+#: priced fixes lands (DEFERRED_WORK WINDOWED-BG-VERTICAL-CLAMP: an engine arm that snaps the
+#: scroll and DMA-sweeps a tall window on a layout-changing crossing, or connectors lengthened
+#: by the modelled cost). One-zone acts (the solo clips) have no crossing and go tall.
+TALL_JOINED_ZONES = False
 
-def tall_plans(act):
+
+def tall_plans(act, joined=None):
     """{zone key: tall extent} for every zone that needs a tall map (clip_bg_scroll.tall_extent
     plus the paste dy, the rightmost donor camera X its clips reach and the period test's
     x_reach). Derived from the manifest alone, so the region plan (crossing frames, from the
@@ -1241,6 +1255,8 @@ def tall_plans(act):
     for c in act.clips:
         by.setdefault(c.zone_key, []).append(c)
     out = {}
+    if len(by) > 1 and not (TALL_JOINED_ZONES if joined is None else joined):
+        return out                      # every zone is crossed into: see TALL_JOINED_ZONES
     for key, cl in sorted(by.items()):
         dys = {c.dst[1] - c.src[1] for c in cl}
         if len(dys) != 1:
@@ -1259,13 +1275,13 @@ def tall_plans(act):
     return out
 
 
-def tall_chains(act):
+def tall_chains(act, joined=None):
     """{zone key: clip_bg_scroll.derive_tall(...)} for every tall zone of `act`: what the bake
     binds and what a witness holds the ROM to. Pure (it re-lowers each tall map)."""
     import clip_bg_scroll as CBS
     tree = {c.zone_key: c.tree_key for c in act.clips}
     out = {}
-    for key, ext in tall_plans(act).items():
+    for key, ext in tall_plans(act, joined).items():
         donor, zone = tree[key]
         words = lower_zone(donor, zone, ext)[0]
         out[key] = CBS.derive_tall(donor, zone, ext["paste_dy"], ext, words,

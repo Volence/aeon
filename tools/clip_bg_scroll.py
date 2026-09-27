@@ -1425,6 +1425,10 @@ CAM_HALF_H = 112
 #: BG_VSCROLL_MAX_STEP (16), so a scroll trailing its camera by up to 16 rows either side of
 #: the switch still shows an exact layout.
 SWITCH_MARGIN = 32
+#: The most map rows a tall blob may have: Draw_BG_TileRow (engine/level/plane_buffer.emp)
+#: forms row * 128 with `lsl.w #7` and adds it with `adda.w`, a SIGNED word, so row 256 would
+#: wrap to -32768. 256 rows = 2048 lines; every clip here is below 192.
+TALL_MAX_ROWS = 256
 
 
 def v_bg(raw, paste_dy, camy):
@@ -1480,6 +1484,11 @@ def tall_extent(donor, zone, paste_dy, cam_lo, cam_hi, map_lines):
         raise ClipScrollError(f"{zone}: screen tops {v_lo}..{v_hi} leave window {r0} yet fit "
                               f"{end - top} lines, which is not a tall map; a different "
                               f"window rule is wanted, not this path")
+    if (end - top) // 8 > TALL_MAX_ROWS:
+        raise ClipScrollError(
+            f"{zone}: a {(end - top) // 8}-row tall map; engine/level/plane_buffer.emp's "
+            f"Draw_BG_TileRow addresses a map row as `lsl.w #7` + `adda.w` (a signed word), so "
+            f"rows past {TALL_MAX_ROWS - 1} read from the wrong place")
     return {"r0": top, "rows": (end - top) // 8, "v_lo": v_lo, "v_hi": v_hi}
 
 
