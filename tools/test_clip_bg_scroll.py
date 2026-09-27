@@ -389,8 +389,12 @@ def test_hpz_bands_are_its_table_and_the_approximations_are_named(protoasm):
             assert got == s2
         else:
             assert b["s2_ratio"] == s2 and got != s2
-            # nothing the engine can decode is nearer
-            assert CBS.nearest_factor(s2) == (b["factor"], False)
+            # nothing the engine can decode is nearer: an independent brute force over every
+            # (s1, s2, op) the decoder accepts
+            everything = {CBS.factor_value(a, c, o) for a in range(15)
+                          for c in [CBS.LOCKED] + list(range(a + 1, 15))
+                          for o in ((0,) if c == CBS.LOCKED else (0, 1))}
+            assert abs(got - s2) == min(abs(v - s2) for v in everything)
     approx = {a["s2_ratio"] for a in spec["approximations"]}
     for r in {k[1] for k in raw["kinds"].values()}:
         try:
@@ -408,17 +412,29 @@ def test_wfz_bands_are_the_segment_array_as_drift_rows(s2asm):
     spec = CBS.derive("s2disasm", "WFZ", -256)
     assert spec["window_top"] == r0 == 896
     assert (spec["v_factor"], spec["v_offset"], spec["v_center"]) == (0, -r0, -256)
-    rates = {int(v, 16) >> 8 for v in re.findall(
+    # an independent reading: the three addi.l longs in order are TempArray +8, +$C, +$10,
+    # each 16.16 px/frame, i.e. value / 256 in the engine's 1/256 px unit
+    adds = [int(v, 16) for v in re.findall(
         r"addi\.l\t#\$([0-9A-F]+),\(a2\)\+", s2asm[s2asm.index("\nSwScrl_WFZ:"):
-                                                 s2asm.index("\nSwScrl_WFZ_Transition_Array:")])}
-    assert rates == {128, 64, 32}
+                                                 s2asm.index("\nSwScrl_WFZ_Transition_Array:")])]
+    rate_of = {8: adds[0] // 256, 12: adds[1] // 256, 16: adds[2] // 256}
+    assert sorted(rate_of.values()) == [32, 64, 128]
+    # and the segment array, read again here: (count, index) pairs from BG row 0
+    arr = s2asm[s2asm.index("\nSwScrl_WFZ_Normal_Array:"):]
+    arr = arr[:arr.index("\n; ====")]
+    idx_of, row = {}, 0
+    for n, i in re.findall(r"dc\.b\s+\$?([0-9A-F]+),\s*\$?([0-9A-F]+)", arr.split("if fixBugs")[0]):
+        for r in range(row, row + int(n, 16)):
+            idx_of[r] = int(i, 16)
+        row += int(n, 16)
     for pl in range(CBS.PLANE_LINES):
         b = [x for x in spec["bands"] if x["plane_top"] <= pl][-1]
-        k = raw["arrays"]["Normal"][pl + r0]
-        if k[0] == "drift":
-            assert (b["factor"], b["drift"]) == ((CBS.LOCKED, CBS.LOCKED, 0), k[1])
+        i = idx_of[pl + r0]
+        if i in rate_of:
+            assert (b["factor"], b["drift"]) == ((CBS.LOCKED, CBS.LOCKED, 0), rate_of[i])
         else:
             assert CBS.factor_value(*b["factor"]) == 1 and not b.get("drift")
+    assert raw["arrays"]["Normal"][r0] == ("drift", rate_of[idx_of[r0]])
     txt = CBS.scene_text(spec, "X", CBS.TABLE_LABEL)
     assert txt.count("drift: SceneDrift.Rate(") == len(spec["bands"])
 
