@@ -558,7 +558,7 @@ numbers.
 | # | Item | Where | Size | Woven status |
 |---|---|---|---|---|
 | 1 | **2-D region plan.** The regions as rectangles, planned by the balanced-slack rule `woven.py` uses, fill included. Two clips of one zone (MTZ) already chain in the row plan (READ: `region_plan` walks runs of `zone_key`) | `clip_rom_bake.py` `region_plan` | **L** | required |
-| 2 | **Vertical connector kinds:** drop shaft, stair shaft, and the **cloud band** (opaque line-0 art, cloud ledges) | `clip_manifest.py`, `clip_act_bake.py` | **L** (+S for the cloud band on top of the shaft) | required |
+| 2 | **Vertical connector kinds:** drop shaft, stair shaft, and the **cloud band** (opaque line-0 art, cloud ledges) | `clip_manifest.py`, `clip_act_bake.py` | **L** (+S for the cloud band on top of the shaft) | **DONE** 2026-09-27 (`parcel/woven-bake-2d`): `clips.json` `shafts`, K7/K9/K10. Crossing them is items 1/3/15 |
 | 3 | Z2 and the music check on both axes | `clip_rom_bake.py` | M | required |
 | 4 | Walk every corridor, not `corr[0]` | `clip_rom_bake.py` | S | required |
 | 5 | 2-D reachability | `clip_reachability.py` | M | required |

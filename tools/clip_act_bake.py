@@ -119,13 +119,15 @@ PER-CLIP POOL ROWS (2026-09-25, aurora's row-8 ask; design §8 RULED block). `cl
     "per_clip":    [ {"id", "index", "tiles", "tiles_added",
                       "pages_touched", "pages_exclusive"}, ... ]   // one per clips[i]
     "per_corridor": [ same row shape ]                              // one per corridors[i]
+    "per_shaft":    [ same row shape ]          // ONLY when the act has `shafts`
     "per_fill":     [ same row shape ]          // ONLY when the act has a `fill`: one row,
                                                 // id "fill", sliced by the fill's cell mask
     "per_clip_fields": { field -> its meaning }   // PER_CLIP_POOL_FIELDS, verbatim
 
   tiles            distinct pool tiles the rectangle's cells reference, blank (slot 0) excluded
   tiles_added      of those, the ones no earlier row references (clips in manifest order,
-                   then corridors, then the fill); sum over all rows + 1 == pool.tiles
+                   then corridors, then shafts, then the fill); sum over all rows + 1 ==
+                   pool.tiles
   pages_touched    pages holding any of its tiles: what must be resident to draw all of it.
                    Shared pages count for every row, so the sum can exceed pool.pages
   pages_exclusive  touched pages no other row touches; sum over rows <= pool.pages
@@ -483,8 +485,9 @@ PER_CLIP_POOL_FIELDS = {
 
 
 def pool_contributions(act, pl):
-    """{"clip": rows, "corridor": rows, "fill": rows} — see PER_CLIP_POOL_FIELDS for each
-    field. "fill" is one row (id "fill", index 0) when the act has a neutral fill, else [].
+    """{"clip": rows, "corridor": rows, "shaft": rows, "fill": rows} — see
+    PER_CLIP_POOL_FIELDS for each field. "fill" is one row (id "fill", index 0) when the act
+    has a neutral fill, else [].
 
     Reads the placement `place_pool` returned (`canon`, `page_grid`, `slot_of`) and slices
     it by each rectangle's dst cells (the fill by its MASK, `clip_manifest.fill_mask`: it is
@@ -498,7 +501,8 @@ def pool_contributions(act, pl):
         return canon[dy:dy + h, dx:dx + w], pg[dy:dy + h, dx:dx + w]
 
     rows_in = ([("clip", r.id, r.index, rect_cells(r)) for r in act.clips]
-               + [("corridor", r.id, r.index, rect_cells(r)) for r in act.corridors])
+               + [("corridor", r.id, r.index, rect_cells(r)) for r in act.corridors]
+               + [("shaft", r.id, r.index, rect_cells(r)) for r in act.shafts])
     if act.fill is not None:
         m = clip_manifest.fill_mask(act)
         rows_in.append(("fill", "fill", 0, (canon[m], pg[m])))
@@ -511,7 +515,7 @@ def pool_contributions(act, pl):
     for _t, pages in sets:
         for p in pages:
             touch[p] = touch.get(p, 0) + 1
-    seen, out = set(), {"clip": [], "corridor": [], "fill": []}
+    seen, out = set(), {"clip": [], "corridor": [], "shaft": [], "fill": []}
     for (kind, rid, idx, _cells), (tiles, pages) in zip(rows_in, sets):
         row = {"id": rid, "index": idx,
                "tiles": len(tiles), "tiles_added": len(tiles - seen),
@@ -645,16 +649,21 @@ def emit(act, st, out_dir, donor_root=None):
         "sections": sec_rows,
         "warnings": act.warnings,
     }
+    # shafts and the fill ONLY when the act HAS them, so an act without either writes the
+    # clipact.json it always wrote, byte for byte
+    if act.shafts:
+        manifest["shafts"] = [sh.as_json() for sh in act.shafts]
+        manifest["pool"]["per_shaft"] = contrib["shaft"]
     if act.fill is not None:
-        # only when the act HAS a fill, so an act without one writes the clipact.json it
-        # always wrote, byte for byte
         manifest["fill"] = dict(act.fill.as_json(),
                                 cells=int(clip_manifest.fill_mask(act).sum()))
         manifest["pool"]["per_fill"] = contrib["fill"]
+    if act.shafts or act.fill is not None:
         manifest["pool"]["per_clip_fields"]["tiles_added"] = (
             "of `tiles`, those no EARLIER row references; rows are ordered clips (in "
-            "manifest order), then corridors, then the fill. sum(tiles_added over per_clip, "
-            "per_corridor and per_fill) + 1 (the blank) == pool.tiles")
+            "manifest order), then corridors, then shafts, then the fill. sum(tiles_added "
+            "over per_clip, per_corridor, per_shaft and per_fill) + 1 (the blank) == "
+            "pool.tiles")
     with open(os.path.join(out_dir, "clipact.json"), "w") as fh:
         json.dump(manifest, fh, indent=2, sort_keys=True)
         fh.write("\n")
