@@ -18,7 +18,8 @@ WHAT IS PINNED HERE, and where the rest of the row's evidence lives:
     override-free twin (`_default_rule_doc`): Z2 passes it at the shortest width Z1+Z2 admit
     and refuses it shorter, including at the real act's own width;
   * Z2, the palette-crossing check, on synthetic modules: both arms of every refusal;
-  * region_plan's refusals (butted zones, a stacked layout);
+  * region_plan's refusal of butted zones (a STACKED layout is planned since the woven
+    report's §C item 1: tools/test_clip_woven_2d.py);
   * the COMMITTED neutral clip module is byte-for-byte what the emitter writes, so the
     canonical shapes cannot silently compile a stale or hand-edited one.
   Z1 (zone separation) and the deleted R20 live in tools/test_clip_rom_bake.py. K4 (the ROM
@@ -715,6 +716,7 @@ def test_music_changes_at_the_corridor_mouths_and_the_corridor_is_a_dead_band(do
     ehz, cpz = sorted(act.clips, key=lambda c: c.dst[0])
     out = CRB.check_music_crossings(act, mod, data, spawn=spawn)
     assert out == [{"from": ehz.id, "to": cpz.id, "right_x": cpz.dst[0],
+                    "axis": "x", "connector": act.corridors[0].id,
                     "left_x": ehz.dst[0] + ehz.dst[2] - 1,
                     "dead_band_px": cpz.dst[0] - ehz.dst[0] - ehz.dst[2],
                     "songs": ["SONG_S2_EHZ", "SONG_S2_CPZ"]}]

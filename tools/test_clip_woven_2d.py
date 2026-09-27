@@ -11,6 +11,13 @@ WHAT IS PINNED, per §C item:
     (no background shows), a cloud band's holes the sky; K7/K9/K10 refuse by their own tag
     with controls; the ledge pitch bound is the least jump rise, re-derived here in closed
     form from the same constants; the static bake counts shafts in the pool rows;
+  * items 1, 3, 4 and 15, THE 2-D PLAN AND ITS CHECKS: a stacked act plans rectangles split
+    at the shaft's balanced crossing (derived here from the frames and the camera constants),
+    a 1-D act still plans its full-height strips (the committed acts: MEASURED identical row
+    for row, and pinned below on s2_mtz_cpz), the crossing moves toward the cheaper side when
+    the two sides' frames differ, Z2 and MUSIC walk a shaft on its own axis and every
+    connector of a gap, and the SCREEN check (clip_camera) refuses MIXED, WRONG and short
+    crossings — each proven able to fail on a mutated plan or layout;
   * item 6, NEUTRAL FILL (`clips.json` `fill`, clip_manifest K8): every fill cell is the
     stone word on the corridor sheet's zone key and the full solid block on both planes, no
     clip cell changes, an act without a fill has the sheet it always had, K8 refuses by its
@@ -29,7 +36,9 @@ TOOLS = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, TOOLS)
 
 import clip_act_bake as CAB                 # noqa: E402
+import clip_camera as CC                    # noqa: E402
 import clip_manifest as CM                  # noqa: E402
+import clip_rom_bake as CRB                 # noqa: E402
 import collision_pipeline as CP             # noqa: E402
 import s2_donor as S                        # noqa: E402
 import s2_zone_convert as C                 # noqa: E402
@@ -82,11 +91,13 @@ def _clip(cid, zone, src, dst):
 
 
 def _stacked_doc():
-    """Emerald Hill over Chemical Plant, 288 px apart, one section wide: the smallest act
-    with a vertical seam. Positions on the 16-px grid (K8)."""
+    """Emerald Hill over Chemical Plant, 320 px apart, one section wide: the smallest act
+    with a vertical seam. Positions on the 16-px grid (K8). 320 = CAM_SCREEN_HALF_H x 2 +
+    CAM_MAX_Y_STEP x (3 + 3): the bake's Z2 counts a same-blob crossing as the visible-row
+    wipe, 3 frames (see test_the_same_blob_vertical_seam_is_320_not_the_reports_288)."""
     return {"schema": 1, "units": "world_px", "id": "t_stacked", "act": {"grid_w": 1, "grid_h": 2},
             "clips": [_clip("ehz", "EHZ", (4096, 0, 1024, 1024), (512, 256)),
-                      _clip("cpz", "CPZ", (7168, 0, 1024, 1024), (512, 1568))]}
+                      _clip("cpz", "CPZ", (7168, 0, 1024, 1024), (512, 1600))]}
 
 
 def _write(tmp_path, doc, name="clips.json"):
@@ -182,18 +193,21 @@ def test_the_static_bake_counts_the_fill_in_the_pool_rows(donors, tmp_path):
 # ---------------------------------------------------------------------------
 #
 # The fixture's seam: Emerald Hill (donor x 4096..5119) ends at act y 1280 and Chemical
-# Plant starts at 1568, 288 px below (the report's same-blob vertical seam). Emerald Hill's
-# last collision block row is open from the side and below at donor x 4288..4655 and CAPPED
-# at 4256..4287 (MEASURED from the converted tree; `test_k10_*` re-reads it through K10
-# itself, so a donor change fails loudly rather than moving the lane silently).
-LANE_OPEN = 768             # act x of donor 4352: open
-LANE_CAPPED = 672           # act x of donor 4256: capped
+# Plant starts at 1600, 320 px below (the same-blob vertical seam, as the bake times it). The
+# shaft's lane is under Emerald Hill act 1's own bottomless pit (donor x 4672..4863, the pit
+# clip_reachability's parcel-8 note declares), so a player really falls into it; its last
+# collision block row is open from the side and below there, and CAPPED at donor x
+# 4960..5007 (MEASURED from the converted tree; the K10 rows re-read it through K10 itself,
+# so a donor change fails loudly rather than moving the lane silently).
+LANE_OPEN = 1088            # act x of donor 4672: the pit, open
+LANE_CAPPED = 1376          # act x of donor 4960: capped
+LANE_OPEN_2 = 768           # act x of donor 4352: open at the edge, but no pit above it
 
 
 def _with_shaft(doc, **kw):
     doc = copy.deepcopy(doc)
-    sh = {"id": "drop", "dst_rect": _rect(640, 1280, 256, 288),
-          "lane": {"x": LANE_OPEN, "w": 64}}
+    sh = {"id": "drop", "dst_rect": _rect(1024, 1280, 256, 320),
+          "lane": {"x": LANE_OPEN, "w": 128}}
     sh.update(kw)
     doc["shafts"] = [sh]
     return doc
@@ -232,7 +246,7 @@ def test_a_shaft_is_walls_an_air_lane_and_top_only_ledges(donors, tmp_path):
     # alternately left and right, `w` wide, one block row each, top-solid only
     want = [(y0 + h - k * 64, "left" if k % 2 else "right")
             for k in range(1, h // 64 + 1) if y0 + h - k * 64 >= y0]
-    assert [(e["y"], e["side"]) for e in ledges] == want and len(want) == 4
+    assert [(e["y"], e["side"]) for e in ledges] == want and len(want) == 5
     lane = words[:, l0:l1].copy()
     for y, side in want:
         r = (y - y0) // 8
@@ -296,14 +310,14 @@ def test_the_ledge_pitch_bound_is_the_least_jump_rise():
 
 
 @pytest.mark.parametrize("mutate,tag,needle", [
-    (lambda s: s["dst_rect"].update(y=1296, h=272), "K7", "top edge"),
-    (lambda s: s["dst_rect"].update(h=272), "K7", "bottom edge"),
-    (lambda s: s["dst_rect"].update(x=648), "K9", "block grid"),
+    (lambda s: s["dst_rect"].update(y=1296, h=304), "K7", "top edge"),
+    (lambda s: s["dst_rect"].update(h=304), "K7", "bottom edge"),
+    (lambda s: s["dst_rect"].update(x=1032), "K9", "block grid"),
     (lambda s: s["lane"].update(x=512), "K9", "inside the rect"),
     (lambda s: s["lane"].update(w=16), "K9", "narrower than a standing player"),
     (lambda s: s.update(ledges={"pitch": 96, "w": 32}), "K9", "no more than 85"),
     (lambda s: s.update(ledges={"pitch": 72, "w": 32}), "K9", "whole number"),
-    (lambda s: s.update(ledges={"pitch": 64, "w": 64}), "K9", "narrower than the lane"),
+    (lambda s: s.update(ledges={"pitch": 64, "w": 128}), "K9", "narrower than the lane"),
     (lambda s: s.update(look="fog"), "K9", "is not one of"),
     (lambda s: s.update(look="cloud"), "K9", "needs `art`"),
     (lambda s: s.update(art=dict(_cloud_art(), zone="OOZ")), "K5", "no clip of this act"),
@@ -323,7 +337,7 @@ def test_k10_refuses_a_capped_mouth_and_admits_an_open_one(donors, tmp_path):
     ok = CM.load(_write(tmp_path, _with_shaft(_stacked_doc()), "ok.json"), donor_root=donors)
     CM.collision_grids(ok, donors)                                           # control
     capped = CM.load(_write(tmp_path, _with_shaft(
-        _stacked_doc(), dst_rect=_rect(640, 1280, 256, 288), lane={"x": LANE_CAPPED, "w": 32})),
+        _stacked_doc(), dst_rect=_rect(1280, 1280, 256, 320), lane={"x": LANE_CAPPED, "w": 32})),
         donor_root=donors)
     with pytest.raises(CM.ClipManifestError) as exc:
         CM.collision_grids(capped, donors)
@@ -352,3 +366,277 @@ def test_the_fill_goes_around_a_shaft_and_the_bake_counts_it(donors, tmp_path):
     bare_n = CAB.bake(bare, out_dir=str(tmp_path / "bare"), donor_root=donors,
                       log=None)[2]["collision"]["attr_entries"]
     assert 0 <= summary["collision"]["attr_entries"] - bare_n <= 1
+
+
+# ---------------------------------------------------------------------------
+# items 1, 3, 4, 15 — the 2-D region plan and the checks that read it back
+# ---------------------------------------------------------------------------
+
+OVERRIDES = {"palette": "snap", "background": "co_resident", "zone_separation": "screen",
+             "parallax": "snap", "why": WHY}
+
+
+def _woven_small(music=False, **shaft):
+    """The stacked fixture as a woven act: a drop shaft through the fill, s2_ehz_cpz's
+    crossing overrides (EHZ + CPZ backgrounds are co-resident: 376 tiles)."""
+    doc = _with_fill(_with_shaft(_stacked_doc(), **shaft))
+    doc["crossing_overrides"] = dict(OVERRIDES)
+    if music:
+        doc["clips"][0]["music"] = "SONG_S2_EHZ"
+        doc["clips"][1]["music"] = "SONG_S2_CPZ"
+    return doc
+
+
+def _texts(plan):
+    return CRB.clip_module_text(plan), CRB.clip_data_block(plan)
+
+
+def _need_c(frames, a, b, before, after, axis="y"):
+    """The balanced crossing, re-derived from the camera constants and the pair frames."""
+    c = CC.constants()
+    half = c["CAM_SCREEN_HALF_H"] if axis == "y" else c["CAM_SCREEN_HALF_W"]
+    step = c["CAM_MAX_Y_STEP"] if axis == "y" else c["CAM_MAX_X_STEP"]
+    nb = half + step * frames["pair"][(after, before)]
+    na = half + step * frames["pair"][(before, after)]
+    return ((a + b + nb - na) // 2) // 16 * 16, nb, na
+
+
+def _descriptor_rules(rows, W, H):
+    """act_descriptor.emp's row rules (ojz_region_table_check), re-derived from the camera
+    constants: every row at least REGION_MIN_SPAN (2 x CAM_MAX_Y_STEP) on both axes, every
+    interior edge inside the camera centre's band, and the rows tiling the act exactly."""
+    c = CC.constants()
+    span = 2 * c["CAM_MAX_Y_STEP"]
+    hw, hh = c["CAM_SCREEN_HALF_W"], c["CAM_SCREEN_HALF_H"]
+    cover = np.zeros((H // 8, W // 8), dtype=np.int32)
+    for r in rows:
+        assert r["x1"] - r["x0"] + 1 >= span and r["y1"] - r["y0"] + 1 >= span, r
+        assert r["x0"] == 0 or (r["x0"] - 1 >= hw and r["x0"] <= W - hw), r
+        assert r["x1"] == W - 1 or (r["x1"] >= hw and r["x1"] + 1 <= W - hw), r
+        assert r["y0"] == 0 or (r["y0"] - 1 >= hh and r["y0"] <= H - hh), r
+        assert r["y1"] == H - 1 or (r["y1"] >= hh and r["y1"] + 1 <= H - hh), r
+        cover[r["y0"] // 8:(r["y1"] + 1) // 8, r["x0"] // 8:(r["x1"] + 1) // 8] += 1
+    assert (cover == 1).all()
+
+
+def test_the_camera_models_components_are_a_bfs_s():
+    """clip_camera.components (row runs + union-find) against a plain cell BFS."""
+    from collections import deque
+    rng = np.random.default_rng(7)
+    for _ in range(20):
+        m = rng.random((33, 47)) < rng.uniform(0.3, 0.7)
+        lab, n = CC.components(m)
+        ref, k = np.zeros(m.shape, dtype=np.int32), 0
+        for y0, x0 in zip(*np.nonzero(m)):
+            if ref[y0, x0]:
+                continue
+            k += 1
+            ref[y0, x0] = k
+            q = deque([(y0, x0)])
+            while q:
+                y, x = q.popleft()
+                for yy, xx in ((y - 1, x), (y + 1, x), (y, x - 1), (y, x + 1)):
+                    if 0 <= yy < 33 and 0 <= xx < 47 and m[yy, xx] and not ref[yy, xx]:
+                        ref[yy, xx] = k
+                        q.append((yy, xx))
+        assert n == k
+        pairs = set(zip(lab[m].tolist(), ref[m].tolist()))
+        assert len(pairs) == k                  # one-to-one: the same partition
+
+
+def test_a_stacked_act_plans_two_rectangles_split_at_the_shafts_crossing(donors, tmp_path):
+    _need(S.S2_FINAL)
+    act = CM.load(_write(tmp_path, _woven_small()), donor_root=donors)
+    plan = CRB.region_plan(act, donors)
+    ehz, cpz = act.clips
+    a, b = ehz.dst[1] + ehz.dst[3], cpz.dst[1]
+    c, _nb, _na = _need_c(plan["frames"], a, b, ehz.zone_key, cpz.zone_key)
+    W, H = act.grid_w * act.section_px, act.grid_h * act.section_px
+    assert [(r["x0"], r["x1"], r["y0"], r["y1"], r["key"]) for r in plan["rows"]] == [
+        (0, W - 1, 0, c - 1, ehz.zone_key), (0, W - 1, c, H - 1, cpz.zone_key)]
+    _descriptor_rules(plan["rows"], W, H)
+    assert plan["crossings"] == [{"connector": "drop", "axis": "y", "at": c, "y": c,
+                                  "shaft": "drop", "from_key": 0, "to_key": 1, "gap": [a, b],
+                                  "need": list(_need_c(plan["frames"], a, b, 0, 1)[1:])}]
+    # Z2 walks the SHAFT in y, at every 16 px across its rectangle
+    z2 = CRB.check_palette_crossings(act, *_texts(plan), frames=plan["frames"])
+    assert len(z2) == 1 and z2[0]["axis"] == "y" and z2[0]["y"] == c
+    assert z2[0]["xs_walked"] == act.shafts[0].dst[2] // 16
+    assert z2[0]["margin_top"] >= z2[0]["margin_needed_top"]
+    assert z2[0]["margin_bottom"] >= z2[0]["margin_needed_bottom"]
+    # the screen check over the emitted rows: nothing mixed, nothing wrong, no short crossing
+    model = CC.CameraModel.for_act(act, donors)
+    scr = CRB.check_screen(act, model, *_texts(plan), plan["frames"])
+    assert scr["mixed"] == scr["wrong"] == 0 and scr["void"] == 0
+    assert scr["crossings"] and all(t["slack"] >= 0 for t in scr["crossings"])
+    assert {t["axis"] for t in scr["crossings"]} == {"y"}
+
+
+def test_the_same_blob_vertical_seam_is_320_not_the_reports_288(donors, tmp_path):
+    """FINDING (2026-09-27): the report's woven layout cut its same-blob connectors with a
+    2-frame background repaint (288 up/down, 384 across); the bake's Z2 counts the visible-row
+    wipe as ceil(BG_SCREEN_ROWS / BG_WIPE_DMA_ROWS) frames, which is 3 (a slipped DMA allowed
+    for, as s2_ehz_cpz's own why says). So a same-blob seam needs 2 x (HALF + 3 x STEP): 320
+    in y and 416 in x. At 288 the bake refuses the shaft — derived here from the engine."""
+    _need(S.S2_FINAL)
+    chunk, rows_per_frame, screen_rows = CRB.background_constants()
+    wipe = -(-screen_rows // rows_per_frame)
+    c = CC.constants()
+    assert wipe == 3
+    assert 2 * (c["CAM_SCREEN_HALF_H"] + wipe * c["CAM_MAX_Y_STEP"]) == 320
+    assert 2 * (c["CAM_SCREEN_HALF_W"] + wipe * c["CAM_MAX_X_STEP"]) == 416
+    doc = _woven_small()
+    for cl in doc["clips"][1:]:
+        cl["dst_rect"]["y"] -= 32
+    doc["shafts"][0]["dst_rect"]["h"] = 288
+    doc["fill"]["rect"]["h"] = 4096
+    act = CM.load(_write(tmp_path, doc), donor_root=donors)
+    with pytest.raises(CRB.ClipRomError) as exc:
+        plan = CRB.region_plan(act, donors)
+        CRB.check_palette_crossings(act, *_texts(plan), frames=plan["frames"])
+    assert "Z2" in str(exc.value) and "CAM_SCREEN_HALF_H" in str(exc.value)
+
+
+def test_the_crossing_moves_toward_the_cheaper_side(donors, tmp_path):
+    """The balanced rule: equal frames put it mid-connector (the old rule exactly); more
+    frames into the TOP zone push it DOWN (more room above)."""
+    _need(S.S2_FINAL)
+    act = CM.load(_write(tmp_path, _woven_small()), donor_root=donors)
+    base = CRB.crossing_frames(act)
+    a, b = 1280, 1600
+    assert CRB.region_plan(act, donors, frames=base)["crossings"][0]["at"] == \
+        ((a + b) // 2) // 16 * 16
+    skew = dict(base, pair={(1, 0): 6, (0, 1): 3})
+    got = CRB.region_plan(act, donors, frames=skew)["crossings"][0]["at"]
+    want, nb, na = _need_c(skew, a, b, 0, 1)
+    assert got == want and got > (a + b) // 2 and nb > na
+
+
+def test_a_one_row_act_still_plans_full_height_strips(donors, tmp_path):
+    """The 2-D plan's special case: s2_mtz_cpz (MTZ | tunnel | CPZ | tunnel | MTZ) plans the
+    five full-height strips the 1-D plan did, crossings at each tunnel's middle rounded down
+    to 16, CPZ's strip split at the tunnel mouths for its song."""
+    _need(S.S2_FINAL)
+    path = os.path.join(REPO, "games", "sonic4", "data", "clips", "s2_mtz_cpz", "clips.json")
+    act = CM.load(path, donor_root=donors)
+    plan = CRB.region_plan(act, donors)
+    mw, cpz, me = sorted(act.clips, key=lambda c: c.dst[0])
+    c1 = ((mw.dst[0] + mw.dst[2] + cpz.dst[0]) // 2) // 16 * 16
+    c2 = ((cpz.dst[0] + cpz.dst[2] + me.dst[0]) // 2) // 16 * 16
+    W, H = act.grid_w * act.section_px, act.grid_h * act.section_px
+    _descriptor_rules(plan["rows"], W, H)
+    assert [(r["x0"], r["x1"], r["y0"], r["y1"], r["key"], r["song"]) for r in plan["rows"]] == [
+        (0, c1 - 1, 0, H - 1, 0, None),
+        (c1, cpz.dst[0] - 1, 0, H - 1, 1, None),
+        (cpz.dst[0], cpz.dst[0] + cpz.dst[2] - 1, 0, H - 1, 1, "SONG_S2_CPZ"),
+        (cpz.dst[0] + cpz.dst[2], c2 - 1, 0, H - 1, 1, None),
+        (c2, W - 1, 0, H - 1, 0, None)]
+
+
+def test_music_on_a_shaft_changes_at_its_mouths(donors, tmp_path):
+    _need(S.S2_FINAL)
+    act = CM.load(_write(tmp_path, _woven_small(music=True)), donor_root=donors)
+    plan = CRB.region_plan(act, donors)
+    ehz, cpz = act.clips
+    a, b = ehz.dst[1] + ehz.dst[3], cpz.dst[1]
+    c = plan["crossings"][0]["at"]
+    H = act.grid_h * act.section_px
+    assert [(r["y0"], r["y1"], r["key"], r["song"]) for r in plan["rows"]] == [
+        (0, a - 1, 0, "SONG_S2_EHZ"), (a, c - 1, 0, None), (c, b - 1, 1, None),
+        (b, H - 1, 1, "SONG_S2_CPZ")]
+    out = CRB.check_music_crossings(act, *_texts(plan))
+    assert out == [{"from": "ehz", "to": "cpz", "axis": "y", "connector": "drop",
+                    "down_y": b, "up_y": a - 1, "dead_band_px": b - a,
+                    "songs": ["SONG_S2_EHZ", "SONG_S2_CPZ"]}]
+    # CAN IT FAIL: the unsplit rows (each zone's song on its whole region) change the song
+    # at the crossing, not at the mouth
+    merged = [dict(plan["rows"][0], y1=c - 1), dict(plan["rows"][3], y0=c)]
+    with pytest.raises(CRB.ClipRomError, match=r"walking down the song changes at \[\(%d," % c):
+        CRB.check_music_crossings(act, *_texts(dict(plan, rows=merged)))
+
+
+def test_z2_walks_every_connector_of_a_gap_not_the_first(donors, tmp_path):
+    """§C item 4: two shafts between the same two zones; a row plan that is right at the
+    first and wrong at the second is refused (the old walk read `corr[0]` only)."""
+    _need(S.S2_FINAL)
+    doc = _woven_small()
+    second = copy.deepcopy(doc["shafts"][0])
+    second.update(id="drop_two", dst_rect=_rect(LANE_OPEN_2, 1280, 64, 320),
+                  lane={"x": LANE_OPEN_2, "w": 64})
+    doc["shafts"].append(second)
+    act = CM.load(_write(tmp_path, doc), donor_root=donors)
+    plan = CRB.region_plan(act, donors)
+    z2 = CRB.check_palette_crossings(act, *_texts(plan), frames=plan["frames"])
+    assert [r["connector"] for r in z2] == ["drop", "drop_two"]
+    c = plan["crossings"][0]["at"]
+    W, H = act.grid_w * act.section_px, act.grid_h * act.section_px
+    # a hand plan: right at the first shaft (x >= 1024), 64 px too high at the second
+    bad = [dict(plan["rows"][0], x0=0, x1=1023, y0=0, y1=c - 65),
+           dict(plan["rows"][1], x0=0, x1=1023, y0=c - 64, y1=H - 1),
+           dict(plan["rows"][0], x0=1024, x1=W - 1, y0=0, y1=c - 1),
+           dict(plan["rows"][1], x0=1024, x1=W - 1, y0=c, y1=H - 1)]
+    with pytest.raises(CRB.ClipRomError) as exc:
+        CRB.check_palette_crossings(act, *_texts(dict(plan, rows=bad)), frames=plan["frames"])
+    assert "Z2" in str(exc.value) and "drop_two" in str(exc.value)
+
+
+def test_the_screen_check_refuses_wrong_and_short_rows(donors, tmp_path):
+    _need(S.S2_FINAL)
+    act = CM.load(_write(tmp_path, _woven_small()), donor_root=donors)
+    plan = CRB.region_plan(act, donors)
+    model = CC.CameraModel.for_act(act, donors)
+    CRB.check_screen(act, model, *_texts(plan), plan["frames"])              # control
+    c = plan["crossings"][0]["at"]
+    ehz = act.clips[0]
+    # the boundary 16 px up: the entered (top) zone is 16 px nearer than its frames need
+    up = [dict(plan["rows"][0], y1=c - 17), dict(plan["rows"][1], y0=c - 16)]
+    with pytest.raises(CRB.ClipRomError) as exc:
+        CRB.check_screen(act, model, *_texts(dict(plan, rows=up)), plan["frames"])
+    assert "Z2 (screen" in str(exc.value) and "slack -16 px" in str(exc.value)
+    # the boundary INSIDE Emerald Hill: its bottom rows are shown under CPZ's region
+    inside = [dict(plan["rows"][0], y1=ehz.dst[1] + ehz.dst[3] - 65),
+              dict(plan["rows"][1], y0=ehz.dst[1] + ehz.dst[3] - 64)]
+    with pytest.raises(CRB.ClipRomError) as exc:
+        CRB.check_screen(act, model, *_texts(dict(plan, rows=inside)), plan["frames"])
+    assert "Z2 (screen" in str(exc.value) and "ANOTHER zone's region" in str(exc.value)
+
+
+def test_z1_on_the_screen_refuses_stacked_zones_a_camera_sees_together(donors, tmp_path):
+    """Both axes: Chemical Plant 64 px under Emerald Hill with only fill between is a
+    SEALED seam, and Emerald Hill's pit runs to its bottom edge: a player stands on the fill
+    at the pit's foot and his camera sees both zones (MIXED), so Z1 refuses it. The control
+    is the 320-px shaft act."""
+    _need(S.S2_FINAL)
+    ok = CM.load(_write(tmp_path, _woven_small(), "ok.json"), donor_root=donors)
+    z = CRB.check_zone_separation(ok, {"zone_separation": {
+        "mixed": 1, "windows": 1, "min_column_gap_cells": -128, "window_cells": [80, 60],
+        "first_mixed": None}}, model=CC.CameraModel.for_act(ok, donors))
+    assert z["axes"] == "both" and z["mixed_reachable"] == 0
+    doc = _with_fill(_stacked_doc())
+    doc["clips"][1]["dst_rect"]["y"] = 1280 + 64
+    doc["crossing_overrides"] = dict(OVERRIDES)
+    act = CM.load(_write(tmp_path, doc), donor_root=donors)
+    model = CC.CameraModel.for_act(act, donors)
+    assert int(model.mixed().sum()) > 0
+    with pytest.raises(CRB.ClipRomError) as exc:
+        CRB.check_zone_separation(act, {"zone_separation": {
+            "mixed": 1, "windows": 1, "min_column_gap_cells": -128,
+            "window_cells": [80, 60], "first_mixed": None}}, model=model)
+    assert "Z1" in str(exc.value) and "both axes" in str(exc.value)
+
+
+def test_zones_facing_across_void_are_refused_and_fill_seals_them(donors, tmp_path):
+    _need(S.S2_FINAL)
+    bare = CM.load(_write(tmp_path, _stacked_doc(), "bare.json"), donor_root=donors)
+    with pytest.raises(CRB.ClipRomError) as exc:
+        CRB.check_zone_faces(bare)
+    assert "Z2" in str(exc.value) and "void in the 320 px" in str(exc.value)
+    CRB.check_zone_faces(CM.load(_write(tmp_path, _with_fill(_stacked_doc()), "f.json"),
+                                 donor_root=donors))                        # sealed: fine
+    CRB.check_zone_faces(CM.load(_write(tmp_path, _with_shaft(_stacked_doc()), "s.json"),
+                                 donor_root=donors))                        # joined: fine
+    butted = _stacked_doc()
+    butted["clips"][1]["dst_rect"]["y"] = 1280
+    with pytest.raises(CRB.ClipRomError) as exc:
+        CRB.check_zone_faces(CM.load(_write(tmp_path, butted), donor_root=donors))
+    assert "butted" in str(exc.value) and "along y" in str(exc.value)
