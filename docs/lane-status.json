@@ -227,7 +227,7 @@
       "project": "REGIONS"
     }
   ],
-  "awaiting": "Whether you want the woven act made editable in aurora (today edits wouldn't stick). The start-screen fix is in s4.woven.debug.bin (crc 65eac6c3).",
+  "awaiting": "New woven ROM with the Hidden Palace fix: s4.woven.debug.bin (crc 11cfc8e5). Also: do you want the woven act made editable in aurora?",
   "atBoundary": false,
-  "updatedAt": "2026-09-27T21:00:11Z"
+  "updatedAt": "2026-09-27T21:06:39Z"
 }
