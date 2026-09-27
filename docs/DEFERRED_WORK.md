@@ -46,6 +46,71 @@ against the AS-era tree and cite `.asm` paths and line numbers into files that *
 
 ---
 
+## WOVEN-BOOT-FG-GARBAGE: the woven act's first screen, and every warp into unloaded art, drew blank foreground cells (FIXED 2026-09-27, `fix/woven-boot-fg`)
+
+**Symptom (owner, 2026-09-27).** Booting `S2CLIP=s2_woven DEBUG=1`, Emerald Hill's foreground at the start
+was shredded; the background was right; leaving and coming back fixed it.
+
+**What it actually was: HOLES, not wrong art.** At frame 180 (woven DEBUG crc `2a0f1df3`, master
+`6557f13f`; the morning's `617448a7` is the same picture) 191 of the visible Plane A cells the bake paints
+were the blank word `$0000`, and `Tile_Cache_Nametable` held `$0000` in the same cells, so the plane was a
+faithful copy of a cache with holes in it. Every missing cell was a tile of pool page 12, and page 12 WAS
+resident by then (frame 1). The "grass in the sky" is the unbroken grass cells beside the holes; the pixel
+the brief quoted, (20,115) tile 641, is the same Plane A cell before and after the camera leaves and
+returns.
+
+**Root cause.** A streaming act (pool > `PAGE_FRAMES_CLAMP`) bulk-loads only pages `[0, PAGE_FRAMES_CLAMP)`
+(`engine/level/load_art.emp`), and the woven start window (Emerald Hill, section 5) also names pages 12
+and 13. `TileCache_FillAll` met them non-resident and took the patch run's miss arm
+(`engine/level/page_cache.emp`, `pc_patch_run_loop`'s `.pw_miss` and the bounded loop's miss): demand
+the page, set `Cache_Art_Stall`, leave the cell untouched, which after FillAll's bulk zero means `$0000`.
+FillAll ignored the stall and has no resume, and the per-frame fill only extends the window's edges, so
+nothing rewrote those cells once the pages landed. MEASURED by stopping at `TileCache_WarmupBelowRow`
+(the instruction after FillAll): `Cache_Art_Stall = 1`, `Dbg_PageCache_Demands = 2`, 2 requests queued,
+`Page_Table` = identity 0..11, `PageCache_Direct_Map = BOUNDED`.
+
+**Wider than the woven boot: every DEBUG warp.** The warp runs the same `Tile_Cache_Init`. On the unfixed
+woven ROM `tools/first_screen_fg_witness.py` found **20,393** wrong cells over 9 of 9 stops (the boot and
+a warp to the centre of each of the 8 clips), all drawn blank; `mtz_west` had 0 of 1,120 visible cells
+right. Built with the base engine files (`6557f13f`) and the same witness: `s2_ehz_cpz` 739 wrong at its
+`cpz_act1` warp (131 visible), `s2_mtz_cpz` 169 wrong (cache only) at its `mtz_east` warp; both boots
+clean. So any witness that placed the player by warp in a streaming clip act could have been standing on
+a screen with holes in it (the placements pin the player while the window streams, but the streamer
+never repaired interior cells).
+
+**Fix (engine).** `Tile_Cache_Init` settles: clear `Cache_Art_Stall`, `TileCache_FillAll`, and while the
+pass stalled, `PageIn_WaitIdle` then fill again, at most `PAGE_FRAMES`+1 passes (DEBUG raises past
+that; release gives up with the old holes rather than hang). `PageIn_WaitIdle` (`engine/level/page_in.emp`)
+is Level_LoadArt's page-in quiescence spin, factored out and now shared by both. Every pass re-demands
+what is still missing, a published demand page is held against eviction until a fill pass sees it,
+and eviction never takes a frame a cache word names, so each pass lands at least one page; a window
+needing more pages than frames halts as the thrash condition in `PageCache_AllocFrame` first.
+ARCH §4.7 ("The init refill SETTLES"), §4.12 step 5, §9.7's bounded-regime paragraph.
+
+**Check.** `tools/first_screen_fg_witness.py` (new): boots, then warps to the centre of every clip, and
+at each stop grades every visible Plane A cell and every cell of the 80x60 tile cache, resolved through
+VRAM, against the bake (`section_N.local.bin` -> `secN_local_map.bin` -> `pool.bin`); COULD NOT RUN if
+the baked tree's page count is not the ROM's. Wired in `tools/keepalive_manifest.toml`; the nightly
+(`tools/nightly_instrument_keepalive.sh`) now builds DEBUG `S2CLIP=s2_woven` as
+`s4.s2clip_woven.debug.*`. RED on the unfixed ROM as above; GREEN after the fix: woven 9 of 9 stops
+(crc `c75d9551` on the 5x3 base; `65eac6c3` after merging the 5x4 `parcel/clip-act-taller`), and every
+clip act that builds: `s2_ehz_boot`, `s2_ehz_cpz`, `s2_hpz_solo`, `s2_mtz_cpz`, `s2_ooz_solo`,
+`s2_wfz_solo`.
+
+**Scope.** Canonical OJZ and the fully resident clip acts (`s2_ehz_boot`, `s2_hpz_solo`, `s2_ooz_solo`,
+`s2_wfz_solo`: `PageCache_Direct_Map` = RESIDENT) cannot stall: the bulk load leaves every page
+resident, so no word ever takes the miss arm (measured 0 demands through the boot FillAll on each).
+The streaming clip acts' boots were clean (0 demands) but their warps were not (above). Not built,
+refused by their own bakes before this change: `s2_two_clip`, `s2_two_clip_pins` (Z1, butted zones)
+and `s2_woven_2d` (ROM layout overlap at `collision_data`/`dac_banks`); not graded.
+
+**Open.** (1) The warp's settle waits run `VSync_Wait` with the display on, so a warp into unloaded art
+shows a few frames of the new camera over the old planes before the synchronous redraw; DEBUG-only,
+not measured, TAGGED for an eyes-on look. (2) The boot now waits for the start window's pages with the
+display off; the extra boot frames were not measured.
+
+---
+
 ## SONIC-SLOPE-COLLISION: landings snapped every steep surface to flat (FIXED 2026-09-26, `research/sonic-slope-collision`); three items OPEN
 
 Owner, on the Sonic 2 clip: *"I can stand on random things or don't just start rolling when I
