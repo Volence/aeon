@@ -328,8 +328,23 @@ pub proc PageIn_Process () clobbers(d0-d2/a0-a3) {
         jbra    PageCache_Publish               // tail-call: fill Page_Table + frame + candidacy
 
     .alloc_fail:
-        // No frame available (thrash). DEBUG raise_errored inside AllocFrame; in
-        // release re-queue this page and retry next frame (a frame may free). A slot
+        // No frame available. A SPECULATIVE request (flags 0) is DROPPED: its queued-bit
+        // claim is released and nothing else was touched (AllocFrame evicted and detached
+        // nothing), so the page is simply still non-resident. The prefetch scan asks for
+        // it again on a later frame (its row stays unproven while the page is missing),
+        // and a demand for it, if the camera gets there, takes the demand path below.
+        // (PREFETCH-THRASH-AT-FULL-WINDOW, 2026-09-27: at a window naming all
+        // PAGE_FRAMES frames this used to be the DEBUG thrash halt.)
+        tst.b   PageIn_Cur_Flags
+        bne     .alloc_thrash
+    if DEBUG == 1 {
+        addq.w  #1, Dbg_PageIn_PfxNoFrame
+    }
+        move.w  PageIn_Cur_Page, d0
+        jbra    .release_claim
+    .alloc_thrash:
+        // DEMAND or BULK with no frame: thrash. DEBUG raise_errored inside AllocFrame;
+        // in release re-queue this page and retry next frame (a frame may free). A slot
         // is free (we just dequeued), so this cannot drop.
         move.w  PageIn_Cur_Page, d0
         move.b  PageIn_Cur_Flags, d1
