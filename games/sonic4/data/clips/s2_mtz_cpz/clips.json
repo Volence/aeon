@@ -1,0 +1,79 @@
+{
+  "schema": 1,
+  "units": "world_px",
+  "id": "s2_mtz_cpz",
+  "anchor_overlay": true,
+  "name": "WOVEN FIRST SCREEN: Metropolis west, a 384-px tunnel, Chemical Plant, a 384-px tunnel, Metropolis east (Chemical Plant as a pocket inside Metropolis)",
+  "note": "DRAFT",
+  "act": {
+    "grid_w": 3,
+    "grid_h": 2
+  },
+  "clips": [
+    {
+      "id": "mtz_west",
+      "donor": "s2disasm",
+      "zone": "MTZ",
+      "src_rect": { "x": 0, "y": 0, "w": 1536, "h": 2048 },
+      "dst_rect": { "x": 0, "y": 128, "w": 1536, "h": 2048 },
+      "unaligned_dst_reason": "draft",
+      "music": "SONG_S2_CPZ"
+    },
+    {
+      "id": "cpz_loop_cluster",
+      "donor": "s2disasm",
+      "zone": "CPZ",
+      "src_rect": { "x": 7168, "y": 0, "w": 2048, "h": 2048 },
+      "dst_rect": { "x": 1920, "y": 0, "w": 2048, "h": 2048 },
+      "unaligned_dst_reason": "draft",
+      "music": "SONG_S2_CPZ"
+    },
+    {
+      "id": "mtz_east",
+      "donor": "s2disasm",
+      "zone": "MTZ",
+      "src_rect": { "x": 1536, "y": 0, "w": 1536, "h": 2048 },
+      "dst_rect": { "x": 4352, "y": 144, "w": 1536, "h": 2048 },
+      "unaligned_dst_reason": "draft",
+      "music": "SONG_S2_CPZ"
+    }
+  ],
+  "corridors": [
+    {
+      "id": "mtz_to_cpz",
+      "dst_rect": { "x": 1536, "y": 640, "w": 384, "h": 512 },
+      "floor_y": 896,
+      "tunnel": {
+        "ceiling_y": 800,
+        "art": {
+          "donor": "s2disasm",
+          "zone": "CPZ",
+          "wall_src": { "x": 768, "y": 784, "w": 32, "h": 32 },
+          "back_src": { "x": 512, "y": 896, "w": 32, "h": 32 }
+        }
+      }
+    },
+    {
+      "id": "cpz_to_mtz",
+      "dst_rect": { "x": 3968, "y": 512, "w": 384, "h": 512 },
+      "floor_y": 768,
+      "tunnel": {
+        "ceiling_y": 672,
+        "art": {
+          "donor": "s2disasm",
+          "zone": "CPZ",
+          "wall_src": { "x": 768, "y": 784, "w": 32, "h": 32 },
+          "back_src": { "x": 512, "y": 896, "w": 32, "h": 32 }
+        }
+      }
+    }
+  ],
+  "crossing_overrides": {
+    "palette": "snap",
+    "background": "co_resident",
+    "zone_separation": "screen",
+    "crossing_margin": "report",
+    "parallax": "snap",
+    "why": "draft"
+  }
+}
