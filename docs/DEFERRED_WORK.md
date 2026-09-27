@@ -239,6 +239,7 @@ green from an applied mutation is never a pass.
    "in front" to differ from "on plane B". `ObjDef_PathSwap` is also placed in no level data
    and is parked for deletion. Implementing the bit would ship the declined design on a dead
    object. **The raise is correct and must stay while the bit is unimplemented.**
+   **DONE 2026-09-26 (PATH-SWAP-DELETE, branch `parcel/delete-path-swap`):** `path_swap.emp`, its `map.toml` order row and its `objects.json` entry are deleted. sigil `80bcaf72` derives its module list from `map.toml` `order`, so the file no longer has to exist. The bit and its raise went with it; this item is moot.
 4. **Counts in this area go stale on the same clock they are written on.** Two were found
    wrong on 2026-09-10 and both had gone stale in the flattering direction:
    `tools/loop_crossover_gate.py`'s header still argued from *"every cell of every shipped
@@ -7000,6 +7001,8 @@ objects), alongside the §3 SST field audit.
 > `ChunkDef.collision` are all deleted. Path B is no longer "copy of A until real secondary
 > data is authored" — Aurora authors it directly now (`docs/LEVEL_EDITOR_SPEC.md` corrected
 > alongside this entry).
+>
+> **DONE 2026-09-26 (PATH-SWAP-DELETE, branch `parcel/delete-path-swap`):** `path_swap.emp`, its `map.toml` order row and its `objects.json` entry are deleted. sigil `80bcaf72` derives its module list from `map.toml` `order`, so the file no longer has to exist. The PARK below is closed; the rest of this entry is the record as written.
 >
 > **⚠ THE PATH-SWAPPER PLACEMENTS ARE GONE; THE MODULE IS STILL HERE, DELIBERATELY**
 > (2026-09-06, `parcel/pathswap-placements`). The owner ruled the object obsolete — the
@@ -17714,7 +17717,7 @@ feature is authoring, exactly as research §7 decision 3 says.**
 - ~~**The sprite priority swap** (Parcel 2). Without it a loop reads as a flat painted circle.~~
   **BUILT 2026-09-10** (`parcel/loops-p-sprite-priority`) — see the LOOP SPRITE PRIORITY SWAP
   entry at the head of this file. It landed at the Route P read site and not here, so the
-  second half of this bullet still stands as written: `PATHSWAP_BIT_PRIO` is still reserved
+  second half of this bullet still stands as written (**moot since 2026-09-26: `path_swap.emp` is deleted, PATH-SWAP-DELETE**): `PATHSWAP_BIT_PRIO` is still reserved
   and `PathSwap_Init` still raises on it, and that is now a deliberate refusal to ship the
   decoupled design rather than a gap.
 - ~~**Route P** (Parcel 3), and the "solid on both planes" third state that should ride with it.~~
@@ -40972,7 +40975,7 @@ run"*, then (after a brief "one more section" detour he reversed) *"as far as he
 **OPEN**
 
 - **Past x 15399 needs plane switching**, which the clip does not carry: aeon's crossover marks are one-directional and the
-  bidirectional Obj03 needs `path_swap.emp` (parked). Extending further is that work first, plus the spin tubes and
+  bidirectional Obj03 needs `path_swap.emp` (parked; since superseded by layer-switch lines, and the module was deleted 2026-09-26, PATH-SWAP-DELETE). Extending further is that work first, plus the spin tubes and
   boosters.
 - Walking from rest cannot climb from the flat 768 floor to the 704 ledge at ~14091 (S2CLIP-SLOPE-PHYSICS); with run-up
   speed he gets over it.
@@ -41061,7 +41064,8 @@ x 1344..1407, all on B, no floor below any of them, y 1109 at x 1347 / 1351). It
   64 plane-B floorless columns.
 
 **OPEN, booked by this parcel.**
-1. **`path_swap.emp` is NOT deleted: blocked on sigil (rule: no sigil changes here).** sigil's
+1. **DONE 2026-09-26 (PATH-SWAP-DELETE, branch `parcel/delete-path-swap`):** `path_swap.emp`, its `map.toml` order row and its `objects.json` entry are deleted. sigil `80bcaf72` derives its module list from `map.toml` `order`, so the file no longer has to exist. The booking as written:
+   **`path_swap.emp` is NOT deleted: blocked on sigil (rule: no sigil changes here).** sigil's
    native build hard-codes the module: `crates/sigil-harness/src/native.rs:474`
    (`m!("games.sonic4.path_swap", "path_swap")`), `src/pins.rs:204` (`ObjDef_PathSwap` ..
    `section:path_swap`), `src/section_align.rs:176`. Deleting the file fails the aeon build with
@@ -41209,7 +41213,7 @@ aurora for a line tool in the editor. Until then both writers ship, as described
 **Step 2 DONE on branch `parcel/lines-everywhere` (2026-09-26, not landed): see LINES-EVERYWHERE
 above.** OJZ's loop runs on four authored lines, the painted marks are retired, and the probe's
 DEBUG placement is fixed (all eleven drives run). `path_swap.emp` stays, blocked on sigil (open
-item 1 there).
+item 1 there). **DONE 2026-09-26 (PATH-SWAP-DELETE, branch `parcel/delete-path-swap`):** `path_swap.emp`, its `map.toml` order row and its `objects.json` entry are deleted. sigil `80bcaf72` derives its module list from `map.toml` `order`, so the file no longer has to exist.
 
 **Re-verified on the rebased tip (2026-09-26):** `tools/landing_build.sh` exit 0 `finished=0` (pre-build pytest 3586
 passed; marked lane 34 ran, 1 EXEMPTED). Both clip shapes build (rc 0) with `layer_line_gate` OK (46 shipped rows, 345
@@ -41265,7 +41269,7 @@ table emptied).
   layer-line row. What it still has that lines lack is an editor authoring route (an object in the object layer), since
   today lines come only from a Sonic 2 donor. It is left parked, not deleted, pending the ruling (A was taken: it goes with the marks in the retirement parcel). If A is taken, delete
   it together with its `ObjDef_PathSwap` placement boundary in sigil's frozen tables (a sigil change, their lane), or
-  give lines an editor layer first if hand-authored switchers are wanted.
+  give lines an editor layer first if hand-authored switchers are wanted. **DONE 2026-09-26 (PATH-SWAP-DELETE, branch `parcel/delete-path-swap`):** `path_swap.emp`, its `map.toml` order row and its `objects.json` entry are deleted. sigil `80bcaf72` derives its module list from `map.toml` `order`, so the file no longer has to exist.
 - `Player_DebugExit` re-derives priority from the layer (right for crossover marks). Sonic 2 resets priority to low on
   leaving debug mode, so in a lines act a debug exit on plane B draws the player high until the next line crossing.
   This is debug only and was left as is.

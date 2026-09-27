@@ -12,6 +12,10 @@
 > - the parcel, what was deleted and what aurora must change: `docs/DEFERRED_WORK.md`
 >   LINES-EVERYWHERE.
 >
+> **`games/sonic4/objects/path_swap.emp` is DELETED (2026-09-26, PATH-SWAP-DELETE).** Where
+> this document says it survives or is kept as an escape hatch, that is
+> the record as written; layer-switch lines replaced it.
+>
 > What survives of this document as a contract: **bits 15:14 of the per-plane cell word are
 > RESERVED and must be zero.** A non-zero value is REFUSED, not dropped (the preflight names
 > every such cell, odd editor rows included; `bake_plane_cell` raises; the clip bake refuses by
