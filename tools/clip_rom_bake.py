@@ -554,6 +554,102 @@ def _layer_lines_module_text(plan):
             "}\n")
 
 
+# ---------------------------------------------------------------------------
+# THE CLIP ACT'S OWN START (woven mega-act item 7, first cut for s2_mtz_cpz, 2026-09-27)
+# ---------------------------------------------------------------------------
+#
+# The shipped descriptor starts the player at world (256, 256): section 0, local $0100 on both
+# axes. Emerald Hill happens to have ground under that; Metropolis, pasted 448 px down so its
+# floors meet Chemical Plant's, does not (the point is above the clip, and the first plane-A
+# surface under it, MEASURED, is inside the maze's roof at y 832). So a clip may name the clip
+# whose DONOR start it begins at (`"start": {"clip": <id>}`): Sonic 2's own startpos for that
+# zone (`startpos/<ZONE>_1.bin`, the player's centre), moved into act coordinates. The
+# descriptor binds its four start fields through the choosers below, the regions pattern:
+# the neutral module hands back `hand` (the shipped literals), so the canonical ROMs are
+# unchanged, and a clip without a `start` hands back `hand` too (s2_ehz_cpz keeps (256, 256)).
+
+START_FIELDS = ("start_sec_x", "start_local_x", "start_sec_y", "start_local_y")
+
+_START_NEUTRAL = (
+    "// THE START (woven item 7). None of the clip's in the canonical act: the descriptor binds\n"
+    "// its four start fields through these choosers and gets its `hand`, the shipped literals.\n"
+    + "\n".join(f"pub comptime fn ojz_clip_act_{f}(hand: int) -> int {{\n    return hand\n}}\n"
+                for f in START_FIELDS))
+
+
+def act_start(act):
+    """The clip act's own start, or None (the descriptor's shipped start stands).
+
+    `"start": {"clip": <clip id>}` names the clip whose DONOR start the player begins at:
+    Sonic 2's `startpos/<ZONE>_1.bin` (x then y, big-endian words: the player's centre),
+    which must lie inside that clip's source rectangle, moved by the clip's paste offset.
+    Returns {"x", "y", "clip", "donor_start"} in world px."""
+    raw = act.raw.get("start")
+    if raw is None:
+        return None
+    if not isinstance(raw, dict) or set(raw) != {"clip"}:
+        raise ClipRomError(f"ST0 `start` must be {{\"clip\": <clip id>}}, not {raw!r}")
+    clip = next((c for c in act.clips if c.id == raw["clip"]), None)
+    if clip is None:
+        raise ClipRomError(f"ST0 `start` names clip {raw['clip']!r}, which the act does not have")
+    import s2_donor
+    import struct as _s
+    p = os.path.join(s2_donor.donor_root(clip.donor), "startpos", f"{clip.zone}_1.bin")
+    if not os.path.isfile(p):
+        raise ClipRomError(f"ST0 `start` names clip {clip.id!r}, but its donor has no start "
+                           f"position at {p}")
+    sx, sy = _s.unpack(">HH", open(p, "rb").read()[:4])
+    x0, y0, w, h = clip.src
+    if not (x0 <= sx < x0 + w and y0 <= sy < y0 + h):
+        raise ClipRomError(f"ST0 {clip.donor}:{clip.zone} starts the player at ({sx}, {sy}), "
+                           f"outside clip {clip.id!r}'s source rectangle ({x0}, {y0}, {w}, {h})")
+    return {"x": sx - x0 + clip.dst[0], "y": sy - y0 + clip.dst[1], "clip": clip.id,
+            "donor_start": [sx, sy]}
+
+
+def start_fields(start, constants_path=None):
+    """{descriptor field: value} for a world-px start: the section and the local offset."""
+    from fg_working_set import ConstantSource
+    src = ConstantSource()
+    src.load_file(constants_path or os.path.join(REPO, "engine", "system", "constants.emp"))
+    shift = int(src.get("SECTION_SIZE_SHIFT"))
+    mask = (1 << shift) - 1
+    return {"start_sec_x": start["x"] >> shift, "start_local_x": start["x"] & mask,
+            "start_sec_y": start["y"] >> shift, "start_local_y": start["y"] & mask}
+
+
+def _start_module_text(plan):
+    st = plan.get("start")
+    if st is None:
+        return ("// THE START (woven item 7): this clip act names none, so the descriptor's shipped\n"
+                "// start stands.\n"
+                + "\n".join(f"pub comptime fn ojz_clip_act_{f}(hand: int) -> int {{\n"
+                            f"    return hand\n}}\n" for f in START_FIELDS))
+    fields = start_fields(st)
+    return (f"// THE START (woven item 7): clip {st['clip']!r}'s donor start "
+            f"({st['donor_start'][0]}, {st['donor_start'][1]}), at world ({st['x']}, {st['y']}).\n"
+            + "\n".join(f"pub comptime fn ojz_clip_act_{f}(hand: int) -> int {{\n"
+                        f"    return {fields[f]}\n}}\n" for f in START_FIELDS))
+
+
+def check_start(plan, mod_text):
+    """ST1 — the four choosers the descriptor binds return this plan's start, read back from
+    what was EMITTED (or `hand` when the act names none)."""
+    import re as _re
+    st = plan.get("start")
+    want = start_fields(st) if st else None
+    for f in START_FIELDS:
+        m = _re.search(rf"pub comptime fn ojz_clip_act_{f}\(hand: int\) -> int \{{\s*return (\w+)\s*\}}",
+                       mod_text)
+        if not m:
+            raise ClipRomError(f"ST1 the clip module declares no ojz_clip_act_{f} chooser")
+        got = m.group(1)
+        exp = "hand" if want is None else str(want[f])
+        if got != exp:
+            raise ClipRomError(f"ST1 ojz_clip_act_{f} returns {got}, the plan says {exp}")
+    return want
+
+
 def _layer_lines_data_text(ll):
     import layer_lines as LLS
     n = len(ll["rows"]) + 2
@@ -665,7 +761,7 @@ def clip_module_text(plan=None):
                 "pub comptime fn ojz_clip_act_regions(hand: Label) -> Label {\n"
                 "    return hand\n"
                 "}\n\n"
-                + _LAYER_LINES_NEUTRAL)
+                + _LAYER_LINES_NEUTRAL + "\n" + _START_NEUTRAL)
     presets = ", ".join([z["preset_label"] for z in plan["zones"]] + _region_bg_labels(plan))
     uses_ll = ", LayerLine" if (plan.get("layer_lines") or {}).get("rows") else ""
     n = len(plan["rows"])
@@ -691,7 +787,7 @@ def clip_module_text(plan=None):
             "pub comptime fn ojz_clip_act_regions(hand: Label) -> Label {\n"
             "    return OJZ_Clip_Regions\n"
             "}\n\n"
-            + _layer_lines_module_text(plan))
+            + _layer_lines_module_text(plan) + "\n" + _start_module_text(plan))
 
 
 def clip_data_block(plan):
@@ -1721,7 +1817,16 @@ def emit_clip_module(act, donor_root, path=CLIP_MODULE, data_path=CLIP_DATA, log
     plan = region_plan(act, donor_root)
     desc = os.path.join(REPO, "games", "sonic4", "data", "levels", "ojz", "act1",
                         "act_descriptor.emp")
-    plan_backgrounds(plan, engine_spawn(desc), gen_dir, baked_dir or gen_dir, log=log)
+    plan["start"] = act_start(act)
+    spawn = engine_spawn(desc, start=plan["start"])
+    if log:
+        log(f"clip_rom_bake: START — "
+            + (f"clip {plan['start']['clip']!r}'s donor start "
+               f"({plan['start']['donor_start'][0]}, {plan['start']['donor_start'][1]}) at world "
+               f"({plan['start']['x']}, {plan['start']['y']})" if plan["start"] else
+               "the descriptor's shipped start")
+            + f"; the boot state puts the player at {spawn}")
+    plan_backgrounds(plan, spawn, gen_dir, baked_dir or gen_dir, log=log)
     plan_scroll(plan, act, log=log)
     plan["layer_lines"] = layer_line_plan(act, log=log)
     with open(path, "w") as fh:
@@ -1749,7 +1854,8 @@ def emit_clip_module(act, donor_root, path=CLIP_MODULE, data_path=CLIP_DATA, log
         log("clip_rom_bake: " + "!" * 72)
     bgf = background_switch_frames(plan)
     z2 = check_palette_crossings(act, mod, data, log=log, bg_frames=bgf)
-    plan["music"] = check_music_crossings(act, mod, data, spawn=engine_spawn(desc), log=log)
+    plan["music"] = check_music_crossings(act, mod, data, spawn=spawn, log=log)
+    plan["st1"] = check_start(plan, mod)
     plan["bg1"] = check_backgrounds(plan, mod, data, gen_dir)
     if log:
         log(f"clip_rom_bake: BG1 {plan['bg1']['default']} is the act default background and "
@@ -2073,7 +2179,7 @@ def ground(manifest_path, donor_root=None, gen_dir=GEN_DIR, coll_dir=COLL_DIR,
     require_stamp(act.id, gen_dir, "ground")
     desc = os.path.join(REPO, "games", "sonic4", "data", "levels", "ojz", "act1",
                         "act_descriptor.emp")
-    spawn_x, spawn_y = engine_spawn(desc)
+    spawn_x, spawn_y = engine_spawn(desc, start=act_start(act))
     if log:
         log(f"ground: spawn re-derived from the engine = world ({spawn_x}, {spawn_y}) px")
 
@@ -2231,7 +2337,7 @@ def _engine_const(name, path=None):
     return src.get(name)
 
 
-def engine_spawn(descriptor_path, constants_path=None, grid_path=None):
+def engine_spawn(descriptor_path, constants_path=None, grid_path=None, start=None):
     """(x, y) world px the boot state puts Player_1 at, DERIVED from the engine.
 
     Camera_Init seeds Camera_X = (start_sec_x << SECTION_SIZE_SHIFT) + start_local_x
@@ -2239,6 +2345,10 @@ def engine_spawn(descriptor_path, constants_path=None, grid_path=None):
     Player_1 at Camera_X + CAM_SCREEN_HALF_W. The half-screen therefore cancels
     EXCEPT where the clamp bites, which is precisely why this is computed rather than
     assumed to be the descriptor's start_local.
+
+    The descriptor spells each start field as `ojz_clip_act_<field>(hand: <literal>)` (the
+    clip start chooser, woven item 7); the literal is the shipped act's. `start` (an
+    `act_start` dict) is a clip act's own start, which the chooser returns in its build.
     """
     import re
     from fg_working_set import ConstantSource
@@ -2251,8 +2361,13 @@ def engine_spawn(descriptor_path, constants_path=None, grid_path=None):
     screen_h = int(src.get("SCREEN_HEIGHT"))
     text = open(descriptor_path).read()
 
+    own = start_fields(start, constants_path) if start else None
+
     def field(name):
-        m = re.search(rf"^\s*{name}:\s*(\$?[0-9A-Fa-f]+|GRID_[WH])", text, re.M)
+        if own is not None and name in own:
+            return own[name]
+        m = re.search(rf"^\s*{name}:\s*(?:ojz_clip_act_{name}\(hand:\s*)?(\$?[0-9A-Fa-f]+|GRID_[WH])",
+                      text, re.M)
         if not m:
             raise ClipRomError(f"engine_spawn: {descriptor_path} has no {name}: field")
         v = m.group(1)

@@ -31,3 +31,21 @@ pub const OJZ_CLIP_LAYER_LINE_ROWS: array = []
 pub comptime fn ojz_clip_act_layer_lines(hand: Label) -> Label {
     return hand
 }
+
+// THE START (woven item 7). None of the clip's in the canonical act: the descriptor binds
+// its four start fields through these choosers and gets its `hand`, the shipped literals.
+pub comptime fn ojz_clip_act_start_sec_x(hand: int) -> int {
+    return hand
+}
+
+pub comptime fn ojz_clip_act_start_local_x(hand: int) -> int {
+    return hand
+}
+
+pub comptime fn ojz_clip_act_start_sec_y(hand: int) -> int {
+    return hand
+}
+
+pub comptime fn ojz_clip_act_start_local_y(hand: int) -> int {
+    return hand
+}
