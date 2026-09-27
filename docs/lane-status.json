@@ -2,13 +2,13 @@
   "focus": "Loop double lap and Chemical Plant lag are fixed; waiting on you for the temp folder and the fall feel.",
   "inFlight": [
     {
-      "what": "Fix where our loop loses Sonic at some speeds (falling through its floor)",
-      "where": "branch fix/ojz-loop-collision",
+      "what": "Fix where our loop loses Sonic at some speeds (restarted after an accidental stop)",
+      "where": "branch fix/ojz-loop-collision-2",
       "agent": true
     },
     {
-      "what": "Build the first woven piece: Chemical Plant inside Metropolis",
-      "where": "branch parcel/woven-mtz-cpz",
+      "what": "Build Chemical Plant inside Metropolis (restarted after an accidental stop)",
+      "where": "branch parcel/woven-mtz-cpz-2",
       "agent": true
     }
   ],
@@ -197,5 +197,5 @@
   ],
   "awaiting": "Try ~/sonic_hacks/tryout/s3k-fall/ and pick the air camera speed.",
   "atBoundary": false,
-  "updatedAt": "2026-09-27T03:44:04Z"
+  "updatedAt": "2026-09-27T03:47:12Z"
 }
