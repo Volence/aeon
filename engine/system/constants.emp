@@ -213,13 +213,16 @@ pub const PHYS_JUMP_BUFFER      = 2      // jump-input buffer window (frames)
 // exceeds this into equal parts no larger than it and probes after each one, so an
 // uncapped fall keeps exactly the thin-floor guarantee the old cap gave. It is a WHOLE
 // number of pixels on purpose: a part of 15.5 px can carry a subpixel into a 16 px
-// integer move. Do not re-type the value: it follows COLLISION_CELL_SHIFT.
-pub const PHYS_SWEEP_STEP       = ((1 << COLLISION_CELL_SHIFT) - 1) << 8
-// The safety rule, executable. It fires in BOTH directions — a step raised to a whole
-// cell, and a COLLISION_CELL_SHIFT lowered under a step that stayed put — and on a step
-// that is not whole pixels.
-ensure((PHYS_SWEEP_STEP >> 8) < (1 << COLLISION_CELL_SHIFT) && (PHYS_SWEEP_STEP & $FF) == 0 && PHYS_SWEEP_STEP > 0,
-       "PHYS_SWEEP_STEP must be a whole number of pixels STRICTLY below one collision cell: a probed move of a whole cell (or one whose subpixel can carry it to a whole cell) can begin flush on the thinnest floor the world can express and end below it, tunnelling through")
+// integer move. Do not re-type the value: it follows COLL_CELL_H, the cell height the block
+// format actually gives (declared below with the block geometry). The old cap followed
+// COLLISION_CELL_SHIFT, which nothing else read and nothing tied to the cell; it is now
+// pinned to COLL_CELL_H beside its declaration.
+pub const PHYS_SWEEP_STEP       = (COLL_CELL_H - 1) << 8
+// The safety rule, executable. It fires on a step raised to (or past) a whole cell, on a
+// cell height lowered under a step that was re-typed as a literal and stayed put, and on a
+// step that is not whole pixels. Red-first on 2026-09-27 (docs/research/2026-09-27-s3k-fall.md).
+ensure((PHYS_SWEEP_STEP >> 8) < COLL_CELL_H && (PHYS_SWEEP_STEP & $FF) == 0 && PHYS_SWEEP_STEP > 0,
+       "PHYS_SWEEP_STEP ({PHYS_SWEEP_STEP}) must be a whole number of pixels STRICTLY below one collision cell (COLL_CELL_H {COLL_CELL_H} px): a probed move of a whole cell (or one whose subpixel can carry it to a whole cell) can begin flush on the thinnest floor the world can express and end below it, tunnelling through")
 // The split is 2^k equal parts, part = y_vel << (8 - k) as a 16.16 delta, which is EXACT
 // (the parts sum to y_vel << 8 to the last subpixel) only while k <= 8. The largest k
 // needed is the one that brings the largest representable |y_vel| ($8000) under the step.
@@ -1166,8 +1169,11 @@ ensure(BLOCK_STAGE_SLOTS * 4 < $FF,
 ensure(BLOCK_STAGE_SLOTS == 16,
        "the prefetch memo's covered-slot mask is a WORD and its eviction window is a `rol.w` — both are exactly 16 slots wide; widen them together with BLOCK_STAGE_SLOTS")
 
-// Collision cell shift (pixel -> 16px cell).
+// Collision cell shift (pixel -> 16px cell). Pinned to the cell the block format gives, so the
+// two cannot say different things (COLL_CELL_H above is the one the probes live by).
 pub const COLLISION_CELL_SHIFT  = 4
+ensure(1 << COLLISION_CELL_SHIFT == COLL_CELL_H,
+       "COLLISION_CELL_SHIFT ({COLLISION_CELL_SHIFT}) no longer names the collision cell the block format gives (COLL_CELL_H {COLL_CELL_H} px)")
 
 // -----------------------------------------------
 // Camera (§4.7 streaming contract; CAM_MAX_Y_STEP <= VFILL_ROWS_PER_FRAME*8).

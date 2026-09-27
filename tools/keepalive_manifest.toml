@@ -108,6 +108,19 @@ timeout = 300
 # ---- --rom/--lst, required ------------------------------------------------------------
 
 
+[wired."thin_floor_witness.py"]
+args = ["--rom", "{rom}", "--lst", "{lst}", "--ladder", "--targets", "120"]
+expect = 0
+timeout = 600
+note = """FALL-FEEL (feel/s3k-fall, 2026-09-27): the fall is uncapped (S3K) and the airborne move is
+swept in parts no larger than PHYS_SWEEP_STEP so a one-cell floor cannot be skipped. This arm
+drops a real player (DEBUG warp mailbox) onto 120 of OJZ act 1's thin floor columns (every
+floor-class run <= COLL_CELL_H px thick, derived from the committed editor collision) at the
+fastest speed a fall there reaches, and every 8th of them also at 16/24/32/48 px/frame, each from
+every start height 1..16 px above the floor. Exit 1 = a drop passed through or went unresolved.
+The EXHAUSTIVE run (every target, no --targets) is recorded in docs/research/2026-09-27-s3k-fall.md
+with the base ROM as the control that can tunnel."""
+
 [wired."dplc_coherence_witness.py"]
 args = ["--rom", "{rom}", "--lst", "{lst}"]
 expect = 0
