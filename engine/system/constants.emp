@@ -245,6 +245,13 @@ pub const PHYS_MOVE_LOCK_TIME   = 30     // control-lock duration after a slip (
 pub const RING_HEIGHT      = 16
 pub const RING_ANIM_FRAMES = 4
 pub const RING_ANIM_SPEED  = 8              // frames per animation tick
+// ONE ring frame is resident, not all of them (VRAM-TIER1, 2026-09-27). Every ring
+// shares the one global Ring_Anim_Frame, so DrawRings draws every ring from the
+// window's base (a 2x2 piece = RING_FRAME_TILES) and hands each new frame to the
+// game through Game.ring_frame, which streams it in. A game's ring_placeholder
+// region is RING_FRAME_TILES wide (sonic4's vram.toml pins it with an
+// `engine-tiles:RING_FRAME_TILES` authority).
+pub const RING_FRAME_TILES = 4
 
 // Engine-owned BUFFER FORMAT (review item 30/G). The ring buffer record
 // describes the layout of an ENGINE-owned RAM buffer (Ring_Buffer) walked only

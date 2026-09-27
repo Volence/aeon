@@ -158,6 +158,9 @@ pub implement Game {
     // The collect visual: RingCollision hands the ring's centre to the sparkle
     // spawner (games/sonic4/objects/ring_sparkle.emp).
     hook ring_collected = RingSparkle_Spawn
+    // The ring window holds ONE frame; this streams each new one in on the tick
+    // (games/sonic4/test/ojz_scroll_test.emp, beside the ring art it reads).
+    hook ring_frame = RingArt_StreamFrame
 
     // The spring launch: Touch_Spring has already seated the player and written
     // the impulse; this puts him in the air and restarts the spring's animation

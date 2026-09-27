@@ -135,7 +135,8 @@ byte address = tile × 32):
 | 960–988 | `$7800`–`$7B9F` | `character_window` | window | **the player's DPLC target — 29 tiles** (`VRAM_TEST_SONIC`), sized to the cast's peak frame |
 | **989–991** | `$7BA0`–`$7BFF` | **FREE** | | **3 free tiles** — object art may take them |
 | 992–999 | `$7C00`–`$7CFF` | `test_obj` | window | two solid 2×2 test squares |
-| 1000–1015 | `$7D00`–`$7EFF` | `ring_placeholder` | window | all four ring frames resident |
+| 1000–1003 | `$7D00`–`$7D7F` | `ring_placeholder` | window | ONE ring frame (2×2); every ring draws from it and the game streams the current frame in on each animation tick |
+| **1004–1015** | `$7D80`–`$7EFF` | **FREE** | | **12 free tiles** — object art may take them |
 | 1016–1019 | `$7F00`–`$7F7F` | `test_marker` | window | the debug-fly marker |
 | **1020–1023** | `$7F80`–`$7FFF` | **FREE** | | **4 free tiles** — object art may take them |
 | 1024–1399 | `$8000`–`$AEFF` | `bg_region` | arena | **shared background tile art, 376 tiles**, `band_reserve = 56` |
@@ -221,7 +222,7 @@ gen_vram_map: region 'fg_art_pool': tiles=800 violates quantum 64
 A successful run prints, to stdout:
 
 ```
-gen_vram_map: sonic4 OK — 23 regions, 42 free tiles
+gen_vram_map: sonic4 OK — 23 regions, 54 free tiles
 ```
 
 The **background tile budget** has its own refusal, in the importer rather than the map

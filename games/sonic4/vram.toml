@@ -302,10 +302,22 @@ name = "ring_placeholder"
 owner = "engine.objects.rings"
 kind = "window"
 base = 1000
-tiles = 16
+tiles = 4
 lifetime = "act"
-authority = "sigil-D:VRAM_RING_PLACEHOLDER"   # -D define, native.rs; T1 feeds it
-                                              # from this file. T0: soft-checked.
+authority = ["sigil-D:VRAM_RING_PLACEHOLDER",  # -D define, native.rs; T1 feeds it
+                                               # from this file. T0: soft-checked.
+             "engine-tiles:RING_FRAME_TILES"]
+# ONE ring frame, not four, since 2026-09-27 (VRAM-TIER1, audit candidate C; it was
+# 1000..1015, and 1004..1015 is [[free]] now). Every ring shares one global frame
+# counter, so DrawRings draws every ring from this base and the game streams each new
+# frame in through Game.ring_frame (RingArt_StreamFrame, 128 B every 8 frames,
+# Deferrable). The extent is the engine's RING_FRAME_TILES, pinned by the authority
+# line. The BASE stays 1000 because sigil's native.rs supplies it as a -D define.
+
+[[free]]
+base = 1004
+tiles = 12
+# the three ring frames that no longer need to be resident, 2026-09-27.
 
 [[region]]
 name = "test_marker"

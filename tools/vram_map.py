@@ -19,7 +19,7 @@ REGIONS = {
     'tails_appendage': {'base': 928, 'tiles': 9, 'lifetime': 'act'},
     'character_window': {'base': 960, 'tiles': 29, 'lifetime': 'act'},
     'test_obj': {'base': 992, 'tiles': 8, 'lifetime': 'mode'},
-    'ring_placeholder': {'base': 1000, 'tiles': 16, 'lifetime': 'act'},
+    'ring_placeholder': {'base': 1000, 'tiles': 4, 'lifetime': 'act'},
     'test_marker': {'base': 1016, 'tiles': 4, 'lifetime': 'mode'},
     'bg_region': {'base': 1024, 'tiles': 376, 'lifetime': 'act'},
     'waterline_strips': {'base': 1400, 'tiles': 32, 'lifetime': 'act'},

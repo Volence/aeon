@@ -29,7 +29,7 @@ use engine.constants.{VRAM_SPRITE_TABLE, VRAM_HSCROLL_TABLE, MAX_VDP_SPRITES}
 // The generated vram-map block's authority cross-checks reference these engine
 // names (gen_vram_map.py emits the ensures; the imports are hand-owned here):
 use engine.constants.{POOL_TILE_CEILING, BG_TILE_CAPACITY, BG_TILE_BASE_VRAM,
-                      VRAM_WATERLINE_STRIPS, WATERLINE_REGION_TILES,
+                      VRAM_WATERLINE_STRIPS, WATERLINE_REGION_TILES, RING_FRAME_TILES,
                       VRAM_PLANE_A, VRAM_PLANE_B, VRAM_WINDOW}
 
 // Game state ids
@@ -437,15 +437,15 @@ pub const COLLECTED_PARK_ENTRY_SIZE = 1 + 2 * COLLECTED_MASK_BYTES // 33 — id 
 // VRAM_TEST_OBJ (tile 992): test object art (8 tiles), below the BG shared region
 // base (1024). It USED TO BE the character window's wall; since LS-4 each
 // character's data module binds its peak against VRAM_TEST_SONIC_TILES instead.
-// VRAM_RING_PLACEHOLDER (= VRAM_TEST_OBJ + 8, tile 1000) is the S3K ring-art base:
+// VRAM_RING_PLACEHOLDER (= VRAM_TEST_OBJ + 8, tile 1000) is the ring window's base:
 // a GAME->ENGINE `-D` interface value (DrawRings, rings.emp, renders every ring
 // from it) homed in native.rs `emp_defines` (game-varying), NOT declared here — the
 // same `-D`-not-in-`.emp` rule as MAX_RING_BUFFER. The vram.toml records it as a
-// sigil-D authority; T1's define emission makes the TOML feed it.
-// VRAM_TEST_MARKER (tile 1016): debug-fly marker (2x2 = 4 tiles) in the free gap
-// below the BG region (1024). Must NOT sit inside the act art pool (every pool
-// slot is referenced FG art — see POOL_TILE_CEILING) nor in the ring sprite's
-// 1000-1015 span.
+// sigil-D authority; T1's define emission makes the TOML feed it. Since 2026-09-27
+// the window is ONE frame (RING_FRAME_TILES), streamed by Game.ring_frame.
+// VRAM_TEST_MARKER: the debug-fly marker. Must NOT sit inside the act art pool
+// (every pool slot is referenced FG art — see POOL_TILE_CEILING) nor in the ring
+// window.
 // VRAM_TEST_SONIC (tile 960): THE character DPLC window — 29 tiles (960..988; 32
 // until 2026-09-27, cut to the cast's peak). Every playable character streams his current frame's
 // art here, so it is sized by the LARGEST peak frame across the cast, not by any
@@ -504,6 +504,7 @@ pub const VRAM_SPRING             : VramTile = $05A8   // spring: tiles 1448..14
 pub const VRAM_SPRING_TILES               = 24   // spring: DECLARED extent — the ceiling a residency guard binds against
 // Authority cross-checks — the engine constant vs the declared map:
 ensure(POOL_TILE_CEILING == 768, "vram.toml fg_art_pool drifted from engine POOL_TILE_CEILING — edit games/sonic4/vram.toml and regenerate")
+ensure(RING_FRAME_TILES == 4, "vram.toml ring_placeholder drifted from engine RING_FRAME_TILES — edit games/sonic4/vram.toml and regenerate")
 ensure(BG_TILE_CAPACITY == 376, "vram.toml bg_region drifted from engine BG_TILE_CAPACITY — edit games/sonic4/vram.toml and regenerate")
 ensure(BG_TILE_BASE_VRAM == $8000, "vram.toml bg_region drifted from engine BG_TILE_BASE_VRAM — edit games/sonic4/vram.toml and regenerate")
 ensure(VRAM_WATERLINE_STRIPS == $AF00, "vram.toml waterline_strips drifted from engine VRAM_WATERLINE_STRIPS — edit games/sonic4/vram.toml and regenerate")

@@ -20,7 +20,8 @@ Do not edit; edit the TOML and regenerate.
 | 960-988 | character_window | window | act | games.sonic4.player | VRAM_TEST_SONIC |  |
 | 989-991 | FREE |  |  |  |  |  |
 | 992-999 | test_obj | window | mode | games.sonic4.test_objects | VRAM_TEST_OBJ |  |
-| 1000-1015 | ring_placeholder | window | act | engine.objects.rings | sigil-D:VRAM_RING_PLACEHOLDER |  |
+| 1000-1003 | ring_placeholder | window | act | engine.objects.rings | sigil-D:VRAM_RING_PLACEHOLDER, engine-tiles:RING_FRAME_TILES |  |
+| 1004-1015 | FREE |  |  |  |  |  |
 | 1016-1019 | test_marker | window | mode | games.sonic4.player_common | VRAM_TEST_MARKER |  |
 | 1020-1023 | FREE |  |  |  |  |  |
 | 1024-1399 | bg_region | arena | act | engine.bg | engine-tiles:BG_TILE_CAPACITY, engine-bytebase:BG_TILE_BASE_VRAM | band_reserve: 56 (static budget 320) |
@@ -35,4 +36,4 @@ Do not edit; edit the TOML and regenerate.
 | 1792-2047 | plane_b | plane | boot | engine.system.boot | engine-bytebase:VRAM_PLANE_B |  |
 | 1920-2047 | window_plane | plane | boot | engine.system.boot | engine-bytebase:VRAM_WINDOW | overlay: plane_b |
 
-Free: 42 tiles across 6 runs.
+Free: 54 tiles across 7 runs.

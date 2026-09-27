@@ -151,6 +151,40 @@ pub proc RingBuffer_Clear () clobbers() {
 }
 
 // -----------------------------------------------
+// Rings_AnimTick — advance the one global ring frame and hand it to the game.
+//
+// On a tick the frame advances AND the game is told (Game.ring_frame), in that order,
+// so the resident art and the counter can never disagree for longer than the game's
+// own DMA takes. Called only from DrawRings, so both happen only when DrawRings runs:
+// Render_Sprites' sprite-cap exit skips DrawRings, and then neither advances (the
+// behaviour the tick has always had).
+//
+// WHY A PROC OF ITS OWN and not inline in DrawRings: DrawRings threads d5/a4 as
+// inout, and sigil's inout verifier treats an `invoke Game.hook` call site as an
+// UNKNOWN callee (measured 2026-09-27: inlined, it fired [proc.inout-unverified]
+// for DrawRings :: inout(d5) and inout(a4)). Through this proc the call has a known
+// clobber set, which excludes d5/a4, and the inout proof stands.
+//
+// In:  none
+// Clobbers: d1, and d0-d4/a1-a2 through Game.ring_frame (the hook's bound)
+// -----------------------------------------------
+proc Rings_AnimTick () clobbers(d0-d4/a1-a2) {
+        subq.b  #1, Ring_Anim_Timer
+        bpl     .no_anim_tick
+        move.b  #RING_ANIM_SPEED-1, Ring_Anim_Timer
+        move.b  Ring_Anim_Frame, d1
+        addq.b  #1, d1
+        cmpi.b  #RING_ANIM_FRAMES, d1
+        blo     .frame_ok
+        moveq   #0, d1
+    .frame_ok:
+        move.b  d1, Ring_Anim_Frame
+        invoke  Game.ring_frame                 // d1.b = the new frame; zero bytes unbound
+    .no_anim_tick:
+        rts
+}
+
+// -----------------------------------------------
 // DrawRings — render rings from unified buffer to sprite table
 //
 // In:  a4 = SAT buffer write pointer (from Render_Sprites)
@@ -162,25 +196,14 @@ pub proc RingBuffer_Clear () clobbers() {
 //        arms reach .done through .skip_ring, advancing only a0) hands the entry
 //        cursors straight back unchanged. Where d5 IS written the increment is
 //        word-wide, matching the inout(d5: u16) claim.
-// Clobbers: d0-d4, d6-d7, a0
+// Clobbers: d0-d4, d6-d7, a0, and a1-a2 through Game.ring_frame (QueueDMA's bound
+//   in the sonic4 binding; declared here so the hook's bound is honest at this site)
 // DEBUG-only extra input: a6 = &Sprite_Owner (SPRITE-OWNER). Read, never written;
 //   set once by Render_Sprites, which is this proc's only caller.
 // -----------------------------------------------
-pub proc DrawRings (d5: u16, a4: *u8) clobbers(d0-d4/d6-d7/a0) inout(d5: u16, a4: *u8) {
-        // --- Animation timer ---
-        move.b  Ring_Anim_Timer, d0
-        subq.b  #1, d0
-        bpl     .no_anim_tick
-        move.b  #RING_ANIM_SPEED-1, d0
-        move.b  Ring_Anim_Frame, d1
-        addq.b  #1, d1
-        cmpi.b  #RING_ANIM_FRAMES, d1
-        blo     .frame_ok
-        moveq   #0, d1
-    .frame_ok:
-        move.b  d1, Ring_Anim_Frame
-    .no_anim_tick:
-        move.b  d0, Ring_Anim_Timer
+pub proc DrawRings (d5: u16, a4: *u8) clobbers(d0-d4/d6-d7/a0-a2) inout(d5: u16, a4: *u8) {
+        // --- Animation timer (and the game's frame stream) ---
+        jbsr    Rings_AnimTick
 
         // Cache camera position, PRE-BIASED for the SAT write (a camera-bias
         // fold): folding the ring-centre −8 and the
@@ -193,12 +216,10 @@ pub proc DrawRings (d5: u16, a4: *u8) clobbers(d0-d4/d6-d7/a0) inout(d5: u16, a4
         move.w  Camera_Y, d7
         subi.w  #VDP_SPRITE_Y_OFFSET-RING_HEIGHT/2, d7
 
-        // Animated ring tile attr: base + frame×4 (each 2×2 frame = 4 tiles).
-        // Constant across the loop, so compute once here.
-        moveq   #0, d4
-        move.b  Ring_Anim_Frame, d4
-        lsl.w   #2, d4                  // frame × 4 tiles/frame
-        addi.w  #RING_ART_ATTR, d4      // + priority | palette line 1 (see RING_ART_ATTR)
+        // Ring tile attr: the window BASE, for every frame. Only the current frame is
+        // resident (RING_FRAME_TILES at VRAM_RING_PLACEHOLDER); Game.ring_frame above
+        // streams each new one in, so no per-frame tile offset exists any more.
+        move.w  #RING_ART_ATTR, d4      // priority | palette line 1 | window base
 
         lea     Ring_Buffer, a0
         moveq   #0, d1
@@ -263,7 +284,7 @@ pub proc DrawRings (d5: u16, a4: *u8) clobbers(d0-d4/d6-d7/a0) inout(d5: u16, a4
         move.b  #$05, (a4)+             // +2: size 2×2 (16×16 px)
         addq.w  #1, d5
         move.b  d5, (a4)+               // +3: link (next sprite index)
-        move.w  d4, (a4)+              // +4: tile attrs (animated ring frame, d4 = base + frame×4)
+        move.w  d4, (a4)+              // +4: tile attrs (d4 = the one resident frame, RING_ART_ATTR)
         tst.w   d2                      // avoid X=0 (VDP sprite masking) — tests the biased SAT X, as before
         bne     .x_ok
         moveq   #1, d2

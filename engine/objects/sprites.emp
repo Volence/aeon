@@ -239,7 +239,7 @@ pub proc Render_Sprites () clobbers(d0-d7/a0-a6) {
         // (owner_term via Emit_ObjectPieces, InsertSpriteMasks, DrawRings) stamp
         // their own entry INDEX. a6 is touched by nothing else in this proc and by
         // none of the three callees (Emit_ObjectPieces clobbers d0-d1/d4/a0/a3,
-        // InsertSpriteMasks d0-d1, DrawRings d0-d4/d6-d7/a0).
+        // InsertSpriteMasks d0-d1, DrawRings d0-d4/d6-d7/a0-a2).
         //
         // The array is cleared WHOLE, not [0..Sprites_Rendered): that bound is LAST
         // frame's number, so the clear's correctness must not lean on it — and the
