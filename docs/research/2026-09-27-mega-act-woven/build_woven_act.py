@@ -38,7 +38,13 @@ BLOBS = [["EHZ", "HPZ", "WFZ"], ["CPZ", "MTZ"], ["OOZ"]]
 GRID = 16                                   # the collision block (R12, K3, K9)
 #: MEASURED by tools/clip_reachability.py on this act's bake (it fails naming the count when
 #: the layout changes it): Oil Ocean's columns with air under their last landing surface
-UNBOUNDED_FALL_COLUMNS = 374
+UNBOUNDED_FALL_COLUMNS = 0
+#: THE FILL ROW UNDER THE LOWEST CLIP (CLIP-ACT-TALLER-THAN-DOCUMENT, 2026-09-27): the act is
+#: sized so at least one collision block of the neutral fill (solid stone) lies under every
+#: clip, so no zone sits on the act's bottom edge. The grid is whole sections, so this buys a
+#: whole fourth section row (5 x 4). Before it the act was 5 x 3 with Oil Ocean running to the
+#: bottom edge and 374 of its columns declared as an unbounded fall.
+FLOOR_BELOW = GRID
 
 
 def frames():
@@ -99,10 +105,11 @@ def build(mutant=False):
     MTZ_EAST_H = 1600           # Metropolis east's bottom 448 px trimmed: C8 and C9 both 464
     OOZ_X = 5104                # under Chemical Plant, as the report; its top span donor
     #                             10752..11007 then meets Metropolis east's open bottom (C9)
-    # ARTLESS ROWS TRIMMED so the act is 3 sections tall (6,144 px): the OJZ region document
-    # a clip act inherits is 3 sections tall, and the descriptor fills only a band to its
-    # RIGHT (OJZ_WIDE_FILL_ROWS), never below it (test_regions_doc pins a taller act as a
-    # refusal). MEASURED: no art and no collision in any of these rows.
+    # ARTLESS ROWS TRIMMED (304 px). They were trimmed so the act fit 3 sections, when a
+    # clip act could not be taller than OJZ's region document; CLIP-ACT-TALLER-THAN-DOCUMENT
+    # (2026-09-27) lifted that, and they STAY trimmed because they carry nothing (MEASURED:
+    # no art and no collision in any of these rows) and the C5 floor pair below was chosen
+    # against this geometry (the note's item 4). The act is now sized by FLOOR_BELOW instead.
     WFZ_Y0 = 384                # Wing Fortress donor y 256..383 is empty sky
     CPZ_Y0 = 128                # Chemical Plant donor y 0..127 is empty sky
     OOZ_H = 1840                # Oil Ocean donor y 1840..1887 carries no art
@@ -207,7 +214,7 @@ def build(mutant=False):
 
     W = max(right(k) for k in clips)
     H = max(bottom(k) for k in clips)
-    gw, gh = -(-W // 2048), -(-H // 2048)
+    gw, gh = -(-W // 2048), -(-(H + FLOOR_BELOW) // 2048)
     return dict(ooz_y=ooz_y, L=L, lens=lens, mins=mins, fr=fr, blob_bytes=blob_bytes, clips=clips,
                 corridors=corridors, shafts=shafts, grid=(gw, gh), W=W, H=H,
                 hpz_sx=hpz_sx, ehz_y=ehz_y)
@@ -236,28 +243,19 @@ def to_manifest(b, note, start):
         "clips": [clip_json(k) for k in b["clips"]],
         "corridors": b["corridors"],
         "shafts": b["shafts"],
-        "unpainted_remainder": {
-            "x_from": gw * 2048, "y_from": gh * 2048,
-            "why": "NOTHING IS UNPAINTED: the fill covers the whole act. The object stays "
-                   "because the fall declaration lives in it.",
-            "unbounded_fall": {
-                "columns": UNBOUNDED_FALL_COLUMNS,
-                "donor_bottom_boundary": {"OOZ": 1664, "note": "Oil Ocean act 1's own "
-                                          "LevelSize bottom (s2_donor.level_size); pasted "
-                                          f"at y {b['ooz_y']}, it would sit at y "
-                                          f"{b['ooz_y'] + 1664} here"},
-                "why": "OIL OCEAN SITS ON THE ACT'S BOTTOM EDGE: its clip runs to y "
-                       f"{gh * 2048} (the act is 3 sections tall, see the note), so under "
-                       "the last landing surface of these Oil Ocean columns there is no fill "
-                       "row left, and Sonic 2's terrain interiors are LRB-only. Sonic 2 "
-                       "survives it with its level bottom boundary, which kills; this engine "
-                       "has no death. MEASURED by clip_reachability on this act's bake; "
-                       "the count IS the check (a floor, a death plane or a bottom "
-                       "boundary drops it)."}},
         "fill": {"rect": rect(0, 0, gw * 2048, gh * 2048),
                  "why": "Everything between the zones is neutral: solid stone on CRAM line 0 "
                         "(the woven report's item 6), so no background shows between zones "
                         "and no Sonic 2 pit falls out of the act."},
+        **({"unpainted_remainder": {
+            "x_from": gw * 2048, "y_from": gh * 2048,
+            "why": "NOTHING IS UNPAINTED: the fill covers the whole act. The object exists "
+                   "because the fall declaration lives in it.",
+            "unbounded_fall": {
+                "columns": UNBOUNDED_FALL_COLUMNS,
+                "why": "MEASURED by clip_reachability on this act's bake: columns with air "
+                       "under their last landing surface and no fill row below them."}}}
+           if UNBOUNDED_FALL_COLUMNS else {}),
         "crossing_overrides": {
             "palette": "snap", "background": "blobs", "bg_blobs": BLOBS,
             "zone_separation": "screen", "parallax": "snap",

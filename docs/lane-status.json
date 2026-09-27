@@ -1,9 +1,14 @@
 {
-  "focus": "Tall Sonic 2 backgrounds are in the woven act; now letting clip levels be taller so Oil Ocean isn't on the bottom edge.",
+  "focus": "Fixing two things you saw in the woven act: the scrambled start screen and Hidden Palace's misaligned background.",
   "inFlight": [
     {
-      "what": "Clip levels taller than 3 sections (Oil Ocean off the woven act's bottom edge)",
-      "where": "branch parcel/clip-act-taller",
+      "what": "Scrambled foreground on the woven act's first screen: find the cause and fix it",
+      "where": "branch fix/woven-boot-fg",
+      "agent": true
+    },
+    {
+      "what": "Hidden Palace background misaligned in the woven act: find the cause and fix it",
+      "where": "branch fix/woven-hpz-bg",
       "agent": true
     }
   ],
@@ -24,8 +29,24 @@
       "since": "2026-09-27"
     }
   ],
-  "nextBoundary": "When the taller-clip agent returns and lands.",
+  "nextBoundary": "When the start-screen and Hidden Palace background fixes return and land; then one woven ROM rebuild for you.",
   "queue": [
+    {
+      "id": "WOVEN-BOOT-FG-GARBAGE",
+      "title": "Woven act: the first screen's Emerald Hill foreground is scrambled until you leave and come back (you saw it; there since this morning)",
+      "state": "doing",
+      "size": "M",
+      "blockedBy": null,
+      "project": "REGIONS"
+    },
+    {
+      "id": "WOVEN-HPZ-BG-MISALIGNED",
+      "title": "Woven act: Hidden Palace's background splits into two misaligned halves (you saw it; from today's tall-background change)",
+      "state": "doing",
+      "size": "M",
+      "blockedBy": null,
+      "project": "REGIONS"
+    },
     {
       "id": "SHORT-TUNNEL-VSCROLL-RATCHET",
       "title": "Background slide at tunnels: fixed; Emerald Hill to Chemical Plant crosses clean, Metropolis stays at the longer tunnel",
@@ -35,17 +56,17 @@
       "project": "REGIONS"
     },
     {
-      "id": "TELEPORT-BG-STREAM-STARVE",
-      "title": "After a raw camera jump, a tall background can lag behind for a second (test tools only; walking never hits it)",
+      "id": "S2CLIP-MTZ-SONG-BANK",
+      "title": "Metropolis's Sonic 2 song doesn't fit the sound bank, and the other woven zones' songs won't either; needs room for more songs",
       "state": "next",
-      "size": "S",
+      "size": "M",
       "blockedBy": null,
       "project": "REGIONS"
     },
     {
-      "id": "CLIP-ACT-TALLER-THAN-DOCUMENT",
-      "title": "Clip acts can't be more than 3 sections tall, which leaves Oil Ocean sitting on the woven act's bottom edge",
-      "state": "doing",
+      "id": "TELEPORT-BG-STREAM-STARVE",
+      "title": "Folded into the Hidden Palace background fix (likely the same stale-rows cause)",
+      "state": "open",
       "size": "S",
       "blockedBy": null,
       "project": "REGIONS"
@@ -212,7 +233,7 @@
       "project": "REGIONS"
     }
   ],
-  "awaiting": "Your look at the woven act, now with full-height backgrounds: s4.woven.debug.bin (crc 2a0f1df3) in the aeon folder; the old one is kept as s4.woven.debug.prev-617448a7.bin.",
+  "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-09-27T18:12:18Z"
+  "updatedAt": "2026-09-27T19:13:26Z"
 }
