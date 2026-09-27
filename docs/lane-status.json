@@ -1,9 +1,14 @@
 {
-  "focus": "Fixing the woven act's tall backgrounds that stop scrolling part-way down (Hidden Palace, Wing Fortress).",
+  "focus": "Making the woven act's tall backgrounds switch on cleanly, and fixing a debug warp that spawns objects twice.",
   "inFlight": [
     {
-      "what": "Tall clip backgrounds: research whether the existing tall-background streamer covers them, then build the fix",
-      "where": "branch parcel/windowed-bg-vclamp",
+      "what": "Tall backgrounds in the woven act: snap and fast-repaint the background when entering a tall zone, then switch them on",
+      "where": "branch parcel/woven-tall-entry",
+      "agent": true
+    },
+    {
+      "what": "Debug warp spawns some objects twice",
+      "where": "branch parcel/sah3a-warp-dup",
       "agent": true
     }
   ],
@@ -24,11 +29,11 @@
       "since": "2026-09-27"
     }
   ],
-  "nextBoundary": "When the tall-background agent returns and its work is reviewed and landed.",
+  "nextBoundary": "When both agents return and their work is reviewed and landed (landed one at a time).",
   "queue": [
     {
-      "id": "WINDOWED-BG-VERTICAL-CLAMP",
-      "title": "Woven act polish: Hidden Palace and Wing Fortress backgrounds stop scrolling part-way down; let tall backgrounds stream (DEFERRED_WORK has the numbers)",
+      "id": "WOVEN-TALL-ENTRY",
+      "title": "Woven act: Hidden Palace and Wing Fortress backgrounds scroll the whole height once entering them no longer glitches",
       "state": "doing",
       "size": "M",
       "blockedBy": null,
@@ -39,6 +44,14 @@
       "title": "Background slide at tunnels: fixed; Emerald Hill to Chemical Plant crosses clean, Metropolis stays at the longer tunnel",
       "state": "open",
       "size": "M",
+      "blockedBy": null,
+      "project": "REGIONS"
+    },
+    {
+      "id": "CLIP-ACT-TALLER-THAN-DOCUMENT",
+      "title": "Clip acts can't be more than 3 sections tall, which leaves Oil Ocean sitting on the woven act's bottom edge",
+      "state": "next",
+      "size": "S",
       "blockedBy": null,
       "project": "REGIONS"
     },
@@ -81,7 +94,7 @@
     {
       "id": "SAH-3a",
       "title": "Debug warp loads objects a second time (found tonight; debug only, affects play-from-cursor)",
-      "state": "next",
+      "state": "doing",
       "size": "S",
       "blockedBy": null
     },
@@ -213,5 +226,5 @@
   ],
   "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-09-27T14:11:22Z"
+  "updatedAt": "2026-09-27T15:37:40Z"
 }
