@@ -1,11 +1,6 @@
 {
-  "focus": "Fixing two things you saw in the woven act: the scrambled start screen and Hidden Palace's misaligned background.",
+  "focus": "Start-screen fix landed; now fixing Hidden Palace's misaligned background, then one woven ROM rebuild for you.",
   "inFlight": [
-    {
-      "what": "Scrambled foreground on the woven act's first screen: find the cause and fix it",
-      "where": "branch fix/woven-boot-fg",
-      "agent": true
-    },
     {
       "what": "Hidden Palace background misaligned in the woven act: find the cause and fix it",
       "where": "branch fix/woven-hpz-bg",
@@ -29,16 +24,8 @@
       "since": "2026-09-27"
     }
   ],
-  "nextBoundary": "When the start-screen and Hidden Palace background fixes return and land; then one woven ROM rebuild for you.",
+  "nextBoundary": "When the Hidden Palace background fix returns and lands; then the woven ROM rebuild.",
   "queue": [
-    {
-      "id": "WOVEN-BOOT-FG-GARBAGE",
-      "title": "Woven act: the first screen's Emerald Hill foreground is scrambled until you leave and come back (you saw it; there since this morning)",
-      "state": "doing",
-      "size": "M",
-      "blockedBy": null,
-      "project": "REGIONS"
-    },
     {
       "id": "WOVEN-HPZ-BG-MISALIGNED",
       "title": "Woven act: Hidden Palace's background splits into two misaligned halves (you saw it; from today's tall-background change)",
@@ -235,5 +222,5 @@
   ],
   "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-09-27T19:13:26Z"
+  "updatedAt": "2026-09-27T19:37:55Z"
 }
