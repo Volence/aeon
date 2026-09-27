@@ -5,11 +5,6 @@
       "what": "Make falling feel like Sonic 3: remove the cap, match its camera, keep thin floors solid",
       "where": "branch feel/s3k-fall",
       "agent": true
-    },
-    {
-      "what": "Redesign the big act with zones woven into each other (your sketch), and measure what that costs",
-      "where": "branch design/mega-act-woven",
-      "agent": true
     }
   ],
   "blockedOnOwner": [
@@ -145,10 +140,10 @@
     },
     {
       "id": "S2-COMPRESSED-ACT",
-      "title": "Big Sonic 2 act: redesigning with zones woven into each other, per your sketch",
-      "state": "doing",
+      "title": "Big Sonic 2 act: woven layout ready for your reaction; first build step would be Chemical Plant inside Metropolis",
+      "state": "blocked",
       "size": "L",
-      "blockedBy": null,
+      "blockedBy": "owner: react to layout v2",
       "project": "REGIONS"
     },
     {
@@ -195,7 +190,7 @@
       "project": "REGIONS"
     }
   ],
-  "awaiting": null,
+  "awaiting": "Look at the woven layout picture; say go to start building with Chemical Plant inside Metropolis.",
   "atBoundary": false,
-  "updatedAt": "2026-09-27T01:49:59Z"
+  "updatedAt": "2026-09-27T02:10:40Z"
 }
