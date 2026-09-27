@@ -1,6 +1,22 @@
 {
-  "focus": "Booted fresh, nothing running. Proposing the background-slide fix so the Sonic 2 act's tunnels can be as short as planned.",
-  "inFlight": [],
+  "focus": "Overnight: building the woven act of all six Sonic 2 zones; then object video memory, then optimizations.",
+  "inFlight": [
+    {
+      "what": "Background-slide fix so tunnels can shrink to 384",
+      "where": "branch parcel/ratchet-exemption",
+      "agent": true
+    },
+    {
+      "what": "Hidden Palace, Wing Fortress, Oil Ocean made ready as clips",
+      "where": "branch parcel/woven-hpz-wfz-prep",
+      "agent": true
+    },
+    {
+      "what": "Level bake learns 2-D layouts: stacked regions, shafts, cloud band",
+      "where": "branch parcel/woven-bake-2d",
+      "agent": true
+    }
+  ],
   "blockedOnOwner": [
     {
       "id": "SP6-MODULATION-DIVERGENCE",
@@ -13,12 +29,12 @@
       "since": "2026-09-26"
     }
   ],
-  "nextBoundary": "Nothing running. Next: the background slide after a tunnel, then the vertical joins of the woven act.",
+  "nextBoundary": "When the three agents land: then assemble the full woven act.",
   "queue": [
     {
       "id": "SHORT-TUNNEL-VSCROLL-RATCHET",
       "title": "Background slides for a few frames after a tunnel; fixing it lets tunnels shrink to the planned length",
-      "state": "next",
+      "state": "doing",
       "size": "M",
       "blockedBy": null,
       "project": "REGIONS"
@@ -142,8 +158,8 @@
     },
     {
       "id": "S2-COMPRESSED-ACT",
-      "title": "Big Sonic 2 act: Chemical Plant inside Metropolis landed, debug crash fixed; next pieces wait on the background-slide fix",
-      "state": "open",
+      "title": "Woven act of all six Sonic 2 zones: 2-D bake, zone prep and slide fix under way",
+      "state": "doing",
       "size": "L",
       "blockedBy": null,
       "project": "REGIONS"
@@ -157,10 +173,10 @@
     },
     {
       "id": "REGIONS-P2-STEP8",
-      "title": "Video memory: halve the scroll plane for object room. You kept the art cache as it is, so this gets re-sized first",
-      "state": "blocked",
+      "title": "Video memory for objects: next after the woven act (your overnight order)",
+      "state": "next",
       "size": "L",
-      "blockedBy": "waits on the Sonic 2 test act existing: it gets sized against that act"
+      "blockedBy": null
     },
     {
       "id": "SP-6",
@@ -192,7 +208,7 @@
       "project": "REGIONS"
     }
   ],
-  "awaiting": "Go on the background-slide fix? Still yours: repaint the loop's right arc, pick the fall camera, Sonic 2 objects.",
-  "atBoundary": true,
-  "updatedAt": "2026-09-27T08:48:22Z"
+  "awaiting": null,
+  "atBoundary": false,
+  "updatedAt": "2026-09-27T08:51:09Z"
 }
