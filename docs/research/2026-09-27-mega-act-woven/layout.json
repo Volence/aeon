@@ -1,0 +1,422 @@
+{
+ "title": "Woven Sonic 2 mega-act (layout v2)",
+ "subtitle": "To scale, 1 px = 8 world px. Each box holds its donor clip's foreground. Grey = neutral fill (line-0 art, solid). Coloured bars = the connector lanes, sized by the seam rule.",
+ "scale": 8,
+ "grid": [
+  5,
+  4
+ ],
+ "spawn": [
+  320,
+  2464
+ ],
+ "bg_tiles": {
+  "EHZ": 141,
+  "CPZ": 237,
+  "OOZ": 117,
+  "MTZ": 77,
+  "WFZ": 83,
+  "HPZ": 145
+ },
+ "blobs": {
+  "A": [
+   "EHZ",
+   "HPZ",
+   "WFZ"
+  ],
+  "M": [
+   "CPZ",
+   "MTZ"
+  ],
+  "O": [
+   "OOZ"
+  ]
+ },
+ "clips": [
+  {
+   "id": "wfz_deck",
+   "tree": "s2disasm/WFZ",
+   "zone": "WFZ",
+   "src": [
+    1024,
+    256,
+    6144,
+    1536
+   ],
+   "dst": [
+    1536,
+    0
+   ],
+   "label": "WING FORTRESS (sky)",
+   "what": "deck, tail fins, thrusters",
+   "route": "optional"
+  },
+  {
+   "id": "ehz_double_loop",
+   "tree": "s2disasm/EHZ",
+   "zone": "EHZ",
+   "src": [
+    6144,
+    0,
+    2560,
+    1024
+   ],
+   "dst": [
+    0,
+    1824
+   ],
+   "label": "EMERALD HILL (start)",
+   "what": "the double loop",
+   "route": "must"
+  },
+  {
+   "id": "mtz_west",
+   "tree": "s2disasm/MTZ",
+   "zone": "MTZ",
+   "src": [
+    0,
+    0,
+    1536,
+    2048
+   ],
+   "dst": [
+    3184,
+    2064
+   ],
+   "label": "METROPOLIS (west half)",
+   "what": "the opening maze, first half",
+   "route": "must"
+  },
+  {
+   "id": "cpz_loop_cluster",
+   "tree": "s2disasm/CPZ",
+   "zone": "CPZ",
+   "src": [
+    7168,
+    0,
+    2048,
+    2048
+   ],
+   "dst": [
+    5104,
+    2064
+   ],
+   "label": "CHEMICAL PLANT (inside Metropolis)",
+   "what": "the loop cluster",
+   "route": "must"
+  },
+  {
+   "id": "mtz_east",
+   "tree": "s2disasm/MTZ",
+   "zone": "MTZ",
+   "src": [
+    1536,
+    0,
+    1536,
+    2048
+   ],
+   "dst": [
+    7536,
+    2064
+   ],
+   "label": "METROPOLIS (east half)",
+   "what": "the same maze, continued",
+   "route": "must"
+  },
+  {
+   "id": "hpz_diagonal",
+   "tree": "s2-simonwai-disasm/HPZ",
+   "zone": "HPZ",
+   "src": [
+    5632,
+    0,
+    2560,
+    2048
+   ],
+   "dst": [
+    0,
+    3136
+   ],
+   "label": "HIDDEN PALACE (under Emerald Hill)",
+   "what": "the great diagonal + lake",
+   "route": "optional"
+  },
+  {
+   "id": "ooz_east",
+   "tree": "s2disasm/OOZ",
+   "zone": "OOZ",
+   "src": [
+    8192,
+    0,
+    3072,
+    1888
+   ],
+   "dst": [
+    5104,
+    4576
+   ],
+   "label": "OIL OCEAN (under CPZ + Metropolis)",
+   "what": "the east refinery",
+   "route": "must"
+  }
+ ],
+ "connectors": [
+  {
+   "id": "C1",
+   "kind": "cloud",
+   "joins": [
+    "WFZ",
+    "EHZ"
+   ],
+   "lanes": [
+    [
+     2048,
+     1440,
+     256,
+     480
+    ]
+   ],
+   "rect": [
+    2048,
+    1440,
+    256,
+    480
+   ],
+   "route": "optional",
+   "how": "cloud ledges up (a spring later); fall down",
+   "rule": "vertical, same BG blob: 288 px"
+  },
+  {
+   "id": "C2",
+   "kind": "cloud",
+   "joins": [
+    "WFZ",
+    "MTZ"
+   ],
+   "lanes": [
+    [
+     3696,
+     1440,
+     256,
+     720
+    ]
+   ],
+   "rect": [
+    3696,
+    1440,
+    256,
+    720
+   ],
+   "route": "optional",
+   "how": "cloud ledges up out of Metropolis's roof; fall down",
+   "rule": "vertical, BG blob change: 528 px"
+  },
+  {
+   "id": "C3",
+   "kind": "cloud",
+   "joins": [
+    "WFZ",
+    "CPZ"
+   ],
+   "lanes": [
+    [
+     6128,
+     1440,
+     256,
+     720
+    ]
+   ],
+   "rect": [
+    6128,
+    1440,
+    256,
+    720
+   ],
+   "route": "optional",
+   "how": "drop from the fortress into Chemical Plant (down only)",
+   "rule": "vertical, BG blob change: 528 px"
+  },
+  {
+   "id": "C4",
+   "kind": "shaft",
+   "joins": [
+    "EHZ",
+    "HPZ"
+   ],
+   "lanes": [
+    [
+     768,
+     2752,
+     256,
+     480
+    ]
+   ],
+   "rect": [
+    768,
+    2752,
+    256,
+    480
+   ],
+   "route": "optional",
+   "how": "fall through Emerald Hill's pit; ledges back up",
+   "rule": "vertical, same BG blob: 288 px"
+  },
+  {
+   "id": "C5",
+   "kind": "tunnel",
+   "joins": [
+    "EHZ",
+    "MTZ"
+   ],
+   "lanes": [
+    [
+     2496,
+     2464,
+     752,
+     96
+    ]
+   ],
+   "rect": [
+    2496,
+    2464,
+    752,
+    96
+   ],
+   "route": "must",
+   "how": "walk (the tunnel of today's act)",
+   "rule": "horizontal, BG blob change: 624 px"
+  },
+  {
+   "id": "C6",
+   "kind": "tunnel",
+   "joins": [
+    "MTZ",
+    "CPZ"
+   ],
+   "lanes": [
+    [
+     4656,
+     3088,
+     512,
+     96
+    ]
+   ],
+   "rect": [
+    4656,
+    3088,
+    512,
+    96
+   ],
+   "route": "must",
+   "how": "walk in",
+   "rule": "horizontal, same BG blob: 384 px"
+  },
+  {
+   "id": "C7",
+   "kind": "tunnel",
+   "joins": [
+    "CPZ",
+    "MTZ"
+   ],
+   "lanes": [
+    [
+     7088,
+     3088,
+     512,
+     96
+    ]
+   ],
+   "rect": [
+    7088,
+    3088,
+    512,
+    96
+   ],
+   "route": "must",
+   "how": "walk out the other side",
+   "rule": "horizontal, same BG blob: 384 px"
+  },
+  {
+   "id": "C8",
+   "kind": "shaft",
+   "joins": [
+    "CPZ",
+    "OOZ"
+   ],
+   "lanes": [
+    [
+     5872,
+     4016,
+     256,
+     656
+    ]
+   ],
+   "rect": [
+    5872,
+    4016,
+    256,
+    656
+   ],
+   "route": "must",
+   "how": "drop (down only)",
+   "rule": "vertical, BG blob change: 464 px"
+  },
+  {
+   "id": "C9",
+   "kind": "shaft",
+   "joins": [
+    "MTZ",
+    "OOZ"
+   ],
+   "lanes": [
+    [
+     7792,
+     4016,
+     256,
+     656
+    ]
+   ],
+   "rect": [
+    7792,
+    4016,
+    256,
+    656
+   ],
+   "route": "optional",
+   "how": "ledges up and down",
+   "rule": "vertical, BG blob change: 464 px"
+  },
+  {
+   "id": "C10",
+   "kind": "tunnel",
+   "joins": [
+    "HPZ",
+    "MTZ"
+   ],
+   "lanes": [
+    [
+     2496,
+     3600,
+     752,
+     96
+    ]
+   ],
+   "rect": [
+    2496,
+    3600,
+    752,
+    96
+   ],
+   "route": "optional",
+   "how": "walk",
+   "rule": "horizontal, BG blob change: 624 px"
+  }
+ ],
+ "notes": [
+  "MAIN ROUTE: Emerald Hill -C5-> Metropolis (west) -C6-> Chemical Plant -C7-> Metropolis (east) -C9-> Oil Ocean.   CPZ is a pocket you pass through; MTZ carries on at the other side.",
+  "UNDER: Emerald Hill -C4-> Hidden Palace -C10-> Metropolis (west).   SKY: Emerald Hill -C1-> Wing Fortress; Metropolis -C2-> Wing Fortress -C3-> drop into Chemical Plant.   DROP: Chemical Plant -C8-> Oil Ocean.",
+  "Each lane's length is its seam's minimum: screen (320 across / 224 up-down) + 16 px x the background frames of both sides (2 when the two zones share a BG blob).",
+  "Checked over every reachable camera (woven.py check): 0 screens show two zones; every crossing at slack 0.   Collision 245 / 255.   Art window 12 / 12 on the clips.",
+  "No objects: every 'ledges' lane stands in for a spring until objects exist."
+ ]
+}

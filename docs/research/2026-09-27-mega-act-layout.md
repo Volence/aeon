@@ -1,5 +1,16 @@
 # The Sonic 2 mega-act: a 2-D layout proposal
 
+> **LAYOUT SUPERSEDED (2026-09-27) by v2, the woven layout:**
+> `docs/research/2026-09-27-mega-act-woven.md` (branch `design/mega-act-woven`).
+> The owner sketched the zones woven together (Wing Fortress across the top, Emerald Hill on
+> Hidden Palace, Chemical Plant inside Metropolis, Oil Ocean below) and asked for the
+> shortest connectors. v2 keeps every zone off a shared screen and cuts each connector to its
+> seam's minimum: 384 px across and 288 px up or down where both zones' backgrounds share
+> the BG arena, 464-624 px where one must be reloaded. v1's 832 / 768 are the default rule,
+> not the minimum. STILL STANDING from this report: Part 1 (all six zones convert, 0
+> collision differences), §2 (the engine is not row-only; the bake is), and §6's
+> seventeen items, which v2 §C re-numbers and extends.
+
 **Date:** 2026-09-27. **Branch:** `design/s2-mega-act-layout`, base `origin/master` `6f30b5ce`.
 **Booking:** `docs/DEFERRED_WORK.md`, S2-COMPRESSED-ACT (pointer added there).
 **Status:** a PROPOSAL for the owner to react to. Nothing here is built. No engine file, no
