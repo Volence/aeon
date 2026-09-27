@@ -79,9 +79,11 @@ name = "waterline_strips"
 owner = "engine.bg_anim"
 kind = "window"
 base = 1400
-tiles = 48
+tiles = 32
 lifetime = "act"
-authority = "engine-bytebase:VRAM_WATERLINE_STRIPS"
+authority = ["engine-bytebase:VRAM_WATERLINE_STRIPS", "engine-tiles:WATERLINE_REGION_TILES"]
+# 48 -> 32 on 2026-09-27 (VRAM-TIER1): the extent is the engine's derived
+# WATERLINE_REGION_TILES; see games/sonic4/vram.toml's region comment for why.
 # EFFECTS-W1 item 9d's fixed VRAM run, DECLARED HERE TOO even though demo can never fill
 # it: the region is ENGINE-owned (Waterline_Art_Update lives in engine/level/bg_anim.emp)
 # and its base is an engine constant, so leaving these 48 tiles as an anonymous [[free]]
@@ -90,8 +92,9 @@ authority = "engine-bytebase:VRAM_WATERLINE_STRIPS"
 # emits no gather and no DMA and these tiles are never written; they are reserved, not used.
 
 [[free]]
-base = 1448
-tiles = 24
+base = 1432
+tiles = 40
+# 1432..1447: the waterline region's unreachable tail, freed 2026-09-27 (VRAM-TIER1).
 # 400 -> 380 (the sonic4 spring's art block, 2026-09-07). THIS IS NOT A DEMO
 # DECISION — it is forced, for the reason bg_region above records: BG_TILE_CAPACITY
 # is ONE engine-wide constant and both maps cross-check it, so sonic4 carving its

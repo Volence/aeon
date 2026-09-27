@@ -7,27 +7,33 @@ Do not edit; edit the TOML and regenerate.
 |---|---|---|---|---|---|---|
 | 0-767 | fg_art_pool | arena | act | engine.level.page_cache | engine-endtiles:POOL_TILE_CEILING |  |
 | 768-895 | spare_nametable | plane | boot | engine.system.boot |  |  |
+| 883-884 | debug_preset_readout | window | mode | games.sonic4.ojz_scroll_test | VRAM_DEBUG_PRESET_READOUT | borrows: spare_nametable |
+| 885-887 | debug_bganim_tag | window | mode | games.sonic4.ojz_scroll_test | VRAM_DEBUG_BGANIM_TAG | borrows: spare_nametable |
+| 888-891 | debug_lab_name | window | mode | games.sonic4.ojz_scroll_test | VRAM_DEBUG_LAB_NAME | borrows: spare_nametable |
+| 892-895 | debug_raster_tag | window | mode | games.sonic4.ojz_scroll_test | VRAM_DEBUG_RASTER_TAG | borrows: spare_nametable |
 | 896-911 | dust_puff | window | act | games.sonic4.dust_puff | VRAM_DUST_PUFF |  |
 | 912-923 | dust_spindash | window | act | games.sonic4.dust_spindash | VRAM_DUST_SPINDASH |  |
 | 924-927 | ring_sparkle | window | act | games.sonic4.ring_sparkle | VRAM_RING_SPARKLE |  |
+| 928-936 | tails_appendage | window | act | games.sonic4.tails_appendage | VRAM_TAILS_APPENDAGE | overlay: insta_shield |
 | 928-956 | insta_shield | window | act | games.sonic4.insta_shield | VRAM_INSTA_SHIELD |  |
-| 957-958 | debug_preset_readout | window | mode | games.sonic4.ojz_scroll_test | VRAM_DEBUG_PRESET_READOUT |  |
-| 959-959 | FREE |  |  |  |  |  |
-| 960-991 | character_window | window | act | games.sonic4.player | VRAM_TEST_SONIC |  |
+| 957-959 | FREE |  |  |  |  |  |
+| 960-988 | character_window | window | act | games.sonic4.player | VRAM_TEST_SONIC |  |
+| 989-991 | FREE |  |  |  |  |  |
 | 992-999 | test_obj | window | mode | games.sonic4.test_objects | VRAM_TEST_OBJ |  |
-| 1000-1015 | ring_placeholder | window | act | engine.objects.rings | sigil-D:VRAM_RING_PLACEHOLDER |  |
+| 1000-1003 | ring_placeholder | window | act | engine.objects.rings | sigil-D:VRAM_RING_PLACEHOLDER, engine-tiles:RING_FRAME_TILES |  |
+| 1004-1015 | FREE |  |  |  |  |  |
 | 1016-1019 | test_marker | window | mode | games.sonic4.player_common | VRAM_TEST_MARKER |  |
-| 1020-1023 | debug_lab_name | window | mode | games.sonic4.ojz_scroll_test | VRAM_DEBUG_LAB_NAME |  |
+| 1020-1023 | FREE |  |  |  |  |  |
 | 1024-1399 | bg_region | arena | act | engine.bg | engine-tiles:BG_TILE_CAPACITY, engine-bytebase:BG_TILE_BASE_VRAM | band_reserve: 56 (static budget 320) |
-| 1400-1447 | waterline_strips | window | act | engine.bg_anim | engine-bytebase:VRAM_WATERLINE_STRIPS |  |
+| 1400-1431 | waterline_strips | window | act | engine.bg_anim | engine-bytebase:VRAM_WATERLINE_STRIPS, engine-tiles:WATERLINE_REGION_TILES |  |
+| 1432-1447 | FREE |  |  |  |  |  |
 | 1448-1471 | spring | window | act | games.sonic4.spring | VRAM_SPRING |  |
 | 1472-1491 | sprite_table | table | boot | engine.system.buffers | engine-bytebase:VRAM_SPRITE_TABLE |  |
-| 1492-1500 | tails_appendage | window | act | games.sonic4.tails_appendage | VRAM_TAILS_APPENDAGE |  |
-| 1501-1503 | debug_bganim_tag | window | mode | games.sonic4.ojz_scroll_test | VRAM_DEBUG_BGANIM_TAG |  |
+| 1492-1503 | FREE |  |  |  |  |  |
 | 1504-1531 | hscroll_table | table | boot | engine.system.buffers | engine-bytebase:VRAM_HSCROLL_TABLE |  |
-| 1532-1535 | debug_raster_tag | window | mode | games.sonic4.ojz_scroll_test | VRAM_DEBUG_RASTER_TAG |  |
+| 1532-1535 | FREE |  |  |  |  |  |
 | 1536-1791 | plane_a | plane | boot | engine.system.boot | engine-bytebase:VRAM_PLANE_A |  |
 | 1792-2047 | plane_b | plane | boot | engine.system.boot | engine-bytebase:VRAM_PLANE_B |  |
 | 1920-2047 | window_plane | plane | boot | engine.system.boot | engine-bytebase:VRAM_WINDOW | overlay: plane_b |
 
-Free: 1 tiles across 1 runs.
+Free: 54 tiles across 7 runs.

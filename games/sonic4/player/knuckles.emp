@@ -20,13 +20,13 @@ use games.sonic4.ram.{PlayerBlock, PHYS_ROW_WORDS}
 use engine.constants.{PHYS_ACCEL, PHYS_DECEL, PHYS_FRICTION, PHYS_TOP_SPEED, PHYS_GRAVITY, PHYS_JUMP_FORCE, PHYS_AIR_ACCEL, PHYS_JUMP_RELEASE_CAP}
 use engine.constants.{PLAYER_X_RADIUS, PLAYER_Y_RADIUS, BALL_X_RADIUS, BALL_Y_RADIUS}
 
-// VRAM_TEST_SONIC — tile 960, THE single character DPLC window (32 tiles, up to
-// the VRAM_TEST_OBJ wall at 992). Its name says Sonic; its role is the one
+// VRAM_TEST_SONIC — tile 960, THE single character DPLC window (29 tiles, 960..988,
+// the cast's peak frame). Its name says Sonic; its role is the one
 // character window, and only ONE character is resident at a time, so Knuckles
-// streams into the same 32 tiles Sonic and Tails do. The guard is not a comment:
+// streams into the same 29 tiles Sonic and Tails do. The guard is not a comment:
 // knuckles_data.emp carries
-// `ensure(VRAM_TEST_SONIC + dplc_peak_tiles(_dplc_knux) <= VRAM_TEST_OBJ)`, which
-// measures his worst DPLC frame out of the shipped blob (29 tiles of the 32 — the
+// an ensure binding `dplc_peak_tiles(_dplc_knux)` to the declared extent, which
+// measures his worst DPLC frame out of the shipped blob (29 tiles of the 29 — the
 // tightest of the three characters) and fails the build if a re-exported sheet
 // ever outgrows the window. No VRAM_KNUCKLES constant exists on purpose: a second
 // window is only needed for a second SIMULTANEOUSLY-resident sprite, which is why

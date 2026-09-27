@@ -12,8 +12,8 @@ Do not edit; edit the TOML and regenerate.
 | 996-996 | ring_placeholder | window | boot | engine.objects.rings | sigil-D:VRAM_RING_PLACEHOLDER |  |
 | 997-1023 | FREE |  |  |  |  |  |
 | 1024-1399 | bg_region | arena | act | engine.bg | engine-tiles:BG_TILE_CAPACITY, engine-bytebase:BG_TILE_BASE_VRAM |  |
-| 1400-1447 | waterline_strips | window | act | engine.bg_anim | engine-bytebase:VRAM_WATERLINE_STRIPS |  |
-| 1448-1471 | FREE |  |  |  |  |  |
+| 1400-1431 | waterline_strips | window | act | engine.bg_anim | engine-bytebase:VRAM_WATERLINE_STRIPS, engine-tiles:WATERLINE_REGION_TILES |  |
+| 1432-1471 | FREE |  |  |  |  |  |
 | 1472-1491 | sprite_table | table | boot | engine.system.buffers | engine-bytebase:VRAM_SPRITE_TABLE |  |
 | 1492-1503 | FREE |  |  |  |  |  |
 | 1504-1531 | hscroll_table | table | boot | engine.system.buffers | engine-bytebase:VRAM_HSCROLL_TABLE |  |
@@ -22,4 +22,4 @@ Do not edit; edit the TOML and regenerate.
 | 1792-2047 | plane_b | plane | boot | engine.system.boot | engine-bytebase:VRAM_PLANE_B |  |
 | 1920-2047 | window_plane | plane | boot | engine.system.boot | engine-bytebase:VRAM_WINDOW | overlay: plane_b |
 
-Free: 163 tiles across 5 runs.
+Free: 179 tiles across 5 runs.

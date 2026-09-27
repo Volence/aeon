@@ -278,8 +278,8 @@ pub proc BG_UploadTiles (a1: *u8) clobbers(d1/a1-a2) {
         beq     .done
         // Capacity guard (last line of defense): clamp the copy length to what the
         // BG arena is DECLARED to own — BG_TILE_CAPACITY tiles, not the physical
-        // $8000..$B7FF run. Above the arena sit `waterline_strips` (48 tiles, item
-        // 9d) and then the SAT at $B800, and a blob longer than the declared
+        // $8000..$B7FF run. Above the arena sit `waterline_strips` (item 9d,
+        // WATERLINE_REGION_TILES) and later the SAT at $B800, and a blob longer than the declared
         // capacity would overwrite the first before it ever reached the second.
         // The build tools should keep BG art within budget (inject_editor_bg.py
         // gates the final blob on the same constant); this is what guarantees no

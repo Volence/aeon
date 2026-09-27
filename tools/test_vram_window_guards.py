@@ -295,7 +295,7 @@ RESIDENT_DMAS = {
     ("sonic4", "games/sonic4/objects/test_solid.emp", "SPRING_ART_LEN"):
         ["spring"],
     ("sonic4", "games/sonic4/test/ojz_scroll_test.emp", "TEST_ART_LEN"):
-        ["test_obj", "ring_placeholder"],
+        ["test_obj"],
     ("demo", "games/demo/demo_state.emp", "DEMO_ART_LEN"):
         ["demo_obj", "ring_placeholder"],
 }
@@ -306,8 +306,11 @@ RESIDENT_DMAS = {
 # could arrive unregistered and be measured by nothing -- the same "a new one can skip
 # the guard" hole DPLC_GUARDS closes for residency guards.
 NOT_A_DMA_LENGTH = {
-    # a COMPONENT of TEST_ART_LEN (the ring blob tailing the two colour squares), not
-    # a DMA of its own; the DMA that consumes it is registered as TEST_ART_LEN.
+    # the ring blob IN ROM (all four frames). Since 2026-09-27 (VRAM-TIER1) it is never
+    # DMA'd whole: RingArt_StreamFrame and the OJZ init move ONE frame of it,
+    # RING_FRAME_BYTES, into the ring window. That length is pinned to the window by
+    # the engine-tiles:RING_FRAME_TILES authority on ring_placeholder, and RING_ART_LEN
+    # to the frame count by ensures beside RingArt_StreamFrame.
     ("games/sonic4/test/ojz_scroll_test.emp", "RING_ART_LEN"),
 }
 

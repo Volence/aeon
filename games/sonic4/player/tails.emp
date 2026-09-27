@@ -21,14 +21,14 @@ use games.sonic4.ram.{PlayerBlock, PHYS_ROW_WORDS}
 use engine.constants.{PHYS_ACCEL, PHYS_DECEL, PHYS_FRICTION, PHYS_TOP_SPEED, PHYS_GRAVITY, PHYS_JUMP_FORCE, PHYS_AIR_ACCEL, PHYS_JUMP_RELEASE_CAP}
 use engine.constants.{PLAYER_X_RADIUS, BALL_X_RADIUS, BALL_Y_RADIUS}
 
-// VRAM_TEST_SONIC — tile 960, THE character DPLC window (32 tiles, 960 up to the
-// VRAM_TEST_OBJ wall at 992). Its name says Sonic; its role is the single
+// VRAM_TEST_SONIC — tile 960, THE character DPLC window (29 tiles, 960..988, the
+// cast's peak frame). Its name says Sonic; its role is the single
 // character window, and only ONE character is resident at a time, so Tails
-// streams into the same 32 tiles. The guard that this is safe is not a comment:
+// streams into the same 29 tiles. The guard that this is safe is not a comment:
 // games/sonic4/data/characters/tails_data.emp carries
-// `ensure(VRAM_TEST_SONIC + dplc_peak_tiles(_dplc_tails) <= VRAM_TEST_OBJ)`,
+// an ensure binding `dplc_peak_tiles(_dplc_tails)` to the window's declared extent,
 // which measures Tails' worst DPLC frame out of the shipped blob (24 tiles of
-// the 32) and fails the build if a re-exported sheet ever outgrows the window.
+// the 29) and fails the build if a re-exported sheet ever outgrows the window.
 use games.sonic4.constants.{VRAM_TEST_SONIC}
 
 // -----------------------------------------------

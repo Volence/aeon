@@ -96,8 +96,9 @@ const APPENDAGE_RENDER_FLAGS = APPENDAGE_PRIORITY_BAND << RF_PRIORITY_SHIFT
 
 // The appendage's own DPLC window, as a VDP byte address (Perform_DPLC's d1).
 // The window's walls are checked at build time where the art lives:
-// tails_data.emp measures the peak DPLC frame out of the shipped blob and
-// fails the build if it ever overruns into the HScroll table.
+// tails_data.emp measures the peak DPLC frame out of the shipped blob against
+// the window's declared extent. Since 2026-09-27 the window OVERLAYS the head
+// of the insta-shield window (games/sonic4/vram.toml says why that is safe).
 const APPENDAGE_VRAM_BYTES = VRAM_TAILS_APPENDAGE * TILE_SIZE
 
 // The flip PAIR, as a mask and its inverse. S3K spells these `3` and `$FC`

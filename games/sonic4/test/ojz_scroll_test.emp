@@ -52,7 +52,7 @@ use engine.constants.{BUTTON_START, BUTTON_LEFT, BUTTON_RIGHT}
 // NUM_SYSTEM — the readout's two glyph cells are the TOP TWO System slots, and
 // they are claimed by address (the System pool has no allocator).
 use engine.constants.{RF_COORDMODE, RF_PRIORITY_SHIFT, NUM_SYSTEM}
-use engine.constants.{PAGE_AUDIT_TICK, MAX_ACT_SECTIONS}
+use engine.constants.{PAGE_AUDIT_TICK, MAX_ACT_SECTIONS, RING_ANIM_FRAMES, RING_FRAME_TILES}
 // VRAM_WATERLINE_STRIPS — the fixed VRAM run engine/level/bg_anim.emp's
 // Waterline_Art_Update DMAs the row-gathered waterline strips into (EFFECTS-W1 item 9d).
 // It is a BYTE address, engine-owned, and games/sonic4/vram.toml declares no VramTile
@@ -78,14 +78,14 @@ use engine.coords.{pixels_to_coord}
 // (config/constants.emp). VRAM_TEST_MARKER = VRAM_RING_PLACEHOLDER+16 =
 // VRAM_TEST_OBJ+$18. CHAR_COUNT is the roster length the DEBUG character-cycle
 // hotkey wraps at.
-// VRAM_DEBUG_LAB_NAME — the FOUR glyph cells (tiles 1020-1023) the effects lab's
-// ENTRY NAME TAG repaints; VRAM_DEBUG_PRESET_READOUT — the two (957-958) the preset
-// section digit and verdict glyph sit in. Both declared in games/sonic4/vram.toml like
-// every other region, reserved in both shapes and written only in DEBUG.
+// VRAM_DEBUG_LAB_NAME — the FOUR glyph cells the effects lab's ENTRY NAME TAG
+// repaints; VRAM_DEBUG_PRESET_READOUT — the two the preset section digit and verdict
+// glyph sit in. Both declared in games/sonic4/vram.toml like every other region,
+// reserved in both shapes and written only in DEBUG.
 // VRAM_DEBUG_RASTER_TAG / VRAM_DEBUG_BGANIM_TAG — the two NAME TAG strips
-// (EFFECTS-W1 F4): four cells at tiles 1532-1535 for the live raster program's
-// name, three at 1501-1503 for the BG-animation table's. Same authority, same
-// generated block, same rule as every other region const.
+// (EFFECTS-W1 F4): four cells for the live raster program's name, three for the
+// BG-animation table's. Same authority, same generated block, same rule as every
+// other region const. Since 2026-09-27 all four BORROW `spare_nametable` (vram.toml).
 //
 // AN UNIMPORTED VRAM CONST IS NOT A BUILD ERROR AT ITS DEFINITION SITE, which is
 // how this list is easy to forget: a bare name in `.emp` silently becomes a link
@@ -212,22 +212,22 @@ use games.sonic4.player_common.{PlayerV, player_block}
 // real home is engine/level/camera.emp (not exported by it), mirrored
 // file-local with a drift guard.
 
-// TestArt blob length — THIS module owns TestArt now (objtest-gate, 2026-08-05:
-// ownership moved here from object_test_state when that module went DEBUG-only;
-// the shipped OJZ init DMAs the blob and the release debug-fly cheat renders
-// from it, so it must live in the plain shape — and the old length MIRROR this
-// comment block used to describe is deleted with the move). Two 128-byte colour
-// squares + the 512-byte ring blob; drift-guarded at the data block below. A
-// pure-int comptime const (label-pair immediate arithmetic isn't an
-// expressible EA).
-// The ring blob (512 B) that tails the two 128-byte colour squares in TestArt.
+// TestArt blob length — THIS module owns TestArt (objtest-gate, 2026-08-05: the
+// shipped OJZ init DMAs it and the release debug-fly cheat renders from it, so it
+// lives in the plain shape). Two 128-byte colour squares ONLY since 2026-09-27
+// (VRAM-TIER1): the ring blob that used to ride the same DMA is no longer resident
+// as a whole — one frame of it is streamed into the ring window (RingArt_StreamFrame
+// below). A pure-int comptime const (label-pair immediate arithmetic isn't an
+// expressible EA). NOTE: this block is LINE-NEUTRAL on purpose — engine/system/
+// buffers.emp cites a line further down this file by number.
+// The ring blob: RING_ANIM_FRAMES frames x RING_FRAME_TILES tiles, 512 B.
 const RingArt = embed("games/sonic4/test/ring_art.bin")
 pub const RING_ART_LEN = 512
 // Drift guard on the embedded blob's size (an `ensure` evaluates the embed in a
 // sandbox-rooted context; a proc-body immediate does not, so TEST_ART_LEN below
-// must stay pure-int). RING_ART_LEN feeds the DMA length.
+// must stay pure-int). The per-frame guards sit beside RingArt_StreamFrame.
 ensure(RingArt.len == RING_ART_LEN, "games/sonic4/test/ring_art.bin size drifted from RING_ART_LEN")
-pub const TEST_ART_LEN = 128 + 128 + RING_ART_LEN
+pub const TEST_ART_LEN = 128 + 128
 
 // Player_1 SST-field absolute addresses (the extern-equ-sum idiom, camera.emp's
 // PL_STATE_ADDR precedent) — the init writes the spawn position/velocity directly
@@ -642,13 +642,27 @@ pub proc GameState_OJZScroll_Init () clobbers(d0-d7/a0-a6) preserves(sr.mask) {
         lea     OJZ_Act1_Descriptor, a0            // (OJZ_Act1_Descriptor).l
         jbsr    Level_LoadArt
 
-        // -- test object + ring placeholder art (TEST_ART_LEN = 768 B = 24 tiles
-        //    at VRAM_TEST_OBJ: two 4-tile colour squares then the 16-tile ring
-        //    blob, whose base is VRAM_RING_PLACEHOLDER = VRAM_TEST_OBJ+8) --
+        // -- test object art (TEST_ART_LEN = 256 B = two 4-tile colour squares at
+        //    VRAM_TEST_OBJ). The ring blob no longer rides this DMA: see below. --
         move.l  #TestArt, d1
         move.w  #vram_bytes(VRAM_TEST_OBJ), d2
         move.w  #TEST_ART_LEN, d3               // TestArt_End - TestArt
         jbsr    QueueDMA_Critical @discards(dropped)   // test scene: a dropped DMA (queue full) is acceptable
+
+        // -- the ring window: ONE frame (RING_FRAME_TILES tiles at
+        //    VRAM_RING_PLACEHOLDER), the frame Ring_Anim_Frame names NOW. The counter
+        //    is free-running and is not reset per act, so the frame is read, never
+        //    assumed 0. Every later frame arrives through Game.ring_frame
+        //    (RingArt_StreamFrame, Deferrable); this first one is Critical like its
+        //    neighbours, because nothing else refreshes it before the next tick. --
+        moveq   #0, d0
+        move.b  Ring_Anim_Frame, d0
+        lsl.w   #RING_FRAME_SHIFT, d0           // frame x RING_FRAME_BYTES
+        move.l  #TestArt_Ring, d1
+        add.l   d0, d1
+        move.w  #vram_bytes(VRAM_RING_PLACEHOLDER), d2
+        move.w  #RING_FRAME_BYTES, d3
+        jbsr    QueueDMA_Critical @discards(dropped)   // same policy as the one above
 
         // -- dust puff block: 16 tiles RESIDENT at VRAM_DUST_PUFF for the whole
         //    act. Every puff frame must be live simultaneously (concurrent puffs
@@ -4322,8 +4336,8 @@ data TestArt_Square2: [u32; 32] = [
         $22222222, $22222222, $22222222, $22222222,
         $22222222, $22222222, $22222222, $22222222,
 ]
-// Ring art — S3K ring, 4 spin frames × 4 tiles (2×2) = 16 tiles, at
-// VRAM_RING_PLACEHOLDER (= VRAM_TEST_OBJ+8). Source: skdisasm Ring.bin
+// Ring art — S3K ring, 4 spin frames × 4 tiles (2×2) = 16 tiles in ROM, ONE frame
+// of which is resident at VRAM_RING_PLACEHOLDER at a time. Source: skdisasm Ring.bin
 // (Nemesis, 14 tiles): F0 full / F1 narrower / F2 thin-edge (centred) /
 // F3 narrower-mirrored, in VDP 2×2 column-major order per frame.
 // Rings draw on PALETTE LINE 1, not line 0: RING_ART_ATTR is
@@ -4331,8 +4345,46 @@ data TestArt_Square2: [u32; 32] = [
 // high priority — and line 1 holds OJZ palette page 0, not the character line.
 // The blob's pixels use colour indices 5/6/12/13 only, so it is line 1's
 // entries 5/6/12/13 that colour the ring.
-// DrawRings picks a frame with base + Ring_Anim_Frame×4.
+// DrawRings draws every ring from the window base; RingArt_StreamFrame below puts
+// the current frame there.
 data TestArt_Ring = RingArt
+
+// -----------------------------------------------
+// RingArt_StreamFrame — the Game.ring_frame binding (games/sonic4/config/game.emp).
+//
+// ONE RING FRAME IS RESIDENT, NOT FOUR (VRAM-TIER1, 2026-09-27; audit candidate C).
+// Every ring shares the one global Ring_Anim_Frame, so the four frames never need to
+// be in VRAM together: the ring window holds RING_FRAME_TILES tiles and this streams
+// frame d1 into it on each tick. 12 tiles went back to objects. The price is one
+// RING_FRAME_BYTES DMA every RING_ANIM_SPEED frames (128 B / 8 frames).
+//
+// DEFERRABLE, because a dropped or postponed enqueue costs one thing: the previous
+// frame stays up until the next tick (every ring alike, so the rings never disagree
+// with each other). A future ring that animates on its OWN counter (a lost-ring
+// scatter, a collect frame) cannot share this window and needs its own.
+//
+// In:  d1.b = the new frame, 0..RING_ANIM_FRAMES-1 (upper bytes undefined — DrawRings'
+//      contract, engine/system/game_contract.emp)
+// Clobbers: d0-d4, a1-a2 — QueueDMA_Deferrable's bound, which is the hook's
+// -----------------------------------------------
+const RING_FRAME_BYTES = RING_FRAME_TILES * 32
+const RING_FRAME_SHIFT = 7
+ensure(1 << RING_FRAME_SHIFT == RING_FRAME_BYTES,
+       "RING_FRAME_SHIFT ({RING_FRAME_SHIFT}) no longer multiplies a frame index by RING_FRAME_BYTES ({RING_FRAME_BYTES}) — the source address in RingArt_StreamFrame and the OJZ init would point into the wrong frame")
+ensure(RING_ANIM_FRAMES * RING_FRAME_BYTES == RING_ART_LEN,
+       "the ring blob is {RING_ART_LEN} B but {RING_ANIM_FRAMES} frames x {RING_FRAME_BYTES} B is {RING_ANIM_FRAMES * RING_FRAME_BYTES} — the streamed frame index would run off the art or leave frames unreachable")
+
+pub proc RingArt_StreamFrame (d1: u8) clobbers(d0-d4/a1-a2) {
+        moveq   #0, d0
+        move.b  d1, d0                          // the frame, zero-extended
+        lsl.w   #RING_FRAME_SHIFT, d0           // x RING_FRAME_BYTES
+        move.l  #TestArt_Ring, d1
+        add.l   d0, d1                          // source = this frame's 4 tiles
+        move.w  #vram_bytes(VRAM_RING_PLACEHOLDER), d2
+        move.w  #RING_FRAME_BYTES, d3
+        jbsr    QueueDMA_Deferrable @discards(dropped)   // dropped = the old frame for one tick
+        rts
+}
 
 
 // ===============================================================================

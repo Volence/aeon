@@ -77,6 +77,27 @@ pub interface Game {
     // coords and loop counters) — a3 in particular is an INPUT the hook must preserve.
     hook ring_collected (a3: *u8) clobbers(d0-d2/a1) = empty
 
+    // ring_frame: DrawRings (engine/objects/rings.emp) invokes this on every ring
+    // animation tick, right after it has advanced Ring_Anim_Frame, with d1.b = the new
+    // frame (0..RING_ANIM_FRAMES-1; the upper bytes of d1 are NOT defined). The engine
+    // draws EVERY ring from the base of the ring window with no per-frame tile offset,
+    // so that window holds exactly ONE frame (RING_FRAME_TILES tiles) and the game
+    // streams the current frame into it here (sonic4: RingArt_StreamFrame, a
+    // Deferrable 128-byte DMA every RING_ANIM_SPEED frames). This is what lets the
+    // window be one frame instead of all four: 12 tiles went back to objects in sonic4.
+    //
+    // A game that leaves this `= empty` draws whatever it loaded at the window base —
+    // a still ring — and pays zero bytes at the call site. It also OWNS the initial
+    // frame: at level init the game must load frame Ring_Anim_Frame (the counter is
+    // free-running and is not reset per act), or the first RING_ANIM_SPEED frames show
+    // stale tiles.
+    //
+    // The bound is QueueDMA's (d0-d4/a1-a2), which is the whole cost of the sonic4
+    // binding; DrawRings declares it, and Render_Sprites holds nothing in a1-a2 across
+    // the DrawRings call. a6 (the DEBUG Sprite_Owner cursor) and the d5/a4 SAT cursors
+    // are live across the call and are NOT in the bound.
+    hook ring_frame (d1: u8) clobbers(d0-d4/a1-a2) = empty
+
     // spring_launched: Touch_Spring (engine/objects/collision.emp) invokes this
     // on a TOP contact between a falling player and a COLLISION_SPRING object,
     // AFTER it has seated the player on the spring's top edge and copied the

@@ -313,7 +313,7 @@ def test_real_sonic4_map_verifies_and_matches_reality(tmp_path):
     for expected in ("pub const VRAM_TEST_SONIC", "$03C0",
                      "pub const VRAM_TEST_OBJ", "$03E0",
                      "pub const VRAM_TEST_MARKER", "$03F8",
-                     "pub const VRAM_TAILS_APPENDAGE", "$05D4"):
+                     "pub const VRAM_TAILS_APPENDAGE", "$03A0"):
         assert expected in emp, expected
 
 
@@ -506,3 +506,168 @@ def test_the_sync_gate_covers_the_mirror_the_tools_import(tmp_path):
         os.path.normpath(os.path.join(REPO, "tools/vram_map.py")), \
         "the importable vram_map is not the committed one the sync gate checks"
     assert "tools/vram_map.py" in _regen(tmp_path, "sonic4", with_py=True)
+
+
+
+# ---------------------------------------------------------------------------
+# BORROW (VRAM-TIER1, 2026-09-27; the audit's candidate F,
+# docs/research/2026-09-17-vram-savings-audit.md §3.2). A region may declare
+# `borrows = "<host>"`: it lives INSIDE a named host region that no VDP base
+# register points at, so the VDP never reads those bytes and a small window can
+# use them. The day the host gains a `register` (its consumer lands), every
+# borrower fails the build by name — the borrow is revoked loudly, never
+# silently overwritten. Before this rule the only way to share tiles was
+# `overlay_with`, which says nothing about WHY sharing is safe.
+# ---------------------------------------------------------------------------
+
+# A map shaped like the real one: a register-less reserved nametable (the host)
+# beside register-bearing VDP tables.
+TABLES = """
+[[region]]
+name = "pool"
+owner = "engine.pool"
+kind = "arena"
+base = 0
+tiles = 768
+lifetime = "act"
+
+[[region]]
+name = "spare"
+owner = "engine.boot"
+kind = "plane"
+base = 768
+tiles = 128
+lifetime = "boot"
+
+[[free]]
+base = 896
+tiles = 576
+
+[[region]]
+name = "sat"
+owner = "engine.buffers"
+kind = "table"
+base = 1472
+tiles = 20
+lifetime = "boot"
+register = "vdp:0x05"
+
+[[free]]
+base = 1492
+tiles = 12
+
+[[region]]
+name = "hscroll"
+owner = "engine.buffers"
+kind = "table"
+base = 1504
+tiles = 28
+lifetime = "boot"
+register = "vdp:0x0D"
+
+[[free]]
+base = 1532
+tiles = 4
+
+[[region]]
+name = "plane_a"
+owner = "engine.boot"
+kind = "plane"
+base = 1536
+tiles = 256
+lifetime = "boot"
+register = "vdp:0x02"
+
+[[region]]
+name = "plane_b"
+owner = "engine.boot"
+kind = "plane"
+base = 1792
+tiles = 256
+lifetime = "boot"
+register = "vdp:0x04"
+"""
+
+BORROWER = """
+[[region]]
+name = "tag"
+owner = "game.tag"
+kind = "window"
+base = {base}
+tiles = 4
+lifetime = "mode"
+const = "VRAM_TAG"
+borrows = "{host}"
+"""
+
+
+def test_tables_fixture_is_green(tmp_path):
+    r = run(tmp_path, TABLES)
+    assert r.returncode == 0, r.stderr
+
+
+def test_borrow_inside_an_unregistered_host_is_allowed(tmp_path):
+    r = run(tmp_path, TABLES + BORROWER.format(base=892, host="spare"))
+    assert r.returncode == 0, r.stderr
+    doc = (tmp_path / "map.md").read_text()
+    assert "borrows: spare" in doc
+    emp = (tmp_path / "constants.emp").read_text()
+    assert "pub const VRAM_TAG" in emp
+    # the containment is re-checked in the generated block, like a wall:
+    # 892 + 4 = 896 = $0380, the host's end
+    assert 'ensure(VRAM_TAG + 4 <= $0380, "tag leaves its host spare")' in emp
+    assert 'ensure(VRAM_TAG >= $0300, "tag leaves its host spare")' in emp
+
+
+def test_borrowed_tiles_are_not_free_and_not_double_counted(tmp_path):
+    # the borrow must neither need a [[free]] run nor count as extra coverage
+    r = run(tmp_path, TABLES + BORROWER.format(base=768, host="spare"))
+    assert r.returncode == 0, r.stderr
+    assert "0 free" not in r.stdout      # the fixture's 592 free tiles are unchanged
+    assert "592 free tiles" in r.stdout
+
+
+def test_borrow_from_a_host_with_a_register_is_an_error(tmp_path):
+    # the day the spare nametable gets its consumer, the borrowers must move
+    host_wired = TABLES.replace('base = 768\ntiles = 128\nlifetime = "boot"',
+                                'base = 768\ntiles = 128\nlifetime = "boot"\nregister = "vdp:0x03"')
+    assert host_wired != TABLES
+    r = run(tmp_path, host_wired + BORROWER.format(base=892, host="spare"))
+    assert r.returncode != 0, "a borrow from a VDP-read host must not pass"
+    assert "tag" in r.stderr and "spare" in r.stderr and "register" in r.stderr
+
+
+def test_borrow_leaking_out_of_its_host_is_an_error(tmp_path):
+    r = run(tmp_path, TABLES + BORROWER.format(base=894, host="spare"))
+    assert r.returncode != 0
+    assert "tag" in r.stderr and "spare" in r.stderr
+
+
+def test_borrow_starting_below_its_host_is_an_error(tmp_path):
+    r = run(tmp_path, TABLES + BORROWER.format(base=766, host="spare"))
+    assert r.returncode != 0
+    assert "tag" in r.stderr and "spare" in r.stderr
+
+
+def test_two_borrowers_may_not_overlap_each_other(tmp_path):
+    two = TABLES + BORROWER.format(base=888, host="spare") + \
+        BORROWER.format(base=890, host="spare").replace('"tag"', '"tag2"') \
+                                                .replace("VRAM_TAG", "VRAM_TAG2")
+    r = run(tmp_path, two)
+    assert r.returncode != 0
+    assert "tag" in r.stderr and "tag2" in r.stderr
+
+
+def test_borrow_from_an_unknown_host_is_an_error(tmp_path):
+    r = run(tmp_path, TABLES + BORROWER.format(base=892, host="nope"))
+    assert r.returncode != 0
+    assert "nope" in r.stderr
+
+
+def test_borrow_from_a_borrower_is_an_error(tmp_path):
+    chained = TABLES + BORROWER.format(base=888, host="spare") + \
+        BORROWER.format(base=889, host="tag").replace('"tag"\nowner', '"tag2"\nowner') \
+                                             .replace("VRAM_TAG", "VRAM_TAG2")
+    r = run(tmp_path, chained)
+    assert r.returncode != 0
+    assert "tag2" in r.stderr and "tag" in r.stderr

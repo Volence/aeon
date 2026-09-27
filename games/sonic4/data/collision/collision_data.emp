@@ -86,7 +86,8 @@ ensure(_art_sonic.len / TILE_SIZE <= DPLC_ADDRESSABLE_TILES,
        "Art_Sonic is {_art_sonic.len / TILE_SIZE} tiles; a DPLC entry's tile_start can only name 0..{DPLC_ADDRESSABLE_TILES - 1}, so the tiles above that would be addressed by a WRAPPED index and load early-frame art — re-page or shrink the sheet, do not raise the field")
 
 // Sonic's worst frame must fit the character VRAM window's DECLARED extent
-// (`character_window`, 32 tiles from 960). Measured 29 tiles — three to spare.
+// (`character_window`, 29 tiles from 960 since 2026-09-27). Measured 29 tiles — none
+// to spare, by design: the window was cut to the cast's peak.
 // This used to be the comment "up to 25 tiles" in four files, which was both
 // wrong and unchecked; the number now comes from the blob and the ceiling from
 // the declared map, so an art re-export that grew fails the build instead of

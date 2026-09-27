@@ -125,7 +125,7 @@ value fails the build loudly on both sides; data tables are named with a typed
 
 | Symbol(s) | Engine consumer | Notes |
 |---|---|---|
-| `VRAM_RING_PLACEHOLDER` | `engine/objects/rings.emp` | Ring art VRAM slot |
+| `VRAM_RING_PLACEHOLDER` | `engine/objects/rings.emp` | Ring window base: ONE frame (`RING_FRAME_TILES`), streamed by `Game.ring_frame` |
 | `MAX_RING_BUFFER`, `RING_WIDTH` | `engine/objects/rings.emp` | Ring buffer capacity + collision width. `MAX_RING_BUFFER` is a per-profile `-D` and genuinely VARIES (sonic4 128, demo 16); `RING_WIDTH` is engine-invariant and `ensure(extern(..))`-checked against the game config |
 | ~~`RING_BUFFER_ENTRY_SIZE`~~ | — | **No longer a game symbol** (review item 30/G): the 6-byte record is an engine-owned FORMAT, homed in `engine/system/constants.emp` with the four `RING_ENTRY_*_OFFSET` field offsets it is now derived from. See §4.9.4 |
 | `COLLECTED_WINDOW_SLOTS`, `COLLECTED_SLOT_SIZE`, `COLLECTED_PARK_SLOTS`, `COLLECTED_PARK_ENTRY_SIZE` | `engine/objects/entity_window.emp` | Collected-entity bookkeeping capacity |
@@ -1632,7 +1632,8 @@ UFTC was originally planned for random-access sprite decompression, but measured
   linker" T0 — spec `docs/superpowers/specs/2026-08-11-vram-linker-design.md`):**
   every region is DECLARED in `games/<game>/vram.toml` (name, owner, size,
   lifetime, typed engine-constant authority) and `tools/gen_vram_map.py`
-  verifies full coverage of all 2048 tiles / non-overlap / quantum fit, then
+  verifies full coverage of all 2048 tiles / non-overlap / quantum fit / borrows
+  (a region inside a register-less host, 2026-09-27), then
   emits the game's `VRAM_*` constants (a generated marker block in
   `config/constants.emp`), the Python mirror the build tools import
   (`tools/vram_map.py`), and the LIVING MAP —
@@ -1665,6 +1666,30 @@ which frees `$6000-$6FFF` as `spare_nametable` — the one `$2000`-aligned run i
 the map, hence a legal Plane A / Plane B / Window base.** Read the current numbers
 off the generated map, never off this diagram. The pool has a FLOOR of 640 tiles
 / 10 frames until C4-3 lands (see `POOL_TILE_CEILING`'s own comment).
+
+**The object neighbourhood was re-cut on 2026-09-27 (VRAM-TIER1), with no owner
+dial and without moving the cache, the planes or any replay-hashed base.** Free
+tiles went 1 → 54 (from the generated map; the same objects now occupy 118 tiles
+instead of 142, and the four DEBUG tags 0 instead of 13). The rules that made it
+possible, each enforced where it lives:
+- **Borrow** (`tools/gen_vram_map.py`): a region may declare `borrows = "<host>"` and
+  sit inside a host that NO VDP base register points at. The four DEBUG lab tags
+  borrow `spare_nametable`'s top (883..895). Giving the host a `register` fails
+  the build naming every borrower.
+- **One resident ring frame** (§ rings, `Game.ring_frame`): the ring window is
+  `RING_FRAME_TILES` = 4, not 16, pinned by an `engine-tiles:` authority.
+- **Derived, not sanctioned, waterline extent**: `WATERLINE_REGION_TILES` = the
+  largest power-of-two band height's strips inside the owner's 48-tile sanction
+  (H = 64 → 32 tiles); both games pin their region to it.
+- **Character window = the cast's peak DPLC frame** (29), base held at 960; each
+  character's data module ensures its own peak against the declared extent.
+- **Tails' appendage overlays the insta-shield window**: Sonic-only flash,
+  Tails-only tails, and `InstaShield_Main` retires the flash the frame free flight
+  starts, which is the only state in which the character can change. A SIDEKICK
+  (two characters on screen) undoes this overlay.
+What was NOT done and why is in `docs/DEFERRED_WORK.md` (VRAM-TIER1): the test
+art (candidate I) is blocked on the object-test stress scene's sprite cap and on
+the replay fixtures, which hash the debug-fly marker's `sprite_piece_count`.
 
 **Purpose:** Maximize available art tiles through a single unified pool, with 64×64 scroll planes for vertical buffering and visual effects. Character DPLC art lives in the pool (tile `$3C0`, DMA'd per frame); the sprite attr + HScroll tables sit in their own region (`$5C0-$5FF`, below Plane A) — so both scroll planes keep all 64 rows free for vertical streaming (no off-screen-row embedding, no "Region 2").
 
@@ -3310,7 +3335,7 @@ exactly like the name not existing. **Writing a record at runtime does not place
 **Operations:**
 - `RingBuffer_Add`: append to end of buffer, increment Ring_Count. Carry set if full.
 - `RingBuffer_Remove`: swap target entry with last entry, decrement Ring_Count. O(1).
-- `DrawRings`: single-pass iteration over Ring_Count entries, 6-byte stride.
+- `DrawRings`: single-pass iteration over Ring_Count entries, 6-byte stride. Every ring is drawn from the ring window's BASE (`RING_ART_ATTR`), because only ONE frame is resident (VRAM-TIER1, 2026-09-27): all rings share the global `Ring_Anim_Frame`, so `Rings_AnimTick` (called first by DrawRings) advances it every `RING_ANIM_SPEED` frames and then `invoke Game.ring_frame` (d1.b = the new frame; `engine/system/game_contract.emp`). sonic4 binds `RingArt_StreamFrame`, a Deferrable 128-byte DMA of that frame into the 4-tile window (a drop shows the previous frame for one tick); an unbound hook emits zero bytes and draws a still ring. The game also owns the INITIAL frame: `Ring_Anim_Frame` is free-running, so the OJZ init loads the frame it names. The tick is its own proc because sigil's inout verifier treats an `invoke` site as an unknown callee and DrawRings threads d5/a4 as inout. A ring that animates on its OWN counter (a lost-ring scatter) cannot share this window.
 - `RingCollision`: backward iteration (safe with swap-with-last removal). On collect, calls `Collected_MarkRing`, clears the loaded bit, bumps `Ring_Counter`, plays the SFX, then `invoke Game.ring_collected` (a3 = the entry, still valid; `engine/system/game_contract.emp`) and finally `RingBuffer_Remove`. The hook is the game's collect VISUAL: rings are buffer entries, so a collected ring cannot animate itself — sonic4 binds `RingSparkle_Spawn` (`games/sonic4/objects/ring_sparkle.emp`), a fire-and-forget effect-pool object on the ring's spot playing S3K's 4-frame sparkle (4 x (5+1) = 24 display frames, band = player + 1, resident 4-tile art at `VRAM_RING_SPARKLE`); an unbound hook (the demo) emits zero bytes. Pool exhaustion skips the sparkle, never the collect. Design: `docs/superpowers/notes/2026-08-26-ring-sparkle-design.md`.
 
 **Diagnostics:** `Ring_HighWater` records the max Ring_Count ever observed (capacity headroom check per level); `Ring_Add_Dropped` counts `RingBuffer_Add` failures and is **DEBUG-fatal** — a dropped ring means the 128-entry buffer is undersized for the level's band density, which must be caught in testing, not shipped. Both reset with `RingBuffer_Clear` at level init.

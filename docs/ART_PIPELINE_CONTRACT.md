@@ -121,26 +121,32 @@ byte address = tile × 32):
 | tiles | bytes | region | kind | who owns it |
 |---|---|---|---|---|
 | 0–767 | `$0000`–`$5FFF` | `fg_art_pool` | arena | engine page cache — the streamed foreground act art, 64-tile pages |
-| 768–895 | `$6000`–`$6FFF` | `spare_nametable` | plane | reserved `$2000`-aligned run, nothing points at it yet |
+| 768–895 | `$6000`–`$6FFF` | `spare_nametable` | plane | reserved `$2000`-aligned run, nothing points a register at it yet; its top 13 tiles are lent to the four debug tags (`borrows`) |
+| 883–884 | `$6E60`–`$6E9F` | `debug_preset_readout` | window | DEBUG-only lab cells; **borrows** `spare_nametable` |
+| 885–887 | `$6EA0`–`$6EFF` | `debug_bganim_tag` | window | 3 contiguous tiles = one 3×1 piece; **borrows** `spare_nametable` |
+| 888–891 | `$6F00`–`$6F7F` | `debug_lab_name` | window | 4 contiguous tiles = one 4×1 sprite piece; **borrows** `spare_nametable` |
+| 892–895 | `$6F80`–`$6FFF` | `debug_raster_tag` | window | 4 contiguous tiles = one 4×1 piece; **borrows** `spare_nametable` |
 | 896–911 | `$7000`–`$71FF` | `dust_puff` | window | resident, 4 anim frames live at once |
-| 912–923 | | `dust_spindash` | window | the charge dust's DPLC target |
-| 924–927 | | `ring_sparkle` | window | one 2×2 piece, 4 flip orientations |
-| 928–956 | | `insta_shield` | window | **streamed**, 29 = the peak DPLC frame |
-| 957–958 | | `debug_preset_readout` | window | reserved in every shape, written only in DEBUG |
-| **959** | | **FREE** | | **the map's only free tile** |
-| 960–991 | `$7800`–`$7BFF` | `character_window` | window | **the player's DPLC target — 32 tiles** (`VRAM_TEST_SONIC`) |
-| 992–999 | | `test_obj` | window | |
-| 1000–1015 | | `ring_placeholder` | window | |
-| 1016–1019 | | `test_marker` | window | |
-| 1020–1023 | | `debug_lab_name` | window | 4 contiguous tiles = one 4×1 sprite piece |
+| 912–923 | `$7200`–`$737F` | `dust_spindash` | window | the charge dust's DPLC target |
+| 924–927 | `$7380`–`$73FF` | `ring_sparkle` | window | one 2×2 piece, 4 flip orientations |
+| 928–956 | `$7400`–`$779F` | `insta_shield` | window | **streamed**, 29 = the peak DPLC frame |
+| 928–936 | `$7400`–`$751F` | `tails_appendage` | window | **overlays** `insta_shield`: Sonic's flash and Tails' tails are never live together |
+| **957–959** | `$77A0`–`$77FF` | **FREE** | | **3 free tiles** — object art may take them |
+| 960–988 | `$7800`–`$7B9F` | `character_window` | window | **the player's DPLC target — 29 tiles** (`VRAM_TEST_SONIC`), sized to the cast's peak frame |
+| **989–991** | `$7BA0`–`$7BFF` | **FREE** | | **3 free tiles** — object art may take them |
+| 992–999 | `$7C00`–`$7CFF` | `test_obj` | window | two solid 2×2 test squares |
+| 1000–1003 | `$7D00`–`$7D7F` | `ring_placeholder` | window | ONE ring frame (2×2); every ring draws from it and the game streams the current frame in on each animation tick |
+| **1004–1015** | `$7D80`–`$7EFF` | **FREE** | | **12 free tiles** — object art may take them |
+| 1016–1019 | `$7F00`–`$7F7F` | `test_marker` | window | the debug-fly marker |
+| **1020–1023** | `$7F80`–`$7FFF` | **FREE** | | **4 free tiles** — object art may take them |
 | 1024–1399 | `$8000`–`$AEFF` | `bg_region` | arena | **shared background tile art, 376 tiles**, `band_reserve = 56` |
-| 1400–1447 | `$AF00`–`$B4FF` | `waterline_strips` | window | 48 tiles, engine-owned; its base is DERIVED from `BG_TILE_CAPACITY`, so it slides when the BG arena is resized |
+| 1400–1431 | `$AF00`–`$B2FF` | `waterline_strips` | window | 32 tiles, engine-owned; its base is DERIVED from `BG_TILE_CAPACITY`, so it slides when the BG arena is resized |
+| **1432–1447** | `$B300`–`$B4FF` | **FREE** | | **16 free tiles** — object art may take them |
 | 1448–1471 | `$B500`–`$B7FF` | `spring` | window | 24 tiles, resident — the vertical + horizontal spring sheets (2026-09-07) |
 | 1472–1491 | `$B800`–`$BA7F` | `sprite_table` | table | **the sprite attribute table**, reg `$05` |
-| 1492–1500 | | `tails_appendage` | window | |
-| 1501–1503 | | `debug_bganim_tag` | window | 3 contiguous tiles = one 3×1 piece |
+| **1492–1503** | `$BA80`–`$BBFF` | **FREE** | | **12 free tiles** — object art may take them |
 | 1504–1531 | `$BC00`–`$BF7F` | `hscroll_table` | table | **the HScroll table**, reg `$0D`, 896 bytes |
-| 1532–1535 | | `debug_raster_tag` | window | 4 contiguous tiles = one 4×1 piece |
+| **1532–1535** | `$BF80`–`$BFFF` | **FREE** | | **4 free tiles** — object art may take them |
 | 1536–1791 | `$C000`–`$DFFF` | `plane_a` | plane | **Plane A nametable**, reg `$02` |
 | 1792–2047 | `$E000`–`$FFFF` | `plane_b` | plane | **Plane B nametable**, reg `$04` |
 | 1920–2047 | `$F000`–`$FFFF` | `window_plane` | plane | declared `overlay_with = ["plane_b"]`; the window feature is **disabled**, so this deliberately aliases Plane B's tail |
@@ -149,7 +155,7 @@ byte address = tile × 32):
 `spare_nametable`, `bg_region`, `waterline_strips`, `sprite_table`, `hscroll_table`,
 `plane_a`, `plane_b`, `window_plane`); it replaces the sonic4 game regions with one
 `demo_obj` (992, 4 tiles) and a 1-tile `ring_placeholder`, and declares 5 `[[free]]` runs
-totalling 163 tiles (`gen_vram_map: demo OK — 11 regions, 163 free tiles`).
+totalling 179 tiles (`gen_vram_map: demo OK — 11 regions, 179 free tiles`).
 
 **Which regions are fixed vs. pooled vs. reserved:**
 
@@ -158,8 +164,11 @@ totalling 163 tiles (`gen_vram_map: demo OK — 11 regions, 163 free tiles`).
   `hscroll_table`. These carry a `register = "vdp:0x0N"` line in the TOML.
 * **Pooled / streamed**: `fg_art_pool` (act art, paged in and evicted at runtime) and
   `bg_region` (a per-act blob loaded once at level init).
-* **Reserved, no art**: `spare_nametable` (an address reservation), the `debug_*` tags
-  (declared in every shape, **written only in DEBUG**), and the 959 free tile.
+* **Reserved, no art**: `spare_nametable` (an address reservation), and the `debug_*`
+  tags (declared in every shape, **written only in DEBUG**), which since 2026-09-27 sit
+  INSIDE `spare_nametable` as declared borrows (`borrows = "spare_nametable"`; see
+  `tools/gen_vram_map.py`'s borrow rule) instead of taking object tiles.
+* **Free**: the `[[free]]` runs, which object art may take.
 * **DMA windows** (art streamed in per animation frame, see §5.4): `character_window`,
   `insta_shield`, `dust_spindash`, `tails_appendage`.
 
@@ -213,7 +222,7 @@ gen_vram_map: region 'fg_art_pool': tiles=800 violates quantum 64
 A successful run prints, to stdout:
 
 ```
-gen_vram_map: sonic4 OK — 23 regions, 1 free tiles
+gen_vram_map: sonic4 OK — 23 regions, 54 free tiles
 ```
 
 The **background tile budget** has its own refusal, in the importer rather than the map
@@ -764,10 +773,12 @@ the 13th **forever**. That entry's tiles never load.
 a link-time fact no parser of the blob can reach. `tools/dplc_straddle.py --gate` measures
 actual slots and runs in `build.sh`; the comptime walls are necessary and not sufficient.
 
-**The character DMA window** is `character_window`, tiles 960–991 = **32 tiles**
+**The character DMA window** is `character_window`, tiles 960–988 = **29 tiles**
 (`games/sonic4/vram.toml`; the constant is `VRAM_TEST_SONIC`, with its declared extent
 published beside it as `VRAM_TEST_SONIC_TILES`). Every DPLC frame's tiles land there, so
-**no single frame may need more than 32 tiles**.
+**no single frame may need more than 29 tiles**. It was 32 until 2026-09-27, when it was
+cut to the cast's measured peak (Sonic 29, Knuckles 29, Tails 24); a heavier frame fails
+the build in that character's data module, and the fix is to raise `tiles`, base held.
 
 ### 5.5 Sprite budgets
 

@@ -16,6 +16,14 @@ Checks (all build-stopping):
   * overlap    — two regions may not share tiles unless one names the other in
                  overlay_with (T0 accepts only statically-safe overlays; T2
                  adds lifetime checking)
+  * borrow     — a region may declare `borrows = "<host>"`: it sits wholly
+                 INSIDE a host region that carries no `register` (no VDP base
+                 register points at the host, so the VDP never reads it). The
+                 host must exist and not itself borrow; borrowers may not
+                 overlap each other. The moment the host gains a `register`
+                 (its consumer lands) every borrower fails by name. Borrowed
+                 tiles are the host's for coverage; a const-bearing borrower
+                 gets a containment ensure in the generated block, like a wall
   * quantum    — a region with quantum = N must have tiles % N == 0
   * reserve    — band_reserve (see below) must be an int in 0..tiles, and may
                  only appear on bg_region: a field that is silently ignored on
@@ -148,6 +156,48 @@ def check_reserve(r):
              f"(the region is {r['tiles']} tiles; a reserve cannot exceed it)")
 
 
+def check_borrows(regions):
+    """The borrow rule (VRAM-TIER1, 2026-09-27). A borrower lives inside a host
+    that NO VDP base register points at, so nothing but the borrower ever
+    touches those bytes. The rule is keyed to the host's `register` field
+    because that field is what a consumer parcel adds when it wires the host
+    (vram.toml's spare_nametable comment says so) — so wiring the host revokes
+    every borrow at build time instead of letting the VDP read a debug tag as
+    a nametable. NOT COVERED: a host consumed WITHOUT a register (a CPU-side
+    scratch use); declare such a consumer as a region and the overlap check
+    names it."""
+    by = {r["name"]: r for r in regions}
+    borrowers = [r for r in regions if r.get("borrows")]
+    for r in borrowers:
+        host_name = r["borrows"]
+        check_text(r["name"], "borrows", host_name)
+        if r.get("overlay_with"):
+            fail(f"region {r['name']!r}: declares both borrows and overlay_with — "
+                 f"a borrower's only sharing relation is its host")
+        host = by.get(host_name)
+        if host is None:
+            fail(f"region {r['name']!r} borrows {host_name!r}, which is not a region "
+                 f"in this map")
+        if host.get("borrows"):
+            fail(f"region {r['name']!r} borrows {host_name!r}, which is itself a "
+                 f"borrower (of {host['borrows']!r}) — borrow from the host directly")
+        if host.get("register"):
+            fail(f"region {r['name']!r} borrows {host_name!r}, but {host_name!r} "
+                 f"carries register = {host['register']!r}: the VDP reads it now, so "
+                 f"the borrow is revoked — move {r['name']!r} out before wiring the host")
+        lo, hi = host["base"], host["base"] + host["tiles"]
+        if not (lo <= r["base"] and r["base"] + r["tiles"] <= hi):
+            fail(f"region {r['name']!r} [{r['base']}..{r['base'] + r['tiles'] - 1}] "
+                 f"leaves its host {host_name!r} [{lo}..{hi - 1}]")
+    bs = sorted(borrowers, key=lambda r: (r["base"], r["name"]))
+    for i, a in enumerate(bs):
+        for b in bs[i + 1:]:
+            if b["base"] >= a["base"] + a["tiles"]:
+                break
+            fail(f"borrowers {a['name']!r} and {b['name']!r} overlap at tile "
+                 f"{b['base']} inside their host")
+
+
 def verify(regions, frees):
     for r in regions:
         for field in ("name", "owner", "lifetime"):
@@ -170,11 +220,16 @@ def verify(regions, frees):
             fail(f"[[free]] run [{fr['base']}..{fr['base']+fr['tiles']-1}] "
                  f"leaves 0..{TOTAL_TILES-1}")
 
+    check_borrows(regions)
+
     # overlap: pairwise interval check, exempting declared overlays (either way)
+    # and every borrower — check_borrows above has already proved each one sits
+    # inside its host and clear of the other borrowers
     def overlaid(a, b):
         return b["name"] in a.get("overlay_with", []) or \
                a["name"] in b.get("overlay_with", [])
-    rs = sorted(regions, key=lambda r: (r["base"], r["name"]))
+    rs = sorted((r for r in regions if not r.get("borrows")),
+                key=lambda r: (r["base"], r["name"]))
     for i, a in enumerate(rs):
         for b in rs[i + 1:]:
             if b["base"] >= a["base"] + a["tiles"]:
@@ -252,7 +307,8 @@ def emit_emp_block(regions, game):
         lines += checks
     # walls: each const-emitting region must end at or before its successor
     lines.append("// Walls — regeneration re-checks every adjacency:")
-    rs = sorted((r for r in regions if not r.get("overlay_with")),
+    rs = sorted((r for r in regions
+                 if not r.get("overlay_with") and not r.get("borrows")),
                 key=lambda r: r["base"])
     for a, b in zip(rs, rs[1:]):
         ca = a.get("const")
@@ -260,6 +316,18 @@ def emit_emp_block(regions, game):
             lines.append(
                 f"ensure({ca} + {a['tiles']} <= ${b['base']:04X},"
                 f" \"{a['name']} runs into {b['name']}\")")
+    # borrows: each const-bearing borrower must stay inside its host
+    by = {r["name"]: r for r in regions}
+    borrowed = sorted((r for r in regions if r.get("borrows") and r.get("const")),
+                      key=lambda r: (r["base"], r["name"]))
+    if borrowed:
+        lines.append("// Borrows — each borrower stays inside its register-less host:")
+    for r in borrowed:
+        h = by[r["borrows"]]
+        msg = f"\"{r['name']} leaves its host {h['name']}\""
+        lines.append(f"ensure({r['const']} >= ${h['base']:04X}, {msg})")
+        lines.append(f"ensure({r['const']} + {r['tiles']} <= "
+                     f"${h['base'] + h['tiles']:04X}, {msg})")
     lines.append(MARK_END)
     return "\n".join(lines) + "\n"
 
@@ -293,6 +361,8 @@ def emit_map_doc(regions, frees, game, path):
         notes = []
         if r.get("overlay_with"):
             notes.append("overlay: " + ",".join(r["overlay_with"]))
+        if r.get("borrows"):
+            notes.append("borrows: " + r["borrows"])
         # a reserve invisible in the occupancy map is a reserve that gets
         # forgotten, which is the failure this field exists to prevent
         res = band_reserve(r)

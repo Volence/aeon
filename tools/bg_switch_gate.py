@@ -130,8 +130,9 @@ class Consts:
         self.WIPE_ROWS = _const("engine/level/bg.emp", "BG_WIPE_ROWS_PER_FRAME")
         self.WIPE_FRAMES = -(-self.PLANE_V_CELLS // self.WIPE_ROWS)
         self.DMA_ENTRY, self.DMA_ENTRY_SIZE = dma_entry_layout()
-        # The one free tile in the VRAM map (vram.toml: "THE MAP HAS ONE FREE TILE LEFT"),
-        # derived from the generated map rather than typed: the tile no region covers.
+        # The FIRST free tile in the VRAM map (there was exactly one until the 2026-09-27
+        # VRAM-TIER1 recut; there are 54 now), derived from the generated map rather than
+        # typed: the lowest tile no region covers.
         from vram_map import REGIONS
         covered = set()
         for r in REGIONS.values():

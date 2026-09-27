@@ -422,12 +422,12 @@ ensure(map_frame_pieces(_map_insta, INSTASHIELD_LAST_FRAME) == 0,
 //
 // ⚠ THE CEILING USED TO BE VRAM_TEST_SONIC, the NEIGHBOUR's base at 960 (LS-4,
 // fixed 2026-09-07). That permitted 32 tiles into a 29-tile region: tiles 957..959
-// are `debug_preset_readout` (957..958) and the map's last free tile, not this
+// were `debug_preset_readout` (957..958) and the map's last free tile, not this
 // object's. Latent only because the peak had not grown. The ceiling is now this
 // region's own declared extent, so the guard names no other region.
 // -----------------------------------------------
 ensure(dplc_peak_tiles(_dplc_insta) <= VRAM_INSTA_SHIELD_TILES,
-       "the insta-shield's peak DPLC frame is {dplc_peak_tiles(_dplc_insta)} tiles and overruns its {VRAM_INSTA_SHIELD_TILES}-tile window — re-page the art, or grow `insta_shield` in games/sonic4/vram.toml and regenerate (the tiles above it belong to `debug_preset_readout`, so growing needs a placement decision). DOES NOT COVER: the Deferrable queue-slot cost of that frame (the entries guard below), the straddle split neither ensure can see, nor whether the window is correctly placed")
+       "the insta-shield's peak DPLC frame is {dplc_peak_tiles(_dplc_insta)} tiles and overruns its {VRAM_INSTA_SHIELD_TILES}-tile window — re-page the art, or grow `insta_shield` in games/sonic4/vram.toml and regenerate (tiles 957..959 above it are [[free]] since 2026-09-27, and Tails' appendage overlays its head, so growing needs a placement decision). DOES NOT COVER: the Deferrable queue-slot cost of that frame (the entries guard below), the straddle split neither ensure can see, nor whether the window is correctly placed")
 
 // Entries are DMA queue SLOTS, a quantity dplc_peak_tiles does not measure. This
 // object streams on the DEFERRABLE queue (see InstaShield_Main), not the Important
@@ -575,6 +575,21 @@ pub proc InstaShield_Spawn (a0: *Sst) clobbers(d0/a1) preserves(a0) {
 pub proc InstaShield_Main (a0: *Sst) clobbers(d0-d4/a1-a3) preserves(a0) {
         movea.w InstaV.player(a0), a1
 
+        // FREE FLIGHT RETIRES THE FLASH (VRAM-TIER1, 2026-09-27), before this call
+        // streams a single tile. `tails_appendage` OVERLAYS this object's VRAM window
+        // (games/sonic4/vram.toml), which is safe only while the two can never be live
+        // together. Only Sonic spawns this flash and only Tails owns the appendage, so
+        // the one way to get both is to change character under a running flash — and
+        // the only character change is Debug_CharacterHotkey, which fires ONLY while
+        // debug_flag is set and runs before RunObjects. Player_DebugEnter sets the flag
+        // inside the player sweep, and this Effect runs after it in the same frame, so
+        // the flash is gone before the earliest frame a cycle can spawn the tails.
+        // A flash on the free-flight marker square means nothing anyway. The attack
+        // ends with it, exactly as the natural end below writes it (compare first, so
+        // a fresh READY is never overwritten).
+        tst.b   PlayerV.debug_flag(a1)
+        bne     .retire
+
         // Position is the player's EXACTLY — the flash is centred on him, and the
         // offsets live in its mappings (S3K: `move.w x_pos(a2),x_pos(a0)`).
         move.l  Sst.x_pos(a1), Sst.x_pos(a0)
@@ -611,6 +626,13 @@ pub proc InstaShield_Main (a0: *Sst) clobbers(d0-d4/a1-a3) preserves(a0) {
                                                 // enqueue leaves prev_frame stale, so
                                                 // the next frame RETRIES.
         jbra    Draw_Sprite
+
+    .retire:
+        cmpi.b  #INSTASHIELD_ATTACKING, PlayerV.instashield(a1)
+        bne     .retire_now
+        move.b  #INSTASHIELD_SPENT, PlayerV.instashield(a1)
+    .retire_now:
+        jbra    DeleteObject                    // preserves a0; d0-d1/a1 are ours to lose
 }
 
 // -----------------------------------------------

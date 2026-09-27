@@ -8,24 +8,24 @@ GAME = 'sonic4'
 REGIONS = {
     'fg_art_pool': {'base': 0, 'tiles': 768, 'lifetime': 'act'},
     'spare_nametable': {'base': 768, 'tiles': 128, 'lifetime': 'boot'},
+    'debug_preset_readout': {'base': 883, 'tiles': 2, 'lifetime': 'mode'},
+    'debug_bganim_tag': {'base': 885, 'tiles': 3, 'lifetime': 'mode'},
+    'debug_lab_name': {'base': 888, 'tiles': 4, 'lifetime': 'mode'},
+    'debug_raster_tag': {'base': 892, 'tiles': 4, 'lifetime': 'mode'},
     'dust_puff': {'base': 896, 'tiles': 16, 'lifetime': 'act'},
     'dust_spindash': {'base': 912, 'tiles': 12, 'lifetime': 'act'},
     'ring_sparkle': {'base': 924, 'tiles': 4, 'lifetime': 'act'},
     'insta_shield': {'base': 928, 'tiles': 29, 'lifetime': 'act'},
-    'debug_preset_readout': {'base': 957, 'tiles': 2, 'lifetime': 'mode'},
-    'character_window': {'base': 960, 'tiles': 32, 'lifetime': 'act'},
+    'tails_appendage': {'base': 928, 'tiles': 9, 'lifetime': 'act'},
+    'character_window': {'base': 960, 'tiles': 29, 'lifetime': 'act'},
     'test_obj': {'base': 992, 'tiles': 8, 'lifetime': 'mode'},
-    'ring_placeholder': {'base': 1000, 'tiles': 16, 'lifetime': 'act'},
+    'ring_placeholder': {'base': 1000, 'tiles': 4, 'lifetime': 'act'},
     'test_marker': {'base': 1016, 'tiles': 4, 'lifetime': 'mode'},
-    'debug_lab_name': {'base': 1020, 'tiles': 4, 'lifetime': 'mode'},
     'bg_region': {'base': 1024, 'tiles': 376, 'lifetime': 'act'},
-    'waterline_strips': {'base': 1400, 'tiles': 48, 'lifetime': 'act'},
+    'waterline_strips': {'base': 1400, 'tiles': 32, 'lifetime': 'act'},
     'spring': {'base': 1448, 'tiles': 24, 'lifetime': 'act'},
     'sprite_table': {'base': 1472, 'tiles': 20, 'lifetime': 'boot'},
-    'tails_appendage': {'base': 1492, 'tiles': 9, 'lifetime': 'act'},
-    'debug_bganim_tag': {'base': 1501, 'tiles': 3, 'lifetime': 'mode'},
     'hscroll_table': {'base': 1504, 'tiles': 28, 'lifetime': 'boot'},
-    'debug_raster_tag': {'base': 1532, 'tiles': 4, 'lifetime': 'mode'},
     'plane_a': {'base': 1536, 'tiles': 256, 'lifetime': 'boot'},
     'plane_b': {'base': 1792, 'tiles': 256, 'lifetime': 'boot'},
     'window_plane': {'base': 1920, 'tiles': 128, 'lifetime': 'boot'},
@@ -35,16 +35,16 @@ BG_TILE_BASE_SLOT = 1024
 BG_TILE_CAPACITY = 376
 BG_BAND_RESERVE = 56
 BG_STATIC_TILE_BUDGET = 320
+VRAM_DEBUG_PRESET_READOUT = 883
+VRAM_DEBUG_BGANIM_TAG = 885
+VRAM_DEBUG_LAB_NAME = 888
+VRAM_DEBUG_RASTER_TAG = 892
 VRAM_DUST_PUFF = 896
 VRAM_DUST_SPINDASH = 912
 VRAM_RING_SPARKLE = 924
 VRAM_INSTA_SHIELD = 928
-VRAM_DEBUG_PRESET_READOUT = 957
 VRAM_TEST_SONIC = 960
 VRAM_TEST_OBJ = 992
 VRAM_TEST_MARKER = 1016
-VRAM_DEBUG_LAB_NAME = 1020
 VRAM_SPRING = 1448
-VRAM_TAILS_APPENDAGE = 1492
-VRAM_DEBUG_BGANIM_TAG = 1501
-VRAM_DEBUG_RASTER_TAG = 1532
+VRAM_TAILS_APPENDAGE = 928
