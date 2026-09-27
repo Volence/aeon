@@ -193,16 +193,9 @@
       "size": "S",
       "blockedBy": "decision card S2CLIP-OBJECTS",
       "project": "REGIONS"
-    },
-    {
-      "id": "PATH-SWAP-DELETE",
-      "title": "Delete the old path-swap object once sigil stops expecting it",
-      "state": "blocked",
-      "size": "S",
-      "blockedBy": "sigil MODULE-REGISTRY-HARDCODES-AEON-FILES (c24811c6), then a shared-binary rebuild"
     }
   ],
   "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-09-27T01:40:05Z"
+  "updatedAt": "2026-09-27T01:49:59Z"
 }
