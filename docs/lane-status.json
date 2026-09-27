@@ -1,5 +1,5 @@
 {
-  "focus": "Building the woven act of all six Sonic 2 zones, restarted after the 09:14 reboot; object video memory beside it.",
+  "focus": "Building the woven act of all six Sonic 2 zones: the stacked-layout builder and the object-memory savings landed.",
   "inFlight": [
     {
       "what": "Background-slide fix so tunnels can shrink to 384 (finishing and verifying)",
@@ -9,16 +9,6 @@
     {
       "what": "Hidden Palace, Wing Fortress, Oil Ocean made ready as clips",
       "where": "branch parcel/woven-hpz-wfz-prep",
-      "agent": true
-    },
-    {
-      "what": "Level bake learns 2-D layouts: stacked regions, shafts, cloud band",
-      "where": "branch parcel/woven-bake-2d",
-      "agent": true
-    },
-    {
-      "what": "Object video memory: free the tiles nothing uses",
-      "where": "branch parcel/vram-tier1",
       "agent": true
     }
   ],
@@ -39,7 +29,7 @@
       "since": "2026-09-27"
     }
   ],
-  "nextBoundary": "When the four agents land; then assemble the full woven act.",
+  "nextBoundary": "When the slide fix and the three-zone prep land; then build and fly the woven act.",
   "queue": [
     {
       "id": "SHORT-TUNNEL-VSCROLL-RATCHET",
@@ -168,7 +158,7 @@
     },
     {
       "id": "S2-COMPRESSED-ACT",
-      "title": "Woven act of all six Sonic 2 zones: 2-D bake, zone prep and slide fix under way",
+      "title": "Woven act of all six Sonic 2 zones: stacked-layout builder landed; zone prep and slide fix under way",
       "state": "doing",
       "size": "L",
       "blockedBy": null,
@@ -183,8 +173,8 @@
     },
     {
       "id": "REGIONS-P2-STEP8",
-      "title": "Object video memory: 256 tiles from halving the plane, not 384; free savings build tonight, the halving is your call",
-      "state": "next",
+      "title": "Object video memory: 53 free tiles landed; halving the plane (256 more) is your call",
+      "state": "open",
       "size": "L",
       "blockedBy": null
     },
@@ -220,5 +210,5 @@
   ],
   "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-09-27T09:19:40Z"
+  "updatedAt": "2026-09-27T10:29:19Z"
 }
