@@ -180,11 +180,112 @@ def test_l2_refuses_a_line_whose_extent_leaves_the_clip(donors):
         SLL.plan(act)
 
 
-def test_l1_refuses_a_prototype_donor(donors):
+def test_l1_refuses_an_unregistered_donor(donors):
     act = CM.load(os.path.join(CLIPS, "s2_ehz_cpz", "clips.json"), donor_root=donors)
-    act.clips[0].donor = s2_donor.S2_PROTOTYPE
+    act.clips[0].donor = "skdisasm"
     with pytest.raises(SLL.LayerLineError, match=r"^L1 "):
         SLL.plan(act)
+
+
+# ---------------------------------------------------------------------------
+# Woven HPZ / WFZ / OOZ prep (2026-09-27): the object layout comes from the donor's own
+# pointer table, revisions resolved; the prototype's records decoded; its Obj03 refused.
+# ---------------------------------------------------------------------------
+
+def _fake_act(donor, zone, src, dst=None, section=2048):
+    from types import SimpleNamespace as NS
+    dst = dst or src
+    clip = NS(id=f"{zone.lower()}_probe", donor=donor, zone=zone, src=tuple(src), dst=tuple(dst))
+    gw = -(-(dst[0] + dst[2]) // section)
+    gh = -(-(dst[1] + dst[3]) // section)
+    return NS(clips=[clip], section_px=section, grid_w=gw, grid_h=gh)
+
+
+def _proto_or_skip():
+    try:
+        return s2_donor.donor_root(s2_donor.S2_PROTOTYPE)
+    except (SystemExit, SuitePathError) as exc:
+        pytest.skip("the s2-simonwai-disasm donor checkout could not be resolved, so NOTHING "
+                    "in this row is checked: %s" % exc)
+
+
+def _independent_ids(path, final):
+    """A second reader: (x, y, id) of every record, the id masked the way each loader masks it."""
+    data = open(path, "rb").read()
+    out = []
+    for i in range(0, len(data) - len(data) % 6, 6):
+        x, yw, oid, _st = struct.unpack(">HHBB", data[i:i + 6])
+        if x == 0xFFFF:
+            break
+        out.append((x, yw & 0xFFF, oid if final else oid & 0x7F))
+    return out
+
+
+def test_wfz_object_layout_is_off_objects_act1_at_the_donors_revision():
+    """WFZ's level layout is `WFZ.kos`, its object layout `Objects_WFZ_1`, BINCLUDEd once per
+    revision. The one picked is the one s2.asm's own `gameRevision` assembles."""
+    root = _donor_or_skip()
+    asm = SLL._s2_asm(s2_donor.S2_FINAL)
+    rev = SLL._game_revision(asm)
+    path = SLL.object_layout_path(asm, s2_donor.S2_FINAL, "WFZ")
+    want = "WFZ_1 (REV00).bin" if rev == 0 else "WFZ_1.bin"
+    assert path == os.path.join(root, "level", "objects", want)
+    # both revisions resolve, to different files, from the same walk
+    start = asm.index("\nOff_Objects:")
+    r0 = SLL._active_binclude(asm, "Objects_WFZ_1", start, 0)
+    r1 = SLL._active_binclude(asm, "Objects_WFZ_1", start, 1)
+    assert (r0, r1) == ("level/objects/WFZ_1 (REV00).bin", "level/objects/WFZ_1.bin")
+    # the zones the shipped clips already use still resolve to the same files
+    for z in ("EHZ", "CPZ"):
+        assert SLL.object_layout_path(asm, s2_donor.S2_FINAL, z) == \
+            os.path.join(root, "level", "objects", z + "_1.bin")
+
+
+def test_hpz_prototype_layout_is_objects_layout_row_zone_id_times_two():
+    root = _proto_or_skip()
+    asm = SLL._s2_asm(s2_donor.S2_PROTOTYPE)
+    assert SLL.obj03_id(asm, s2_donor.S2_PROTOTYPE) == 3
+    path = SLL.object_layout_path(asm, s2_donor.S2_PROTOTYPE, "HPZ")
+    assert path == os.path.join(root, "level", "objects", "HPZ_1.bin")
+
+
+@pytest.mark.parametrize("donor,zone", [(s2_donor.S2_FINAL, "WFZ"), (s2_donor.S2_FINAL, "OOZ"),
+                                        (s2_donor.S2_PROTOTYPE, "HPZ")])
+def test_the_new_woven_zones_bake_with_the_lines_their_layouts_carry(donor, zone):
+    """Every one of WFZ, OOZ and HPZ accepted over its whole painted width; the line count is
+    what an independent reader of the same file finds (MEASURED 2026-09-27: 0 for all three)."""
+    (_proto_or_skip if donor == s2_donor.S2_PROTOTYPE else _donor_or_skip)()
+    asm = SLL._s2_asm(donor)
+    path = SLL.object_layout_path(asm, donor, zone)
+    want = sum(1 for _x, _y, i in _independent_ids(path, donor == s2_donor.S2_FINAL) if i == 3)
+    p = SLL.plan(_fake_act(donor, zone, (0, 0, 16384 - 2048, 2048)))
+    assert len(p["lines"]) == want
+    assert want == 0
+
+
+def test_l6_refuses_a_prototype_obj03_inside_a_clip():
+    """The prototype's Green Hill carries EHZ's apex line at (4224, 464) subtype $91; its Obj03
+    fires on leaving a band, which the engine does not run."""
+    _proto_or_skip()
+    act = _fake_act(s2_donor.S2_PROTOTYPE, "GHZ", (4096, 0, 512, 1024))
+    with pytest.raises(SLL.LayerLineError, match=r"^L6 GHZ .*Obj03 at \(4224, 464\) subtype \$91"):
+        SLL.plan(act)
+    # a rectangle clear of every Obj03 is accepted, with no lines
+    asm = SLL._s2_asm(s2_donor.S2_PROTOTYPE)
+    recs = _independent_ids(SLL.object_layout_path(asm, s2_donor.S2_PROTOTYPE, "GHZ"), False)
+    xs = sorted(x for x, _y, i in recs if i == 3)
+    gap = next(a for a, b in zip(xs, xs[1:]) if b - a > 600)
+    ok = _fake_act(s2_donor.S2_PROTOTYPE, "GHZ", (gap + 16, 0, 512, 1024))
+    assert SLL.plan(ok)["lines"] == []
+
+
+def test_prototype_records_take_xflip_from_bit_14_and_mask_the_remember_bit(tmp_path):
+    p = tmp_path / "proto.bin"
+    # x 100, y 200 with bit 14 set (x-flip) and bit 13 set (NOT x-flip in the prototype),
+    # id $83 (remember flag + Obj03), subtype $11
+    p.write_bytes(struct.pack(">HHBB", 100, 0x4000 | 0x2000 | 200, 0x83, 0x11))
+    assert SLL.read_layout(str(p), s2_donor.S2_PROTOTYPE) == [(100, 200, 1, 3, 0x11)]
+    assert SLL.read_layout(str(p), s2_donor.S2_FINAL) == [(100, 200, 1, 0x83, 0x11)]
 
 
 def test_l4_refuses_a_row_outside_the_act():
