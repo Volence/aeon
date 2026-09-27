@@ -5,6 +5,11 @@
       "what": "Fix where our loop loses Sonic at some speeds (falling through its floor)",
       "where": "branch fix/ojz-loop-collision",
       "agent": true
+    },
+    {
+      "what": "Redraw the big act with Hidden Palace running under Metropolis, joined to it and to Oil Ocean",
+      "where": "branch design/mega-act-woven-r2",
+      "agent": true
     }
   ],
   "blockedOnOwner": [
@@ -192,5 +197,5 @@
   ],
   "awaiting": "Try ~/sonic_hacks/tryout/s3k-fall/ and pick the air camera (Sonic 3 speed, or ours); and say go on Chemical Plant inside Metropolis.",
   "atBoundary": false,
-  "updatedAt": "2026-09-27T02:49:23Z"
+  "updatedAt": "2026-09-27T03:29:38Z"
 }
