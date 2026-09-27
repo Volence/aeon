@@ -46,6 +46,63 @@ against the AS-era tree and cite `.asm` paths and line numbers into files that *
 
 ---
 
+## WOVEN-HPZ-BG-MISALIGNED: after Wing Fortress, every other zone's background bands carried its cloud drift, tearing Hidden Palace's waterfall wall at every band edge (FIXED 2026-09-27, `fix/woven-hpz-bg`)
+
+**Symptom (owner, 2026-09-27, woven DEBUG crc `2a0f1df3`).** Hidden Palace's background had a hard
+horizontal seam ~60% down the screen; the crystal pattern and the waterfalls did not line up across it.
+
+**Cause, MEASURED.** `Parallax_Update` adds `Parallax_Drift_Acc[k]`'s pixel part to EVERY enabled band's
+plane-B target, whatever band k's own rate (the accumulate is capability-gated, not rate-gated, for the
+walker's cost model), and only `Parallax_Init` ever cleared the slots. Wing Fortress drifts all 12 of its
+bands (three cloud rates); every zone crossed into afterwards scrolled band k by Wing Fortress's frozen
+phase in slot k. Hidden Palace's layouts 1-3 carry its 1/4-rate wall in TWO bands (0 and 5, one either
+side of the plane wrap), offset by different slots: a continuous waterfall wall broke where the plane
+wraps, and every ramp band edge moved too. Emerald Hill's clouds and hills were cut the same way.
+- `tools/clip_bg_scroll_witness.py --warp-entry` on `2a0f1df3`: ENTRY leg RED on Hidden Palace's 4 of 4
+  layouts (224 of 224 lines off Sonic 2's kind on every frame with the scroll at its target; after 600
+  frames in Wing Fortress the slots read [300, 150, 75] x 4 px); FLIGHT leg (free flight from Wing
+  Fortress through `wfz_to_ehz` -> `ehz_to_hpz` and down Hidden Palace, NO teleport after Wing Fortress)
+  RED, 160 of 160 frames.
+- **Why nothing saw it:** the steady witness's model (`clip_bg_scroll.engine_bg_words`) reads the live
+  accumulators and adds them to every band exactly as the engine does, under a docstring that said "only
+  a band with a drift rate ever has a non-zero accumulator"; true of one-zone acts, false here. The new
+  legs grade against Sonic 2's scroll KIND for the row each line shows, not against the engine model.
+- **Reachable in play: yes, by crossings.** The leak rides any crossing out of Wing Fortress (its three
+  shafts are drops into Emerald Hill, Metropolis and Chemical Plant) and every crossing after it, with
+  no teleport (the FLIGHT leg). Getting INTO Wing Fortress from the Emerald Hill start needs upward
+  travel (free flight, a warp, or the shaft ledges; the climb was not driven here).
+
+**Fix (engine/level/parallax.emp, `Parallax_CheckBoundary`).** Clear all
+`BAND_DRIFT_N * MAX_PARALLAX_BANDS` slots where the PICTURE changes: the crossing whose effective layout
+differs (the `Parallax_BG_Snap` predicate) and the synchronous prime (null previous row: boot, DEBUG warp).
+A crossing inside one picture keeps them, so `d-43` ("a drifting background CONTINUES across a boundary")
+holds where it applies. Per-frame cost unchanged; a picture change pays a 16-long clear
+(`.cap_band_drift_reset`, capability-gated like the other three drift spans).
+- **Red first, on disk.** `2a0f1df3` RED as above. A mutant that clears only on the null-row path
+  (`jbra .snap_same` after the `st`, FAST woven crc `4c3e5ab3`): ENTRY green (the warp clears), FLIGHT RED
+  161 of 161: the flight is what grades the crossing. Restored from the committed fix.
+- **After (woven DEBUG on the merged tree, crc `11cfc8e5`):** see "Nets" below.
+
+**The previous booking's leads, re-measured (WINDOWED-BG-VERTICAL-CLAMP, SECOND AMENDMENT).**
+- Its 158/164 was the witness's RAW `Camera_X/Y` poke, as it said, and the mechanism is now read directly:
+  with no reseed the tile cache walks ~1,100 columns from the previous probe and `Section_UpdateColumns`
+  fills `Plane_Buffer` to `$05D8` of `$0600` before `BG_Stream_Update` runs, so `Draw_BG_TileRow` is
+  refused (`run_to` its `.refused`) and `BG_Plane_Top` freezes. Its "not reachable by walking" STANDS:
+  0 refusals over a diagonal free flight through Hidden Palace, a warp in, and a drop; the plane rows
+  matched the blob on every frame of every drive. The witness now places through the DEBUG warp mailbox
+  (`--place poke` keeps the old method) and runs on the Rust core: `2a0f1df3` reads **164/164** that way,
+  so the steady probes were never the owner's picture.
+- The owner's recorded state (camera (588, 2515), `BG_Plane_Top` 0, V-scroll 0..24) is Emerald Hill
+  directly above `ehz_to_hpz`, with a window that is correct for that scroll; the tear was horizontal
+  scroll, which none of those words shows.
+- **STILL OPEN, narrowed and measured: BG-RATE-PRIME-EXEMPTION on a band chain.** After a DEBUG warp
+  into Hidden Palace's layouts 1-3 the V-scroll ratchets 15 / 31 / 43 frames to its target, and on
+  14 / 30 / 37 of those frames the live layout's bands sit on rows Sonic 2 scrolls differently (the
+  scroll is outside the layout's stretch). DEBUG-warp only; the ENTRY leg reports it by name and does not
+  grade it. See that entry.
+
+**Nets.** (filled below at landing.)
+
 ## WOVEN-BOOT-FG-GARBAGE: the woven act's first screen, and every warp into unloaded art, drew blank foreground cells (FIXED 2026-09-27, `fix/woven-boot-fg`)
 
 **Symptom (owner, 2026-09-27).** Booting `S2CLIP=s2_woven DEBUG=1`, Emerald Hill's foreground at the start
@@ -36130,6 +36187,17 @@ but a successor extending the gate should add it, and the derived expectation is
 
 ## BG-RATE-PRIME-EXEMPTION — the rate clamp has no "this frame is a prime" escape, and the signal it wants is already dead (booked 2026-09-16, regions part 2 step 4; NARROWED 2026-09-27 to maps taller than the plane)
 
+**2026-09-27, `fix/woven-hpz-bg`: "Nothing is incorrect" (below) is FALSE on a band CHAIN, MEASURED.** On
+a tall map split into several band layouts (s2_woven's and s2_hpz_solo's Hidden Palace, 4 layouts), the
+ratchet carries the scroll through rows outside the live layout's stretch, so for most of the slide the
+bands sit on rows Sonic 2 scrolls at another rate: a torn picture, not only a slide. After a warp into
+layouts 1 / 2 / 3: 15 / 31 / 43 frames of slide, 14 / 30 / 37 of them torn (woven DEBUG; the solo clip
+reads 16 / 31 / 43 and 15 / 30 / 37). DEBUG-warp only (a crossing snaps, above); `clip_bg_scroll_witness
+--warp-entry` reports it by this name and does not grade it. The fix this entry already names (prime
+after Step 5, or re-prime) would close it; it also removes the only path `bg_vscroll_rate_witness`'s
+leg W uses to force the clamp, so that leg needs another driver first (a raw Camera_Y poke inside one
+tall row keeps a ratchet).
+
 **NARROWED AGAIN 2026-09-27 (WOVEN-TALL-ENTRY, `parcel/woven-tall-entry`):** a CROSSING that changes the effective layout into a tall map now snaps (Parallax_BG_Snap, one frame), because the wipe that follows re-seeds the window from that scroll. A DEBUG warp still ratchets on purpose: its synchronous prime seeds the window from the PRE-snap scroll before Step 5 runs, so Parallax_CheckBoundary never snaps on a null previous row (the warp nulls Region_Current). Exempting the warp too would need the prime to run after Step 5 or re-prime, which is this entry's open question.
 
 **NARROWED 2026-09-27 (SHORT-TUNNEL-VSCROLL-RATCHET, `parcel/ratchet-exemption`):** Step 5 no longer rate-clamps on a map the plane holds whole (`rg_bg_span < BG_TALL_MAP_MIN_SPAN`), so a DEBUG warp there SNAPS the scroll on the consumer's own `Parallax_Update` (bg_vscroll_rate leg X: 177 px in one invocation). What is left is the TALL-map case (leg W: 22 invocations at 16 px on DEBUG OJZ's row 11), where the clamp is real and the question below still stands.
@@ -38605,7 +38673,7 @@ has no window to outrun. It changes canonical one-plane crossings and warps and 
 - Entering Chemical Plant from the first tunnel on its middle track (y 1088/1152), a player running east is stopped 262 px in (x 2166 on the 384-px layout, held right at top speed) by the plane-A back of a loop (MEASURED: plane A is solid at x 2160..2230, y 1024..1136 on the 384-px layout; plane B is air there). Sonic 2's last plane switcher before it (CPZ Obj03 at (6536, 1152), outside the clip) puts him on path A; how Sonic 2's own route treats this stretch was not traced (INFERRED: it is entered from elsewhere, with lines and objects the clip does not carry).
 - So the pocket is crossed by PLACEMENT in the drive (`tools/woven_route_witness.py` places the player before each tunnel). Choices: a different pair of tunnel rows (the floor search in the manifest's note; every other pair put a Metropolis end in solid machinery or broke SC0), an authored layer line in the clip, or objects.
 
-## WINDOWED-BG-VERTICAL-CLAMP: a clip zone's background is exact only over the rows the 512-row plane holds (booked 2026-09-27, `parcel/woven-hpz-wfz-prep`; SOLO CLIPS CLOSED 2026-09-27 by `parcel/windowed-bg-vclamp`; MULTI-ZONE ACTS: crossings CLOSED 2026-09-27 by `parcel/woven-tall-entry` (s2_woven bakes HPZ and WFZ tall, 0 glitch ticks on all 11 connectors); the woven SCROLL WITNESS is not exact (a teleport-only streamer starvation and a witness sampling race), see the SECOND amendment at the end of this entry)
+## WINDOWED-BG-VERTICAL-CLAMP: a clip zone's background is exact only over the rows the 512-row plane holds (booked 2026-09-27, `parcel/woven-hpz-wfz-prep`; SOLO CLIPS CLOSED 2026-09-27 by `parcel/windowed-bg-vclamp`; MULTI-ZONE ACTS: crossings CLOSED 2026-09-27 by `parcel/woven-tall-entry` (s2_woven bakes HPZ and WFZ tall, 0 glitch ticks on all 11 connectors); the woven SCROLL WITNESS is EXACT since 2026-09-27 (`fix/woven-hpz-bg`: 164/164 placed through the warp mailbox; the starvation below is a raw-poke artefact and the owner's torn Hidden Palace was a different bug, WOVEN-HPZ-BG-MISALIGNED at the top of this file))
 
 - **What:** `clip_bg_lower` lowers ONE 512-row window of a zone's BG map into Plane B (`window_top`: the lowest chunk-aligned window holding Sonic 2's own start view), and the engine's BG V-scroll clamps to 0..288 (`VSCROLL_BG_MAX`, the fallback when a region authors no `rg_bg_span`). Past the clamp the background stops moving vertically while Sonic 2's keeps scrolling through rows the plane does not hold.
 - **MEASURED on the solo clips (`clip_bg_scroll.engine_vscroll`):** HPZ (camY/2, BG 1152 rows) is clamped for act camera Y >= 576 of its 2048-px L; WFZ (1:1, window BG rows 896..1407 of a 2048-row map, 18 of the 83 tiles quoted in the woven doc) moves only over camera Y 640..928 of its solo act; OOZ (camY/8 + 80) holds to 1792, nearly its whole 1888.
@@ -38710,6 +38778,10 @@ has no window to outrun. It changes canonical one-plane crossings and warps and 
           warp mailbox (the real prime path); stream steady-state rows by DMA too (same FIFO as
           the sweep, so the hold could go, but the Deferrable budget derivation changes); or
           re-arm a sweep when the window lags the scroll by more than the lead.
+          **RE-MEASURED 2026-09-27 (`fix/woven-hpz-bg`), and it STANDS:** the refusal was read
+          directly (`run_to` Draw_BG_TileRow's `.refused`, `Plane_Buffer_Ptr` $05D8 of $0600: the tile
+          cache walking ~1,100 columns after a raw poke), and 0 refusals were counted over a diagonal
+          free flight, a warp and a drop. The owner's sighting was NOT this: see WOVEN-HPZ-BG-MISALIGNED.
       (2) A WITNESS SAMPLING RACE, not a regression: WFZ (3621,0) read hscroll 138 against a
           drift accumulator of 139 on 112 lines (one frame's drift), deterministic at the
           default `--settle 180` and GREEN at `--settle 181` (16/16 WFZ probes). The witness's
