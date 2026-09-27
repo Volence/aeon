@@ -81,7 +81,7 @@
     {
       "id": "SAH-3a",
       "title": "Debug warp loads objects a second time (found tonight; debug only, affects play-from-cursor)",
-      "state": "open",
+      "state": "next",
       "size": "S",
       "blockedBy": null
     },
@@ -213,5 +213,5 @@
   ],
   "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-09-27T14:11:07Z"
+  "updatedAt": "2026-09-27T14:11:22Z"
 }
