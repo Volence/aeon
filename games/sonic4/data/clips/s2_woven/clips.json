@@ -1,0 +1,453 @@
+{
+  "schema": 1,
+  "units": "world_px",
+  "id": "s2_woven",
+  "anchor_overlay": true,
+  "name": "THE WOVEN SONIC 2 MEGA-ACT (layout v2.1): Wing Fortress over Emerald Hill, Metropolis and Chemical Plant; Emerald Hill over Hidden Palace; Chemical Plant a pocket inside Metropolis; Oil Ocean under them",
+  "note": "THE WHOLE WOVEN ACT, layout v2.1 of docs/research/2026-09-27-mega-act-woven.md, written by docs/research/2026-09-27-mega-act-woven/build_woven_act.py (every length and position below is DERIVED there; re-run it, never hand-edit this file). Seven clips of six zones and eleven connectors: Wing Fortress across the top; Emerald Hill (the start) over Hidden Palace; Metropolis west | Chemical Plant | Metropolis east in the middle row; Hidden Palace's east piece under Metropolis west; Oil Ocean under Chemical Plant and Metropolis east. EVERY NUMBER THAT MOVED FROM THE REPORT, AND WHY. (1) CONNECTOR LENGTHS are the bake's Z2 rule (controller ruling 1: the 3-frame wipe, so a same-blob seam is 320 up/down and 416 across, not the report's 288 / 384) with the blob sizes the bake counts: blob A {EHZ, HPZ, WFZ} is 302 tiles = 9,664 B = 6 chunks + 3 = 9 frames (the report said 369 tiles / 10 frames; WFZ's lowered BG is an 18-tile window of its sky, not 83), M {CPZ, MTZ} 314 tiles = 9 frames, O {OOZ} 117 tiles = 6 frames. Minimums: C1, C4 320; C2, C3, C10 512 (report 528); C5 608 (report 624); C6, C7 416 (report 384); C8, C9 464 (=); C11 560 (report 576). Used: C3 512, C5 608, C6 416, C7 416, C8 464, C9 464, C10 512, C11 560 (all at the minimum); C1 672, C2 960, C4 528 (longer, forced by the tunnel floors below). (2) C6/C7, METROPOLIS | CHEMICAL PLANT | METROPOLIS: s2_mtz_cpz's measured, flown rectangles (its note has the floor search): Metropolis split at donor x 1520 (both halves on the walkway at y 640), Chemical Plant from donor x 7040 (its middle track y 1088 flush at both edges), Metropolis 448 px below Chemical Plant. So Chemical Plant sits at y 2048 (C3 = 512 under Wing Fortress) and Metropolis at 2496, which makes C2 = 512 + 448 = 960 (a longer cloud climb). (3) C5, EMERALD HILL -> METROPOLIS WEST: K6 accepts Emerald Hill's east edge (donor x 8703) at floors 576, 736, 960 and Metropolis's west edge (x 0) at 256, 384, 672 (MEASURED). The tunnel runs Emerald Hill 960 into Metropolis 672, which is Metropolis's own start floor (Sonic 2 starts the player at (96, 652) on it), so Emerald Hill sits 160 px below Chemical Plant's top: y 2208 (report 1824), and C1 = C3 + 160 = 672. Emerald Hill's height only trades C1 against C4: Wing Fortress, Chemical Plant, Oil Ocean and Hidden Palace are all fixed by the other seams, so C1 + C4 = 1,200 whichever pair is chosen (EHZ 960 / MTZ 384 gives 384 + 816; EHZ 736 / MTZ 384 gives 608 + 592); this pair is the one that delivers the player onto Metropolis's start floor rather than its upper paths. (4) HIDDEN PALACE'S EAST PIECE IS RECUT (a FINDING): v2.1's rows, donor y 1504..2047, are SOLID ROCK in the art (no transparent tile in x 7248..8351) and the rock chunks' interior collision grid (floors every 128 px inside the rock), so a player would walk inside the rock. The playable band there is the lake bridge (surface about y 1376..1440, flush at y 1376 on the piece's east edge) under an air band (y 1280..1343 is air in every column). The east piece is now donor y 1296..1599: 80 px of air over the bridge, the bridge, and rock under it. It ends at donor x 8336 (controller ruling 3: before the W3 pit at 8352, which the route does not need; the edge column 8335 is flush at 1376). Its top, y 1296, is what puts C10 at exactly 512 under Metropolis west's bottom. (5) C11, HIDDEN PALACE EAST -> OIL OCEAN: HPZ 1376 (the bridge) into Oil Ocean's west edge (donor x 8192) at 576, the ground Oil Ocean's piece starts on (K6 accepts 576, 624, 880, 1312, 1408, 1728 there). That sets Hidden Palace 576 - 1376 = -800 px from Oil Ocean's top: y 3760 (report 3136), so C4 = 528 (min 320). C11 at its minimum then sets the L's width, so the L's donor window starts at x 3792 (report 4688): west piece donor x 3792..6351, east piece x 6352..8335. MEASURED: collision 250 of 255 (the report's scan put starts 2304..3840 at 259 for ITS east piece, the rock rows). (6) METROPOLIS EAST is trimmed to donor y 0..1599 (report 0..2047) so its bottom is Chemical Plant's (y 4096) and C8 and C9 are both the 464 minimum; Oil Ocean then sits at y 4560 (report 4576) and x 5104 (as the report), where its top span donor x 10752..11007 meets Metropolis east's open bottom at donor x 1536..1631 (C9's lane). With Metropolis east full height, C8 would be 912 and Hidden Palace 448 px lower again. (7) SHAFT LANES, each on a span where both mouths are open (K10, MEASURED) and the camera model reaches: C1 x 2048 w 256, C2 x 3968 w 192 (Metropolis's open roof, donor x 800..991), C3 x 6128 w 256, C4 x 704 w 256 (Emerald Hill's bottom is open at donor x 6656..7151), C8 x 5616 w 256, C9 x 7712 w 96, C10 x 3200 w 256 (Metropolis's open bottom, donor x 32..287). C1, C2 are cloud bands (look cloud, Emerald Hill art as the shaft tests use; the look is the owner's call), the rest rock. LEDGES (top-solid, pitch 64 px, under the 80-px jump bound) on C1, C2, C4, C9, C10; C3 and C8 are drops. NOTHING CLIMBS INTO C1 OR C2 FROM BELOW: Emerald Hill's and Metropolis's ground is more than a jump under their top edges, so going up into the sky needs a spring (S2CLIP-OBJECTS); falling out of Wing Fortress works. (8) MUSIC: Emerald Hill SONG_S2_EHZ, Chemical Plant SONG_S2_CPZ; Metropolis, Hidden Palace, Wing Fortress and Oil Ocean name none (Metropolis's converts but does not fit the sound bank, S2CLIP-MTZ-SONG-BANK; the other three are refused by the importer, the report's \u00a7A.8). (9) THE START is Emerald Hill's ground (the start's why). (10) NOT A RUN-THROUGH IN EVERY ZONE: without objects, Metropolis's start floor is cut from its east walkway by its pit (s2_mtz_cpz), and Chemical Plant's pocket is not a through route (WOVEN-CPZ-POCKET-ROUTE); the route witness places the player before each connector. (11) BUDGETS (the real bake, MEASURED): 20 of 48 sections (5 x 4), collision 250 of 255, art 2,900 pool tiles in 49 pages, worst camera window 12 of 12 frames (649 windows at 12, 0 over), largest section local map 799 entries of 2,047, SCREEN 0 mixed / 0 wrong / 0 void over 433,396 reachable centres, every crossing slack >= 0. Hidden Palace's and Wing Fortress's backgrounds hold still past their plane windows (WINDOWED-BG-VERTICAL-CLAMP).",
+  "act": {
+    "grid_w": 5,
+    "grid_h": 4
+  },
+  "start": {
+    "x": 320,
+    "y": 2621,
+    "why": "ON EMERALD HILL'S GROUND at act x 320 (donor EHZ x 6464), surface y 2640 (clip_rom_bake ground: plane-A solid, 19 px = PLAYER_Y_RADIUS under the spawn). Emerald Hill is the start (woven report \u00a7B: 'must, the start'); Sonic 2's own EHZ start (donor x 96) is 6,000 px west of this clip, so the act chooses a point, as s2_mtz_cpz does."
+  },
+  "clips": [
+    {
+      "id": "wfz_deck",
+      "donor": "s2disasm",
+      "zone": "WFZ",
+      "src_rect": {
+        "x": 1024,
+        "y": 256,
+        "w": 6144,
+        "h": 1536
+      },
+      "dst_rect": {
+        "x": 1536,
+        "y": 0,
+        "w": 6144,
+        "h": 1536
+      },
+      "unaligned_dst_reason": "woven layout v2.1: placed by the seam rule (see the note)"
+    },
+    {
+      "id": "ehz_double_loop",
+      "donor": "s2disasm",
+      "zone": "EHZ",
+      "src_rect": {
+        "x": 6144,
+        "y": 0,
+        "w": 2560,
+        "h": 1024
+      },
+      "dst_rect": {
+        "x": 0,
+        "y": 2208,
+        "w": 2560,
+        "h": 1024
+      },
+      "unaligned_dst_reason": "woven layout v2.1: placed by the seam rule (see the note)",
+      "music": "SONG_S2_EHZ"
+    },
+    {
+      "id": "mtz_west",
+      "donor": "s2disasm",
+      "zone": "MTZ",
+      "src_rect": {
+        "x": 0,
+        "y": 0,
+        "w": 1520,
+        "h": 2048
+      },
+      "dst_rect": {
+        "x": 3168,
+        "y": 2496,
+        "w": 1520,
+        "h": 2048
+      },
+      "unaligned_dst_reason": "woven layout v2.1: placed by the seam rule (see the note)"
+    },
+    {
+      "id": "cpz_loop_cluster",
+      "donor": "s2disasm",
+      "zone": "CPZ",
+      "src_rect": {
+        "x": 7040,
+        "y": 0,
+        "w": 2176,
+        "h": 2048
+      },
+      "dst_rect": {
+        "x": 5104,
+        "y": 2048,
+        "w": 2176,
+        "h": 2048
+      },
+      "unaligned_dst_reason": "woven layout v2.1: placed by the seam rule (see the note)",
+      "music": "SONG_S2_CPZ"
+    },
+    {
+      "id": "mtz_east",
+      "donor": "s2disasm",
+      "zone": "MTZ",
+      "src_rect": {
+        "x": 1520,
+        "y": 0,
+        "w": 1552,
+        "h": 1600
+      },
+      "dst_rect": {
+        "x": 7696,
+        "y": 2496,
+        "w": 1552,
+        "h": 1600
+      },
+      "unaligned_dst_reason": "woven layout v2.1: placed by the seam rule (see the note)"
+    },
+    {
+      "id": "hpz_west",
+      "donor": "s2-simonwai-disasm",
+      "zone": "HPZ",
+      "src_rect": {
+        "x": 3792,
+        "y": 0,
+        "w": 2560,
+        "h": 2048
+      },
+      "dst_rect": {
+        "x": 0,
+        "y": 3760,
+        "w": 2560,
+        "h": 2048
+      },
+      "unaligned_dst_reason": "woven layout v2.1: placed by the seam rule (see the note)"
+    },
+    {
+      "id": "hpz_east",
+      "donor": "s2-simonwai-disasm",
+      "zone": "HPZ",
+      "src_rect": {
+        "x": 6352,
+        "y": 1296,
+        "w": 1984,
+        "h": 304
+      },
+      "dst_rect": {
+        "x": 2560,
+        "y": 5056,
+        "w": 1984,
+        "h": 304
+      },
+      "unaligned_dst_reason": "woven layout v2.1: placed by the seam rule (see the note)"
+    },
+    {
+      "id": "ooz_east",
+      "donor": "s2disasm",
+      "zone": "OOZ",
+      "src_rect": {
+        "x": 8192,
+        "y": 0,
+        "w": 3072,
+        "h": 1888
+      },
+      "dst_rect": {
+        "x": 5104,
+        "y": 4560,
+        "w": 3072,
+        "h": 1888
+      },
+      "unaligned_dst_reason": "woven layout v2.1: placed by the seam rule (see the note)"
+    }
+  ],
+  "corridors": [
+    {
+      "id": "ehz_to_mtz",
+      "dst_rect": {
+        "x": 2560,
+        "y": 2912,
+        "w": 608,
+        "h": 320
+      },
+      "floor_y": 3168,
+      "tunnel": {
+        "ceiling_y": 3072,
+        "art": {
+          "donor": "s2disasm",
+          "zone": "CPZ",
+          "wall_src": {
+            "x": 768,
+            "y": 784,
+            "w": 32,
+            "h": 32
+          },
+          "back_src": {
+            "x": 512,
+            "y": 896,
+            "w": 32,
+            "h": 32
+          }
+        }
+      }
+    },
+    {
+      "id": "mtz_to_cpz",
+      "dst_rect": {
+        "x": 4688,
+        "y": 2880,
+        "w": 416,
+        "h": 512
+      },
+      "floor_y": 3136,
+      "tunnel": {
+        "ceiling_y": 3040,
+        "art": {
+          "donor": "s2disasm",
+          "zone": "CPZ",
+          "wall_src": {
+            "x": 768,
+            "y": 784,
+            "w": 32,
+            "h": 32
+          },
+          "back_src": {
+            "x": 512,
+            "y": 896,
+            "w": 32,
+            "h": 32
+          }
+        }
+      }
+    },
+    {
+      "id": "cpz_to_mtz",
+      "dst_rect": {
+        "x": 7280,
+        "y": 2880,
+        "w": 416,
+        "h": 512
+      },
+      "floor_y": 3136,
+      "tunnel": {
+        "ceiling_y": 3040,
+        "art": {
+          "donor": "s2disasm",
+          "zone": "CPZ",
+          "wall_src": {
+            "x": 768,
+            "y": 784,
+            "w": 32,
+            "h": 32
+          },
+          "back_src": {
+            "x": 512,
+            "y": 896,
+            "w": 32,
+            "h": 32
+          }
+        }
+      }
+    },
+    {
+      "id": "hpz_to_ooz",
+      "dst_rect": {
+        "x": 4544,
+        "y": 4880,
+        "w": 560,
+        "h": 512
+      },
+      "floor_y": 5136,
+      "tunnel": {
+        "ceiling_y": 5040,
+        "art": {
+          "donor": "s2disasm",
+          "zone": "CPZ",
+          "wall_src": {
+            "x": 768,
+            "y": 784,
+            "w": 32,
+            "h": 32
+          },
+          "back_src": {
+            "x": 512,
+            "y": 896,
+            "w": 32,
+            "h": 32
+          }
+        }
+      }
+    }
+  ],
+  "shafts": [
+    {
+      "id": "wfz_to_ehz",
+      "dst_rect": {
+        "x": 2048,
+        "y": 1536,
+        "w": 256,
+        "h": 672
+      },
+      "look": "cloud",
+      "art": {
+        "donor": "s2disasm",
+        "zone": "EHZ",
+        "wall_src": {
+          "x": 4096,
+          "y": 512,
+          "w": 64,
+          "h": 64
+        },
+        "back_src": {
+          "x": 4096,
+          "y": 0,
+          "w": 64,
+          "h": 64
+        }
+      },
+      "ledges": {
+        "pitch": 64,
+        "w": 64
+      }
+    },
+    {
+      "id": "wfz_to_mtz",
+      "dst_rect": {
+        "x": 3968,
+        "y": 1536,
+        "w": 192,
+        "h": 960
+      },
+      "look": "cloud",
+      "art": {
+        "donor": "s2disasm",
+        "zone": "EHZ",
+        "wall_src": {
+          "x": 4096,
+          "y": 512,
+          "w": 64,
+          "h": 64
+        },
+        "back_src": {
+          "x": 4096,
+          "y": 0,
+          "w": 64,
+          "h": 64
+        }
+      },
+      "ledges": {
+        "pitch": 64,
+        "w": 64
+      }
+    },
+    {
+      "id": "wfz_to_cpz",
+      "dst_rect": {
+        "x": 6128,
+        "y": 1536,
+        "w": 256,
+        "h": 512
+      },
+      "look": "cloud",
+      "art": {
+        "donor": "s2disasm",
+        "zone": "EHZ",
+        "wall_src": {
+          "x": 4096,
+          "y": 512,
+          "w": 64,
+          "h": 64
+        },
+        "back_src": {
+          "x": 4096,
+          "y": 0,
+          "w": 64,
+          "h": 64
+        }
+      }
+    },
+    {
+      "id": "ehz_to_hpz",
+      "dst_rect": {
+        "x": 704,
+        "y": 3232,
+        "w": 256,
+        "h": 528
+      },
+      "look": "rock",
+      "ledges": {
+        "pitch": 64,
+        "w": 64
+      }
+    },
+    {
+      "id": "cpz_to_ooz",
+      "dst_rect": {
+        "x": 5616,
+        "y": 4096,
+        "w": 256,
+        "h": 464
+      },
+      "look": "rock"
+    },
+    {
+      "id": "mtz_to_ooz",
+      "dst_rect": {
+        "x": 7712,
+        "y": 4096,
+        "w": 96,
+        "h": 464
+      },
+      "look": "rock",
+      "ledges": {
+        "pitch": 64,
+        "w": 32
+      }
+    },
+    {
+      "id": "hpz_to_mtz",
+      "dst_rect": {
+        "x": 3200,
+        "y": 4544,
+        "w": 256,
+        "h": 512
+      },
+      "look": "rock",
+      "ledges": {
+        "pitch": 64,
+        "w": 64
+      }
+    }
+  ],
+  "fill": {
+    "rect": {
+      "x": 0,
+      "y": 0,
+      "w": 10240,
+      "h": 8192
+    },
+    "why": "Everything between the zones is neutral: solid stone on CRAM line 0 (the woven report's item 6), so no background shows between zones and no Sonic 2 pit falls out of the act."
+  },
+  "crossing_overrides": {
+    "palette": "snap",
+    "background": "blobs",
+    "bg_blobs": [
+      [
+        "EHZ",
+        "HPZ",
+        "WFZ"
+      ],
+      [
+        "CPZ",
+        "MTZ"
+      ],
+      [
+        "OOZ"
+      ]
+    ],
+    "zone_separation": "screen",
+    "parallax": "snap",
+    "why": "s2_woven_2d's overrides with the report's three blobs. SNAP palette and parallax: every connector is drawn on CRAM line 0 and hides the background, so the switch happens while only connector is on screen (crossing_witness on s2_ehz_cpz and s2_mtz_cpz). BLOBS: A {EHZ, HPZ, WFZ}, M {CPZ, MTZ}, O {OOZ} fit the 376-tile arena one group at a time; a seam inside a group only repaints (3 frames), a seam across pays the group's overwrite chunks. ZONE_SEPARATION = screen: Z1 counts the screen. CROSSING_MARGIN is NOT overridden: every connector is the bake's own Z2 length or longer, and Z2 enforces it (controller ruling 1)."
+  }
+}
