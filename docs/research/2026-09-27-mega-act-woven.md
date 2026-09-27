@@ -302,7 +302,7 @@ Its controls show it goes red at 16 px shorter.
 | Seam | Shortest | Tag | What sets it |
 |---|---|---|---|
 | **Horizontal tunnel, same blob** | **384 px** (C6, C7) | MEASURED glitch-free before B-2 (09-25 §8.4) | The screen width (320), plus 2 frames of repaint a side at 16 px a frame |
-| Same, on today's engine after B-2 | **480 px** | MEASURED (09-25 §8.7) | The background's vertical-scroll ratchet: a 3 to 4 frame slide at the camera cap. SHORT-TUNNEL-VSCROLL-RATCHET, not built. With it, back to 384 |
+| Same, on today's engine after B-2 | **480 px** | MEASURED (09-25 §8.7) | The background's vertical-scroll ratchet: a 3 to 4 frame slide at the camera cap. SHORT-TUNNEL-VSCROLL-RATCHET, not built. With it, back to 384 | **(2026-09-27: built; `s2_ehz_cpz` measures 0 glitch ticks at 384. Item 13.)**
 | **Vertical shaft or cloud band, same blob** | **288 px** (C1, C4) | INFERRED: the same rule on the 224-px axis. No vertical crossing between clip zones has been flown | The screen height (224), plus 2 x 2 frames |
 | **Horizontal, blob change** | 320 + 16 x (T_a + T_b). **624 px** for A to M (C5); **576** for A to O (v2.1's C11) | INFERRED from the MEASURED chunk count and the QUOTED repaint | The arena overwrite of the blob being entered |
 | **Vertical, blob change** | 224 + 16 x (T_a + T_b). **528 px** for A to M (C2, C3), **464 px** for M to O (C8, C9) | INFERRED, as above | As above |
@@ -329,7 +329,7 @@ Sealed separations, MEASURED (the smallest 16-px step with 0 mixed screens):
 
 | Lever | Effect | Cost |
 |---|---|---|
-| The ratchet exemption (SHORT-TUNNEL-VSCROLL-RATCHET, booked) | 480 back to 384 across. It is also needed for any same-blob vertical crossing between zones whose backgrounds scroll at different heights | S-M, engine, graded by `bg_vscroll_rate` |
+| The ratchet exemption (SHORT-TUNNEL-VSCROLL-RATCHET, DONE 2026-09-27, item 13) | 480 back to 384 across. It is also needed for any same-blob vertical crossing between zones whose backgrounds scroll at different heights | S-M, engine, graded by `bg_vscroll_rate` |
 | Overwrite 3,648 B a frame instead of 1,824 | Blob-change connectors shrink: A-M 624 to 528 across, 528 to 432 up/down; M-O 464 to 400 | S-M, engine. The VBlank DMA budget has to be measured first. The chunk size was derived to fit it |
 | Smaller backgrounds | CPZ's 237 tiles is the most expensive one. Cropping it lets more zones share a blob | Content, a look call |
 | A bigger BG arena (the VRAM re-cut) | Competes with the owner's 2026-09-07 "we can't have space for 0 objects" ruling | Owner |
@@ -569,7 +569,7 @@ numbers.
 | 10 | Layer lines accept HPZ (L1) and WFZ (L5) | `s2_layer_lines.py` | S | required |
 | 11 | Backgrounds: HPZ's registry (145 tiles MEASURED from the file), WFZ's non-repeating sky (83 tiles MEASURED), scroll records for four zones | `clip_bg_lower`, `s2_donor`, `clip_bg_scroll` | M | required |
 | 12 | **Music:** decide 5 drum names and fTone 0C, import S2 PSG envelope 12, fix `NoteFill` on a PSG route for HPZ | `smps_import` tables, `gen_sound_tables`, `song_packer` | M, content | required (§A.8) |
-| 13 | **The ratchet exemption** (SHORT-TUNNEL-VSCROLL-RATCHET) | `engine/level/parallax.emp` | S-M, engine | **needed for 384 / 288**; without it, 480 across |
+| 13 | **The ratchet exemption** (SHORT-TUNNEL-VSCROLL-RATCHET) | `engine/level/parallax.emp` | S-M, engine | **DONE 2026-09-27** (`parcel/ratchet-exemption`): the rate clamp is skipped on a one-plane map. MEASURED: `s2_ehz_cpz` at 384, 6 glitch ticks -> 0; `s2_mtz_cpz` at 480, 3 -> 0; `s2_mtz_cpz` at 384, 16 -> 1, the one a background wipe under two lag frames, not a slide (WOVEN-MTZ-CPZ-384-WIPE-UNDER-LAG), so that act stays at 480 for now. 288 up-down not measured (no act has one) |
 | 14 | **BG blob groups:** `crossing_overrides.background = co_resident` generalised from one act-wide pair to per-region blobs (A, M, O). The engine already compares blob pointers (QUOTED 09-25 §3) | `clip_rom_bake.py` | M | **DONE** 2026-09-27 (`parcel/woven-bake-2d`): `background = blobs` + `bg_blobs`; exercised by `clips/s2_woven_2d` |
 | 15 | Z1 counted on the screen, both axes. `woven.py check` is the model to promote into the bake, with per-pair T | `clip_rom_bake`, `clip_act_bake` | M | **DONE** 2026-09-27 (`parcel/woven-bake-2d`): `tools/clip_camera.py` + `check_screen` (MIXED, WRONG, per-pair slack, VOID) |
 | 16 | Per-region camera bounds | `camera.emp` | M | optional |
@@ -598,7 +598,9 @@ Chemical Plant, a 384 tunnel, Metropolis east.
 - **What the owner sees:** you run through a pocket of Chemical Plant and come out in the
   same Metropolis on the far side. It is weaving in one dimension.
 - **Known caveat:** at 384 px, without item 13, the far background slides for 3 to 4 frames
-  at the camera cap (QUOTED 09-25 §8.7). At 480 px it does not.
+  at the camera cap (QUOTED 09-25 §8.7). At 480 px it does not. **(2026-09-27: item 13 is
+  built; the slide is gone, but this act at 384 still shows 1 glitch tick from a background
+  wipe under lag, so it ships at 480: WOVEN-MTZ-CPZ-384-WIPE-UNDER-LAG.)**
 - **Estimate:** a day or two (INFERRED).
 
 **Second: Emerald Hill on top of Hidden Palace** (the first vertical seam). It needs:
@@ -633,6 +635,7 @@ About one to two weeks (INFERRED). Everything after that is the full list.
    *Recommendation: accept it for now.*
 5. **384 with a brief background slide, or 480 with none?** At the camera cap only.
    *Recommendation: build the ratchet exemption (item 13).* Vertical crossings need it anyway.
+   **Built 2026-09-27** (item 13's row has the measurements).
 6. **Springs.** Every "ledges" lane is a stand-in for a spring.
    *Recommendation: cloud ledges and stair ledges now; springs when objects arrive.*
 7. **Music (the owner's ask).** The four songs need drum mappings: timpani (WFZ), low tom (HPZ

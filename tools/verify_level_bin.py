@@ -1031,7 +1031,22 @@ def verify_editor_bake_fidelity():
                        "remapped tiles against")
     if not pages:
         return
-    pool = b"".join(pages)
+    # SLOT-ADDRESSED, NOT CONCATENATED (2026-09-27, found by the 384-px s2_mtz_cpz bake). A
+    # global slot is `page * ART_POOL_PAGE_TILES + index` (tools/fg_page_order.py: "a short
+    # per-zone page leaves a gap"), and the "searched" page-order rung writes SHORT pages in
+    # the middle of the pool (per-zone pages). Joining the files end to end shifted every
+    # slot past the first short page, so a correct bake read as "wrong art" in every section
+    # (measured: page 6 of 17 at 736 B -> 26/31/26 out-of-range and 191/897 wrong-pixel
+    # word shapes in sec0/sec1). Every page but the last is therefore padded to a whole page
+    # here, and a slot inside a pad is out of range, never zero art. On the shipped rung
+    # every page but the last is already whole, so this pool is byte-identical to the join.
+    page_tile_counts = [len(pg) // TILE_SIZE for pg in pages]
+    pool = b"".join(pg + bytes(ART_POOL_PAGE_BYTES - len(pg)) if k < len(pages) - 1 else pg
+                    for k, pg in enumerate(pages))
+
+    def _slot_in_gap(slot: int) -> bool:
+        pg, ix = divmod(slot, ART_POOL_PAGE_TILES)
+        return pg >= len(page_tile_counts) or ix >= page_tile_counts[pg]
     # None on a canonical run (the comparison below is then exactly the pre-stress-rule
     # one); on --stress, the verified clone declarations (see _stress_clone_scratch).
     scratch = _stress_clone_scratch(pool)
@@ -1124,7 +1139,7 @@ def verify_editor_bake_fidelity():
                     range_bad += 1
                     continue
                 g = local_map[li]
-                if (g + 1) * TILE_SIZE > len(pool):
+                if (g + 1) * TILE_SIZE > len(pool) or _slot_in_gap(g):
                     range_bad += 1
                     continue
                 if key < 0:

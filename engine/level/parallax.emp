@@ -754,6 +754,9 @@ ensure(VSCROLL_BG_MAX > 0,
 // this is the ENGINE's answer in place of a level-design door rule: no author has to promise
 // that a vertical transition is slow, because the engine will not let it be fast.
 //
+// ⚠ ON A MAP TALLER THAN THE PLANE ONLY (2026-09-27): where the plane holds the whole map the
+// streamer has no rows to draw, so Step 5 skips this bound there (BG_TALL_MAP_MIN_SPAN below).
+//
 // TWO ROWS, AND THE TWO IS THE ONLY PICKED NUMBER HERE. `BG_VSCROLL_ROW_PX` is derived —
 // it is the plane's own cell height, PLANE_B_SPAN / PLANE_B_CELL_ROWS, so a plane geometry
 // change carries it — and the step is stated in ROWS because rows are the unit the streamer
@@ -767,6 +770,19 @@ ensure(BG_VSCROLL_ROW_PX == 8,
        "engine/level/parallax.emp: PLANE_B_SPAN {PLANE_B_SPAN} over PLANE_B_CELL_ROWS {PLANE_B_CELL_ROWS} is {BG_VSCROLL_ROW_PX} px a row, not the 8 a VDP nametable cell is. Either the two constants have drifted apart or the cell size is not 8 any more — and BG_VSCROLL_MAX_STEP is stated in ROWS, so a wrong row height silently retunes Step 5's rate clamp")
 ensure(BG_VSCROLL_MAX_STEP > 0 && BG_VSCROLL_MAX_STEP < SCREEN_HEIGHT,
        "engine/level/parallax.emp: BG_VSCROLL_MAX_STEP is {BG_VSCROLL_MAX_STEP} px, outside 1 .. SCREEN_HEIGHT-1 ({SCREEN_HEIGHT}). At 0 the BG V-scroll can never move at all; at a full screen or more the clamp admits a jump that repaints the whole visible plane in one frame, which is the per-frame streamer work this constant exists to bound")
+
+// ---- BG_TALL_MAP_MIN_SPAN — the shortest background map the rate clamp applies to ----
+//
+// SHORT-TUNNEL-VSCROLL-RATCHET (2026-09-27). The rate clamp bounds the row streamer's work, and
+// the streamer has work only on a map TALLER than the plane: `BG_Stream_Update`'s max_top is
+// `(rg_bg_span >> 3) - PLANE_V_CELLS`, positive exactly when the span reaches one more row than
+// the plane. So this is the ONE predicate both files read — bg.emp's max_top test is spelled
+// with it, and Step 5's (b0) arm skips the clamp below it — and an `ensure` in bg.emp pins it to
+// the streamer's own row arithmetic. Every shipped act's map is one plane (span 0 = the act
+// default), so on every shipped row the scroll moves as the scene's transition says, unbounded.
+pub const BG_TALL_MAP_MIN_SPAN = PLANE_B_SPAN + BG_VSCROLL_ROW_PX
+ensure(VSCROLL_BG_MAX < BG_TALL_MAP_MIN_SPAN - SCREEN_HEIGHT,
+       "engine/level/parallax.emp: the act-default ceiling VSCROLL_BG_MAX ({VSCROLL_BG_MAX}) is not below BG_TALL_MAP_MIN_SPAN - SCREEN_HEIGHT ({BG_TALL_MAP_MIN_SPAN - SCREEN_HEIGHT}). Step 5's (b0) arm reads 'this map is one plane' off the CEILING, and the act default (rg_bg_span 0, or no region resolved) must land on the exempt side, because its map IS the plane and the streamer never moves its window")
 
 // ---- THE SCENE-LEVEL VERTICAL BOB (EFFECTS-W1 item 7) — its bounds, DERIVED ----
 //
@@ -3011,10 +3027,13 @@ proc Parallax_Step5_Vscroll () clobbers(d0-d7/a0-a6) {
         // its job, not fighting it — the rows uncovered on the way are exactly the rows the
         // streamer has to draw, and they arrive two at a time.
         //
+        // ⚠ ONLY ON A MAP TALLER THAN THE PLANE since 2026-09-27: (b0) below skips it everywhere
+        // else, and the two paragraphs that follow now describe the TALL-MAP case alone.
+        //
         // WHAT IT ALSO RATE-LIMITS, AND IS NOT YET PAIRED WITH. A DEBUG warp teleports the
         // camera; the plane is re-primed synchronously (`Section_RedrawPlanes`) but the SCROLL
-        // now ratchets to its new value at 16 px a frame — up to 18 frames of visible slide
-        // after a warp to the far end of a 512-px map. `Parallax_Snap_Pending` is the obvious
+        // now ratchets to its new value at 16 px a frame — up to ~20 frames of visible slide
+        // after a warp across a tall map (on a one-plane map it snaps, (b0)). `Parallax_Snap_Pending` is the obvious
         // exemption signal and it is NOT AVAILABLE HERE: Step 3's band loop consumes it
         // (`clr.b Parallax_Snap_Pending`) immediately before its `jbra` into this proc, so the
         // `tst.b` at the top of this routine already reads 0 on every path (see the note
@@ -3032,6 +3051,41 @@ proc Parallax_Step5_Vscroll () clobbers(d0-d7/a0-a6) {
         // BG_WIPE_ROWS_PER_FRAME row entries, so letting the scroll move faster there adds
         // streamer rows on top of them. The booking stands, unchanged and now with a reason
         // rather than a forecast.
+        //
+        // ---- (b0) NO WINDOW, NO RATE CLAMP (SHORT-TUNNEL-VSCROLL-RATCHET, 2026-09-27) ----
+        //
+        // THE CLAMP IS SKIPPED WHEN THIS REGION'S MAP IS NOT TALLER THAN THE PLANE, and that is
+        // the clamp's own reason applied, not an exception to it. What it bounds is
+        // BG_Stream_Update's row work: |dwant_top| <= BG_STREAM_MAX_ROWS because |dvscroll| <=
+        // BG_VSCROLL_MAX_STEP. On a map the plane holds whole, max_top is 0, want_top is 0 for
+        // EVERY scroll the position clamp above admits, and the streamer never draws a row: the
+        // window has nowhere to go, so there is nothing to outrun. A bound on zero work bought
+        // only a visible slide — ~7 frames of the far background gliding into place after every
+        // zone crossing whose two scroll mappings disagree (112 px on s2_mtz_cpz, 87 on
+        // s2_ehz_cpz), which at the camera cap was still sliding when the far zone reached the
+        // screen and is why the connecting tunnels had to be 480 px instead of 384. It also
+        // bought BG-RATE-PRIME-EXEMPTION's slide after a DEBUG warp, which this retires for
+        // every map the plane holds (the tall-map half stays: the clamp is real there).
+        //
+        // WHAT MOVES THE SCROLL INSTEAD is the author's own choice, unchanged: a scene with a
+        // transition LERPS through the arm above (1/16 of the gap a frame), and a TRANS_INSTANT
+        // scene snaps. The clamp was a second, accidental authority over snap-versus-lerp on
+        // these maps; it is now the only authority StartTransition was meant to be.
+        //
+        // THE SAME PREDICATE AS THE STREAMER, read off the CEILING rather than re-fetching the
+        // span: d3 is `rg_bg_span - SCREEN_HEIGHT`, or VSCROLL_BG_MAX for the act default, and
+        // "the map is taller than the plane by at least one row" (bg.emp's max_top > 0) is
+        // `rg_bg_span >= BG_TALL_MAP_MIN_SPAN`, i.e. `d3 >= BG_TALL_MAP_MIN_SPAN - SCREEN_HEIGHT`.
+        // The act default lands on the exempt side by the `ensure` beside that constant, and so
+        // does a null Region_Current. SIGNED, for the same reason as the position clamp.
+        //
+        // THE WIPE IS BETTER FOR IT, NOT WORSE. A crossing that changes the layout arms
+        // BG_Stream_Update's sweep at the top VISIBLE row of THIS frame's scroll; with the scroll
+        // held back 16 px a frame that was the top visible row of a scroll the screen was about
+        // to leave, so "visible rows first" repainted the wrong rows first on every crossing
+        // whose scroll jumped. Now the scroll it latches is the one the next frames show.
+        cmpi.w  #BG_TALL_MAP_MIN_SPAN - SCREEN_HEIGHT, d3
+        blt     .v_store                            // the plane holds the map: no rate to bound
         move.w  Parallax_Current_Vscroll_BG, d0     // (Parallax_Current_Vscroll_BG).w — previous
         sub.w   d0, d2                              // d2 = the step this frame wants
         cmp.w   #BG_VSCROLL_MAX_STEP, d2
@@ -3045,7 +3099,8 @@ proc Parallax_Step5_Vscroll () clobbers(d0-d7/a0-a6) {
     .v_rate_add:
         add.w   d0, d2                              // previous + the bounded step
         // (`.v_pack_store` was the label here until step 4; the two branches that reached it
-        //  now stop at `.v_rate`, so the store is a plain fallthrough and the label is gone.)
+        //  stop at `.v_rate`. `.v_store` is the one-plane arm's landing, (b0) above.)
+    .v_store:
         move.w  d2, Parallax_Current_Vscroll_BG     // (Parallax_Current_Vscroll_BG).w
 
         // pack into Vscroll_Factor (used by Vscroll_Write whole-plane branch)

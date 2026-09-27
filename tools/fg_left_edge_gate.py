@@ -124,7 +124,7 @@ bug, and it was in the gate's clock, not in its rule. Every scene in the tree au
 `pcfg_transition == 0`, so `Parallax_StartTransition` takes its CAP_TRANSITIONS staging arm
 — it writes `Parallax_Target_Config` and `Parallax_Transition_Frames = PARALLAX_TRANS_DEFAULT`
 and DELIBERATELY LEAVES `Parallax_Current_Config` ALONE; `Parallax_Update` promotes Target
-into Current only on the frame the counter reaches 0 (engine/level/parallax.emp:1784-1800).
+into Current only on the frame the counter reaches 0 (engine/level/parallax.emp, `Parallax_Update`'s `subq.b #1, Parallax_Transition_Frames` arm).
 `drive_cursor`'s `step_scene` advances 12 frames per step against a 16-frame transition, so
 every step re-staged before the previous promoted and the raw cell still held the BOOT
 section's binding — the read was 9 of 16 frames early, on all six scenes. See

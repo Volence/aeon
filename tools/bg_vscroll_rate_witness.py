@@ -15,6 +15,10 @@ changed both halves of it:
       snap-or-lerp and the bob and the position clamp, immediately before the store. This is
       the bound on the row streamer's per-frame work (steps 5 and 6), and the engine-side
       replacement for a level-design door rule.
+      ⚠ SINCE 2026-09-27 (SHORT-TUNNEL-VSCROLL-RATCHET) ONLY ON A MAP TALLER THAN THE PLANE
+      (`rg_bg_span >= BG_TALL_MAP_MIN_SPAN`): on a map the plane holds whole the streamer never
+      moves its window, so Step 5's (b0) arm skips the clamp and the scroll moves as the scene's
+      transition says (snap or lerp). Every assertion below is scoped by `rate_applies`.
 
 ⚠ READ THIS BEFORE READING A GREEN FROM HERE — WHAT THIS WITNESS CANNOT DISTINGUISH.
 Every region row shipped in OJZ act 1 leaves `rg_bg_span` at 0 (ten rows in release, eleven in
@@ -37,9 +41,10 @@ WHAT IS ASSERTED (exit 1 on any failure):
   R0  the premise, reported not assumed: every region row's rg_bg_span, and how many are
       non-zero. Zero non-zero rows is a loud FINDING, not a failure — it is the tree's truth —
       but it is what makes legs C/D/W blind to change (a).
-  A1  THE GATE. On every consecutive pair of samples in every leg,
-      |v[n] - v[n-1]| <= BG_VSCROLL_MAX_STEP, where v is `Parallax_Current_Vscroll_BG` sampled
-      once per logic tick at the `GameState_OJZScroll_Update` entry.
+  A1  THE GATE. On every consecutive pair of samples in every leg whose producing region is a
+      TALL map, |v[n] - v[n-1]| <= BG_VSCROLL_MAX_STEP, where v is `Parallax_Current_Vscroll_BG`
+      sampled once per logic tick at the `GameState_OJZScroll_Update` entry. (A one-plane step
+      is unrated: A3 still models it exactly, as the snap or the lerp.)
   A2  0 <= v[n] <= ceiling[n] on every sample, where ceiling[n] is DERIVED from the region
       `Region_Current` names at that sample: rg_bg_span - SCREEN_HEIGHT, or VSCROLL_BG_MAX when
       the span is 0 or no region is resolved.
@@ -51,11 +56,15 @@ WHAT IS ASSERTED (exit 1 on any failure):
       the unclamped target to move more than 2 * BG_VSCROLL_MAX_STEP, there is a run of at
       least two consecutive ticks whose |step| is EXACTLY BG_VSCROLL_MAX_STEP. Without the
       rate clamp the jump completes in one tick and no such run exists, so A4 is red on a tree
-      with (b) reverted. BOTH THE COLUMN AND THE ENDPOINTS ARE CHOSEN FROM THE ACT'S OWN REGION
+      with (b) reverted. Aimed at a TALL-map row since 2026-09-27, the only kind the clamp acts
+      on (DEBUG OJZ's step-5 tall region); red too if the one-plane arm leaks onto tall maps. BOTH THE COLUMN AND THE ENDPOINTS ARE CHOSEN FROM THE ACT'S OWN REGION
       TABLE by `plan_vertical_leg()`, which probes rows in order, asks the ENGINE which config
       is live in each, and takes the first whose derived jump qualifies — see that function's
       header for why it exists and for the vertical-lock rows it correctly rejects.
-  A5  THE POSITION DISCRIMINATOR (leg S, a PATCHED ROM COPY). With the chosen row's
+  A6  THE ONE-PLANE DISCRIMINATOR (leg X, 2026-09-27). The same warp in a ONE-PLANE row reaches
+      the position-clamped target in ONE Parallax_Update invocation — exactly one step over the
+      bound and no run at it. Red with (b0) reverted (the ratchet comes back).
+  A5  THE POSITION DISCRIMINATOR (leg S, a PATCHED ROM COPY, in leg X's one-plane row). With the chosen row's
       rg_bg_span patched to SPAN_TEST (derived from THAT region's own reach, so
       SPAN_TEST - SCREEN_HEIGHT is strictly below VSCROLL_BG_MAX and at least one
       BG_VSCROLL_MAX_STEP below what the act can actually drive the scroll to), a descent
@@ -318,13 +327,16 @@ def step5_shape_check(text: str | None = None) -> None:
             r"tst\.w\s+d2\s+bge\s+\.v_clamp_hi\s+moveq\s+#0,\s*d2",
         "the high clamp against the derived ceiling":
             r"cmp\.w\s+d3,\s*d2\s+ble\s+\.v_rate\s+move\.w\s+d3,\s*d2",
+        "the one-plane arm (rate_applies), ahead of the rate clamp":
+            r"cmpi\.w\s+#BG_TALL_MAP_MIN_SPAN\s*-\s*SCREEN_HEIGHT,\s*d3\s+blt\s+\.v_store\s+"
+            r"move\.w\s+Parallax_Current_Vscroll_BG,\s*d0",
         "the rate clamp, on the STEP":
             r"move\.w\s+Parallax_Current_Vscroll_BG,\s*d0\s+sub\.w\s+d0,\s*d2\s+"
             r"cmp\.w\s+#BG_VSCROLL_MAX_STEP,\s*d2",
         "the rate clamp's low arm":
             r"cmp\.w\s+#-BG_VSCROLL_MAX_STEP,\s*d2\s+bge",
         "the re-add and the store":
-            r"add\.w\s+d0,\s*d2\s+move\.w\s+d2,\s*Parallax_Current_Vscroll_BG",
+            r"add\.w\s+d0,\s*d2\s+\.v_store:\s+move\.w\s+d2,\s*Parallax_Current_Vscroll_BG",
     }
     for what, rx in want.items():
         if not re.search(rx, body):
@@ -433,9 +445,22 @@ def why_it_bound(prev_src, src, v_prev, step_max):
             "blocking": why == "contradiction" or (why == "camera" and cfg_same)}
 
 
-def clamp_model(target: int, prev: int, ceiling: int, max_step: int) -> int:
-    """The step-4 clamp, in order: position first (low then high), then the RATE on the step."""
+def rate_applies(span: int, K: dict) -> bool:
+    """Does the RATE clamp act in a region whose `rg_bg_span` is `span`? Since
+    SHORT-TUNNEL-VSCROLL-RATCHET (2026-09-27) only on a map TALLER than the plane:
+    `Parallax_Step5_Vscroll`'s (b0) arm skips the clamp below BG_TALL_MAP_MIN_SPAN, because
+    `BG_Stream_Update` never moves its window on a map the plane holds whole. Keyed to the SPAN
+    read out of the ROM's region table, NOT to the ceiling the engine compares, so this is a
+    second derivation of the engine's predicate and not a transcription of its instruction."""
+    return span >= K["BG_TALL_MAP_MIN_SPAN"]
+
+
+def clamp_model(target: int, prev: int, ceiling: int, max_step: int, rated: bool = True) -> int:
+    """The step-4 clamp, in order: position first (low then high), then the RATE on the step —
+    the rate only where `rated` (a map taller than the plane, `rate_applies`)."""
     v = 0 if target < 0 else (ceiling if target > ceiling else target)
+    if not rated:
+        return v
     d = v - prev
     d = max_step if d > max_step else (-max_step if d < -max_step else d)
     return prev + d
@@ -516,6 +541,7 @@ class Rig:
                 "v": s16(await rd(b, sym["Parallax_Current_Vscroll_BG"], 2)),
                 "region": region, "row": self.index.get(region),
                 "span": span,
+                "tall": rate_applies(span, self.K),
                 "ceiling": ceiling_for(span, self.K["SCREEN_HEIGHT"], self.K["VSCROLL_BG_MAX"]),
                 "trans": frames,
                 # Parallax_Active_Config's rule: mid-transition the TARGET config is active for
@@ -589,8 +615,15 @@ async def warp_to(b, sym, rig: "Rig", x: int, y: int, tick: bool = True) -> None
         await rig.tick(WARP_MAX_FRAMES)
 
 
-async def plan_vertical_leg(rig: "Rig", b, sym, rows, K, cam_x_max, cam_y_max, step_max, report):
-    """Choose the region legs W and S run in, FROM THE ACT'S OWN TABLE.
+async def plan_vertical_leg(rig: "Rig", b, sym, rows, K, cam_x_max, cam_y_max, step_max, report,
+                            tall: bool = True, key: str = "W"):
+    """Choose the region a vertical leg runs in, FROM THE ACT'S OWN TABLE.
+
+    TWO PLANS SINCE 2026-09-27 (SHORT-TUNNEL-VSCROLL-RATCHET), selected by `tall`: leg W needs a
+    row whose map is TALLER than the plane, because only there does the rate clamp act (the
+    one-plane arm skips it); legs X and S need a ONE-PLANE row — X to show the scroll snapping
+    there, S to patch a span shorter than the plane into it. A row of the wrong kind is rejected
+    by name before it is probed.
 
     WHY THIS EXISTS, and it is a defect this tool shipped with (found on its first live run,
     2026-09-16). Leg W used to take its column from `Camera_X` as the earlier legs happened to
@@ -627,6 +660,13 @@ async def plan_vertical_leg(rig: "Rig", b, sym, rows, K, cam_x_max, cam_y_max, s
     for r in rows:
         rec, cx, cy_lo, cy_hi = candidate_window(r, K, cam_x_max, cam_y_max)
         scan.append(rec)
+        if "verdict" not in rec and rate_applies(r["bg_span"], K) != tall:
+            rec["verdict"] = (
+                f"REJECTED: rg_bg_span {r['bg_span']} is "
+                + ("a map the plane holds whole, where the rate clamp does not act — this leg "
+                   "needs a TALLER map" if tall else
+                   "a map taller than the plane, where the rate clamp acts — this leg needs a "
+                   "ONE-PLANE map"))
         if "verdict" in rec:
             continue
         await warp_to(b, sym, rig, rec["probe_x"], cy_lo + K["HALF_H"])
@@ -649,15 +689,28 @@ async def plan_vertical_leg(rig: "Rig", b, sym, rows, K, cam_x_max, cam_y_max, s
         jump = jump_verdict(rec, cfg, cy_lo, cy_hi, step_max)
         if rec["verdict"] != "CHOSEN":
             continue
-        report["W_scan"] = scan
-        report["W_scan_unprobed"] = [x["index"] for x in rows[r["index"] + 1:]]
+        report[f"{key}_scan"] = scan
+        report[f"{key}_scan_unprobed"] = [x["index"] for x in rows[r["index"] + 1:]]
+        # THE JUMP THE LEG CAN SEE is the one the POSITION clamp leaves, and on a tall map that
+        # is less than the raw one (the ceiling binds). Leg W's sample count and its
+        # conservation line are about this number.
+        ceiling = ceiling_for(r["bg_span"], K["SCREEN_HEIGHT"], K["VSCROLL_BG_MAX"])
+        seen = abs(clamp_pos(target_scroll(cy_hi, cfg), ceiling)
+                   - clamp_pos(target_scroll(cy_lo, cfg), ceiling))
+        rec["clamped_jump"] = seen
+        if seen <= 2 * step_max:
+            rec["verdict"] = (f"REJECTED: the POSITION clamp (ceiling {ceiling}) leaves a jump of "
+                              f"{seen} px, not over 2 * {step_max}")
+            continue
         return {"row": r, "x": rec["probe_x"], "cam_y_lo": cy_lo, "cam_y_hi": cy_hi,
-                "cfg": cfg, "jump": jump}
-    report["W_scan"] = scan
-    report["W_scan_unprobed"] = []
+                "cfg": cfg, "jump": jump, "clamped_jump": seen, "tall": tall}
+    report[f"{key}_scan"] = scan
+    report[f"{key}_scan_unprobed"] = []
     raise LegBlocked(
-        "NO REGION IN THIS ACT CAN FORCE THE RATE CLAMP, and that is a finding about the act, "
-        f"not a tool failure. All {len(rows)} rows were probed and every one was rejected:\n  "
+        f"NO {'TALL-MAP' if tall else 'ONE-PLANE'} REGION IN THIS ACT CAN "
+        f"{'FORCE THE RATE CLAMP' if tall else 'SHOW THE ONE-PLANE SNAP'}, and that is a finding "
+        f"about the act, not a tool failure. All {len(rows)} rows were probed and every one was "
+        "rejected:\n  "
         + "\n  ".join(f"row {x['row']} {x['x']}x{x['y']}: {x['verdict']}" for x in scan)
         + f"\nA qualifying row needs a config with pcfg_v_factor_bg != 15 and a derived target "
           f"jump over 2 * {step_max} = {2 * step_max} px across the camera-Y travel available "
@@ -762,10 +815,22 @@ def check_leg(fails: list[str], K: dict, name: str, samples: list[dict],
                 "other than a tick. Blocked rather than reported: a multi-tick interval read as "
                 "one step is precisely how a working clamp looks broken.")
     steps, worst, binds, bound_at = [], 0, 0, []
+    unrated_steps, worst_unrated = 0, 0
     blocking: list[dict] = []
     for i in range(1, len(samples)):
         d = samples[i]["v"] - samples[i - 1]["v"]
         steps.append(d)
+        # WHICH REGION PRODUCED THIS STEP — the same pairing A3 uses below: per tick, the sample
+        # AT i (Region_Current at tick i's entry is what tick i-1's Parallax_Update read); per
+        # invocation, the entry sample BEFORE the store. The rate clamp acts only where that
+        # region's map is taller than the plane (`rate_applies`); elsewhere a step of any size is
+        # the author's transition, and A1 and the bind accounting have nothing to say about it —
+        # A3 still models it exactly (the snap or the lerp, no rate arm).
+        src_r = samples[i] if granularity == "tick" else samples[i - 1]
+        if not _rated(src_r, K):
+            unrated_steps += 1
+            worst_unrated = max(worst_unrated, abs(d))
+            continue
         worst = max(worst, abs(d))
         if abs(d) == step_max:
             binds += 1
@@ -825,7 +890,7 @@ def check_leg(fails: list[str], K: dict, name: str, samples: list[dict],
                              "not model the sine term. Teach it before trusting any verdict here")
         modelled += 1
         want = clamp_model(target_scroll(src["cam_y"], src["cfg"]), a["v"], src["ceiling"],
-                           step_max)
+                           step_max, _rated(src, K))
         if want != s["v"]:
             mismatched += 1
             if mismatched <= 3:
@@ -842,12 +907,24 @@ def check_leg(fails: list[str], K: dict, name: str, samples: list[dict],
                          for k in ("config", "camera", "backlog", "combined",
                                    "contradiction", "unmodelled")},
             "ticks": len(samples) - 1, "v_first": samples[0]["v"],
+            "unrated_steps": unrated_steps, "worst_unrated_step": worst_unrated,
             "v_last": samples[-1]["v"], "v_min": min(s["v"] for s in samples),
             "v_max": max(s["v"] for s in samples), "worst_step": worst,
             "ticks_at_the_bound": binds, "modelled_ticks": modelled,
             "model_mismatches": mismatched,
             "rows_visited": sorted({s["row"] for s in samples}, key=lambda r: (r is None, r)),
             "steps": steps}
+
+
+def _rated(sample: dict, K: dict) -> bool:
+    """`rate_applies` for one sample. The rig stores it as `tall`; a hand-built fixture may carry
+    only `span`, and one carrying neither is refused rather than guessed at."""
+    if "tall" in sample:
+        return sample["tall"]
+    if "span" not in sample:
+        raise SetupError("a sample carries neither `tall` nor `span`, so nothing says whether the "
+                         "rate clamp applied to the step it produced")
+    return rate_applies(sample["span"], K)
 
 
 def longest_run_at(steps: list[int], mag: int) -> int:
@@ -860,6 +937,7 @@ def longest_run_at(steps: list[int], mag: int) -> int:
 
 async def run(args) -> int:
     K = emp_consts(["BG_VSCROLL_MAX_STEP", "BG_VSCROLL_ROW_PX", "BG_VSCROLL_MAX_STEP_ROWS",
+                    "BG_TALL_MAP_MIN_SPAN",
                     "VSCROLL_BG_MAX", "SCREEN_HEIGHT", "PLANE_B_SPAN", "PLANE_B_CELL_ROWS",
                     "PARALLAX_LERP_SHIFT", "CAM_SCREEN_HALF_W", "CAM_SCREEN_HALF_H",
                     "PLAYER_DEBUG_FLY_SPEED"])
@@ -1003,23 +1081,34 @@ async def run(args) -> int:
                    "the surrounding trace PRINTED, not exit 0 with advice to go and read it."))
         await run_leg("D", _legD)
 
-        # ---- the shared precondition for W and S: a vertically RESPONSIVE region ----------
-        plan = None
+        # ---- the precondition for W, X and S: a vertically RESPONSIVE region, of a KIND ----
+        # Two plans since SHORT-TUNNEL-VSCROLL-RATCHET (2026-09-27): W needs a map TALLER than
+        # the plane (the only kind the rate clamp acts on), X and S a ONE-PLANE map.
+        plans: dict = {"W": None, "X": None}
 
-        async def _plan():
-            nonlocal plan
-            plan = await plan_vertical_leg(rig, b, sym, rows, K, cam_x_max, cam_y_max,
-                                           step_max, report)
+        async def _plan(key: str, tall: bool):
+            p = await plan_vertical_leg(rig, b, sym, rows, K, cam_x_max, cam_y_max,
+                                        step_max, report, tall=tall, key=key)
+            plans[key] = p
             findings.append(
-                f"W/S aim: region row {plan['row']['index']} "
-                f"[{plan['row']['x0']}..{plan['row']['x1']}]x[{plan['row']['y0']}.."
-                f"{plan['row']['y1']}] at x={plan['x']}, camera Y {plan['cam_y_lo']}.."
-                f"{plan['cam_y_hi']}, config {plan['cfg']['ptr']:#x} "
-                f"(v_factor {plan['cfg']['v_factor']}, v_center {s16(plan['cfg']['v_center'])}, "
-                f"v_offset {s16(plan['cfg']['v_offset'])}) -> derived target jump "
-                f"{plan['jump']} px, needs > {2 * step_max}. Chosen from the act's own table, "
-                "not inherited from wherever the earlier legs left the camera.")
-        await run_leg("W_plan", _plan)
+                f"{key} aim ({'tall map' if tall else 'one-plane map'}): region row "
+                f"{p['row']['index']} [{p['row']['x0']}..{p['row']['x1']}]x[{p['row']['y0']}.."
+                f"{p['row']['y1']}] span {p['row']['bg_span']} at x={p['x']}, camera Y "
+                f"{p['cam_y_lo']}..{p['cam_y_hi']}, config {p['cfg']['ptr']:#x} "
+                f"(v_factor {p['cfg']['v_factor']}, v_center {s16(p['cfg']['v_center'])}, "
+                f"v_offset {s16(p['cfg']['v_offset'])}) -> derived target jump {p['jump']} px, "
+                f"{p['clamped_jump']} after the position clamp, needs > {2 * step_max}. Chosen "
+                "from the act's own table, not inherited from wherever the earlier legs left the "
+                "camera.")
+
+        async def _plan_w():
+            await _plan("W", True)
+
+        async def _plan_x():
+            await _plan("X", False)
+        await run_leg("W_plan", _plan_w)
+        await run_leg("X_plan", _plan_x)
+        plan = plans["W"]
 
         # ---- leg W: the rate DISCRIMINATOR — a DEBUG warp that must ratchet ---------------
         async def _legW():
@@ -1035,7 +1124,7 @@ async def run(args) -> int:
             # Parallax_Update twice, so per-tick sampling reports two clamped stores as one
             # 32 px step and A1 goes red on a clamp that is working. Enough samples to cover
             # the whole ratchet with margin: one store per BG_VSCROLL_MAX_STEP of the jump.
-            n = plan["jump"] // step_max + 8
+            n = plan["clamped_jump"] // step_max + 8
             legW = await leg_step5(rig, "W", n, WARP_MAX_FRAMES)
             flag = await rd(b, sym["Warp_Req_Flag"], 1)
             if flag:
@@ -1050,6 +1139,7 @@ async def run(args) -> int:
                                 "logic_ticks_spanned": legW[-1]["logic_tick"]
                                                        - legW[0]["logic_tick"],
                                 "derived_target_jump": plan["jump"],
+                                "clamped_target_jump": plan["clamped_jump"],
                                 "needs_more_than": 2 * step_max})
             run_at_bound = longest_run_at(report["W"]["steps"], step_max)
             report["W"]["longest_run_at_the_bound"] = run_at_bound
@@ -1072,8 +1162,71 @@ async def run(args) -> int:
                     "the leg that is red with the rate clamp reverted. Conservation: the ratchet "
                     f"travelled {travel} px over {len(legW) - 1} invocations "
                     f"({report['W']['logic_ticks_spanned']} logic ticks) against a derived jump "
-                    f"of {plan['jump']}; every pixel is accounted for and none skipped.")
+                    f"of {plan['clamped_jump']} (after the position clamp); every pixel is "
+                    "accounted for and none skipped.")
         await run_leg("W", _legW)
+
+        # ---- leg X: the ONE-PLANE DISCRIMINATOR — the same warp must NOT ratchet -----------
+        # SHORT-TUNNEL-VSCROLL-RATCHET (2026-09-27). The mirror of leg W on a map the plane holds
+        # whole: the rate clamp is skipped there, so the scroll must reach the position-clamped
+        # target in ONE Parallax_Update invocation (the warp consumer's own) and never step at
+        # the bound. Red with the one-plane arm reverted (A6: a run at the bound, and A3: the
+        # model says snap); leg W is red with the arm applied to every map (A4).
+        async def _legX():
+            px = plans["X"]
+            if px is None:
+                raise LegBlocked("no one-plane region qualified — see X_plan.")
+            half_h = K["HALF_H"]
+            wx, y_top, y_bot = px["x"], px["cam_y_lo"] + half_h, px["cam_y_hi"] + half_h
+            await warp_to(b, sym, rig, wx, y_top)
+            # SETTLE WITH THE WARP'S BUDGET, NOT A TICK'S. Unlike leg W (which warps from leg
+            # D's end, inside the same row), X arrives here from W's end on the far side of the
+            # act (row 11 bottom -> row 1 top), and the first tick after that warp re-streams
+            # the whole window: MEASURED 2026-09-27, it ran 9..16 frames (stopped in
+            # PageCache_Audit.dw_fast, DEBUG) against TICK_MAX_FRAMES = 8, on the base ROM too,
+            # so it is this instrument's budget and not the engine change. Nothing is sampled
+            # while settling, so the wider ceiling measures nothing less.
+            for _ in range(SETTLE_TICKS):
+                await rig.tick(WARP_MAX_FRAMES)
+            await warp_to(b, sym, rig, wx, y_bot, tick=False)
+            # As many samples as the ratchet WOULD take, so a reverted arm is seen whole.
+            n = px["clamped_jump"] // step_max + 8
+            legX = await leg_step5(rig, "X", n, WARP_MAX_FRAMES)
+            flag = await rd(b, sym["Warp_Req_Flag"], 1)
+            if flag:
+                raise LegBlocked(f"Warp_Req_Flag is still {flag} after the warp tick — the warp "
+                                 "never happened.")
+            report["X"] = check_leg(fails, K, "X (one-plane warp, per Parallax_Update)", legX,
+                                    granularity="step5")
+            steps = report["X"]["steps"]
+            big = [d for d in steps if abs(d) > step_max]
+            run_at_bound = longest_run_at(steps, step_max)
+            travel = legX[-1]["v"] - legX[0]["v"]
+            report["X"].update({"x": wx, "from_player_y": y_top, "to_player_y": y_bot,
+                                "clamped_target_jump": px["clamped_jump"],
+                                "steps_over_the_bound": big,
+                                "longest_run_at_the_bound": run_at_bound, "travel": travel})
+            if report["X"]["unrated_steps"] != len(steps):                       # A6
+                fails.append(
+                    f"A6: leg X ran in a one-plane row, yet {len(steps) - report['X']['unrated_steps']}"
+                    " of its steps were produced by a region the rate clamp applies to; the aim "
+                    "left the row. Rows visited: " + str(report["X"]["rows_visited"]))
+            elif len(big) != 1 or run_at_bound >= 2:                              # A6
+                fails.append(
+                    f"A6: after a warp on a ONE-PLANE map whose position-clamped jump is "
+                    f"{px['clamped_jump']} px, the scroll should reach it in ONE invocation "
+                    f"(one step over {step_max}, none at the bound in a row). Steps over the "
+                    f"bound: {big}; longest run at exactly {step_max}: {run_at_bound}. A run is "
+                    "the rate clamp acting where the streamer has no window to outrun: the "
+                    f"one-plane arm is not in this ROM. Steps: {steps[:12]}")
+            else:
+                findings.append(
+                    f"A6: on a one-plane map the warp moved the BG scroll {big[0]} px in ONE "
+                    f"Parallax_Update invocation (travel {travel} over {len(legX) - 1} "
+                    f"invocations against a position-clamped jump of {px['clamped_jump']}), no run "
+                    "at the bound — the rate clamp is skipped where the streamer has no window "
+                    "to outrun. This is the leg that is red with the one-plane arm reverted.")
+        await run_leg("X", _legX)
 
         # ---- leg S: the position DISCRIMINATOR — a PATCHED ROM, not a live poke ----------
         #
@@ -1106,8 +1259,9 @@ async def run(args) -> int:
                 raise LegBlocked(
                     "SKIPPED by --skip-poke. Nothing in this run tested step 4's POSITION "
                     "change; the verdict covers the rate clamp only.")
+            plan = plans["X"]         # S patches a span SHORTER than the plane: a one-plane row
             if plan is None:
-                raise LegBlocked("no region qualified for the vertical legs — see W_plan.")
+                raise LegBlocked("no one-plane region qualified for leg S — see X_plan.")
             half_h = K["HALF_H"]
             row, cfg = plan["row"], plan["cfg"]
             ro, _ = region_table.region_layout()
@@ -1211,7 +1365,7 @@ async def run(args) -> int:
                     "with the position change reverted.")
         await run_leg("S", _legS)
         report["blocked"] = [{"leg": n, "why": w} for n, w in blocked]
-        report["unexplained"] = [o for k in ("C", "D", "W", "S")
+        report["unexplained"] = [o for k in ("C", "D", "W", "X", "S")
                                  for o in report.get(k, {}).get("blocking_observations", [])]
     finally:
         try:
@@ -1233,7 +1387,7 @@ def finish(args, report, fails, findings) -> int:
               f"VSCROLL_BG_MAX = {c['VSCROLL_BG_MAX']}, SCREEN_HEIGHT = {c['SCREEN_HEIGHT']}")
         print(f"  region rows authoring an rg_bg_span: {report['rows_with_authored_span']} "
               f"of {len(report['rows'])}")
-        for key in ("C", "D", "W", "S"):
+        for key in ("C", "D", "W", "X", "S"):
             g = report.get(key)
             if not g:
                 continue
@@ -1242,16 +1396,19 @@ def finish(args, report, fails, findings) -> int:
                 continue
             print(f"  {g['leg']}: {g['ticks']} ticks, v {g['v_first']} -> {g['v_last']} "
                   f"(min {g['v_min']}, max {g['v_max']}), worst step {g['worst_step']}, "
-                  f"{g['ticks_at_the_bound']} tick(s) at the bound, {g['modelled_ticks']} "
+                  f"{g['ticks_at_the_bound']} tick(s) at the bound, {g['unrated_steps']} step(s) "
+                  f"on a one-plane map (unrated, worst {g['worst_unrated_step']}), "
+                  f"{g['modelled_ticks']} "
                   f"modelled ({g['model_mismatches']} mismatched), rows {g['rows_visited']}")
-        for r in report.get("W_scan", []):
-            print(f"  scan row {r['row']} {r['x']}x{r['y']} "
-                  + (f"cfg {r['cfg']} v_factor {r['v_factor']} jump {r.get('derived_jump')}: "
-                     if "cfg" in r else "")
-                  + r.get("verdict", "(not probed)"))
-        if report.get("W_scan_unprobed"):
-            print(f"  scan stopped at the first qualifying row; rows "
-                  f"{report['W_scan_unprobed']} were not probed")
+        for key in ("W", "X"):
+            for r in report.get(f"{key}_scan", []):
+                print(f"  {key} scan row {r['row']} {r['x']}x{r['y']} "
+                      + (f"cfg {r['cfg']} v_factor {r['v_factor']} jump {r.get('derived_jump')}: "
+                         if "cfg" in r else "")
+                      + r.get("verdict", "(not probed)"))
+            if report.get(f"{key}_scan_unprobed"):
+                print(f"  {key} scan stopped at the first qualifying row; rows "
+                      f"{report[f'{key}_scan_unprobed']} were not probed")
         for f in findings:
             print(f"FINDING {f}")
     blocked = report.get("blocked", [])
@@ -1291,7 +1448,7 @@ def finish(args, report, fails, findings) -> int:
         print("COULD NOT RUN:", file=sys.stderr)
         for n in blocked:
             print(f"  - leg {n['leg']}: {n['why']}", file=sys.stderr)
-        ran = [k for k in ("C", "D", "W", "S")
+        ran = [k for k in ("C", "D", "W", "X", "S")
                if k in report and "could_not_run" not in report[k]]
         print(f"\n  {len(ran)} leg(s) DID run and their assertions held "
               f"({', '.join(ran) or 'none'}), and that is reported above rather than thrown "
@@ -1300,6 +1457,10 @@ def finish(args, report, fails, findings) -> int:
             print("  WITHOUT LEG W NOTHING HERE TESTED THE RATE CLAMP. In ordinary play the "
                   "target never moves more than the bound, so C and D produce identical "
                   "numbers on a tree with the rate clamp removed.", file=sys.stderr)
+        if "X" not in ran:
+            print("  WITHOUT LEG X NOTHING HERE TESTED THE ONE-PLANE ARM (the rate clamp is "
+                  "skipped on a map the plane holds whole). A tree with that arm reverted "
+                  "passes W, C and D unchanged.", file=sys.stderr)
         if "S" not in ran:
             print("  WITHOUT LEG S NOTHING HERE TESTED THE POSITION CLAMP, AND NOTHING ELSE IN "
                   "THIS TREE CAN. Every shipped region row leaves rg_bg_span at 0, so every "
@@ -1363,6 +1524,13 @@ if __name__ == "__main__":
 #       the message naming VSCROLL_BG_MAX explicitly ("the position change is not in this ROM"),
 #       and legs C/D/W UNCHANGED AND GREEN — which is the point being demonstrated: on a tree
 #       where no row authors a span, C/D/W cannot see this change at all.
+#
+#   (c) THE ONE-PLANE ARM (2026-09-27, SHORT-TUNNEL-VSCROLL-RATCHET). Delete the two instructions
+#       `cmpi.w #BG_TALL_MAP_MIN_SPAN - SCREEN_HEIGHT, d3` / `blt .v_store`. EXPECT: A6 red on leg X
+#       (a run at the bound) and A3 red there (the model snaps); W unchanged. And the other way,
+#       `blt` -> `bra`: EXPECT A4 red on leg W (no run at the bound on the tall map) and A1/A3
+#       red there. The parcel's record of both runs is in DEFERRED_WORK's closure of
+#       SHORT-TUNNEL-VSCROLL-RATCHET.
 #
 # A mutation that leaves the tool green is a runner defect, not a pass: check that the rebuilt
 # ROM is the one the witness loaded (`--rom`) before concluding anything about the instrument.
