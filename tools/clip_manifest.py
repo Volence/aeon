@@ -229,6 +229,30 @@ PIXEL BY PIXEL FROM ITS OWN COLLISION, so the art and the ground cannot disagree
       on both planes. A ONE-PATH zone (no plane-B collision anywhere in its tree,
       `zone_has_plane_b`: Sonic 2's Metropolis) is pasted with its plane A on both planes
       (`_clip_collision`), so its seams are read on both planes like any other.
+  K8  the optional `fill` (below): a `why`, a rect on the 16-px collision block grid inside
+      the act, and every clip/corridor edge that meets it on that grid too (one block has
+      one collision word, so it cannot be half fill).
+
+FILL (the woven report's §C item 6, 2026-09-27). v1's seal walls, generalised: in a woven
+act the zones sit a connector's length apart in BOTH axes, and everything between them that
+is not a connector would otherwise be VOID — no art (the background and backdrop show) and
+no collision (a player who finds a gap falls through the act). Schema, beside `clips`:
+
+    "fill": { "rect": { "x": 0, "y": 0, "w": 9216, "h": 6464 },   // 16-px grid
+              "why": "the woven layout's neutral fill between its clips" }
+
+Every cell inside `rect` that no clip or corridor covers is FILL:
+  * ART: the open corridor's plain stone course on CRAM LINE 0 (CORRIDOR_PAL_LINE's reason:
+    the one line no region install writes, so the fill looks the same whichever zone's
+    palette is up). One tile, appended to the corridor sheet after every corridor's, so an
+    act without a fill has the sheet it always had. How it LOOKS is the owner's call.
+  * COLLISION: the bank's full solid block, solid on every side, on BOTH planes — the
+    corridor floor's word, so it adds no attr entry an act with a corridor lacks. Solid on
+    purpose: a Sonic 2 clip runs its pits to its bottom edge (the woven report's §A.2), and
+    in a woven act a pit's bottom is now fill, a floor, instead of a fall through the act.
+  * ZONE KEY: the corridor sheet's. Z1 (clip_act_bake.zone_separation) does not count it
+    as a zone, for the corridor's reason.
+In `validate --json` a fill refusal's subject is `{"kind": "fill", "index": 0, "id": null}`.
 
 `validate --json` (added 2026-09-25 for aurora's Sonic 2 donor page; design §8 RULED block,
 row-8 work). Same checks, same exit codes (0 accepted, 1 refused), and the human mode's
@@ -243,7 +267,7 @@ on stdout:
                                 //   the few untagged refusals (a top level that is not an
                                 //   object; an engine constant this file cannot read)
           "subjects": [         // WHICH clip(s)/corridor(s). [] = an act-level refusal
-            { "kind": "clip",   // "clip" or "corridor"
+            { "kind": "clip",   // "clip" or "corridor" ("fill" for K8)
               "index": 1,       // position in clips.json's `clips` / `corridors` list
               "id": "cpz_s2" }  // its id, or null when it has none (not an object, no id)
           ],                    // TWO subjects for a pair rule: R10 (overlap), a duplicate
@@ -440,6 +464,23 @@ class Corridor:
 
     def __repr__(self):
         return f"<Corridor {self.id} dst={self.dst} floor_y={self.floor_y}>"
+
+
+class Fill:
+    """NEUTRAL FILL (the woven report's §C item 6): solid, line-0 stone in every cell of
+    `rect` that no clip, corridor or shaft covers. See FILL in the header."""
+
+    __slots__ = ("rect", "why")
+
+    def __init__(self, raw):
+        self.rect = tuple(int(raw["rect"][k]) for k in _RECT_KEYS)
+        self.why = raw["why"]
+
+    def as_json(self):
+        return {"rect": dict(zip(_RECT_KEYS, self.rect)), "why": self.why}
+
+    def __repr__(self):
+        return f"<Fill {self.rect}>"
 
 
 #: The corridor sheet's name in the zone table. Not a donor: `tilesets()` synthesises it.
@@ -639,13 +680,15 @@ class ClipAct:
     """A validated clips.json: the act grid, the clips, and the derived zone-key table."""
 
     def __init__(self, path, raw, clips, grid_w, grid_h, constants, warnings,
-                 corridors=()):
+                 corridors=(), fill=None):
         self.path = path
         self.raw = raw
         self.id = raw["id"]
         self.name = raw.get("name") or raw["id"]
         self.clips = clips
         self.corridors = list(corridors)
+        #: the act's NEUTRAL FILL (a Fill), or None: nothing between the clips is painted
+        self.fill = fill
         self.grid_w = grid_w
         self.grid_h = grid_h
         self.constants = constants
@@ -682,19 +725,26 @@ class ClipAct:
         return out
 
     @property
+    def has_sheet(self):
+        """True when the act paints anything that is not a donor clip: a corridor or the
+        neutral fill. All of it is drawn from the ONE corridor sheet."""
+        return bool(self.corridors) or self.fill is not None
+
+    @property
     def corridor_key(self):
         """The corridor sheet's zone key (one past the donor zones), or None."""
-        return len(self.zone_table) if self.corridors else None
+        return len(self.zone_table) if self.has_sheet else None
 
     @property
     def sheet_table(self):
         """Every tileset the act's cells index, by zone key: the donor zones, then the
-        corridor sheet if the act has a corridor."""
-        return self.zone_table + ([CORRIDOR_SHEET] if self.corridors else [])
+        corridor sheet if the act has a corridor or a fill."""
+        return self.zone_table + ([CORRIDOR_SHEET] if self.has_sheet else [])
 
     def summary(self):
         return (f"{self.id}: {len(self.clips)} clip(s), {len(self.zone_table)} zone(s), "
                 f"{len(self.corridors)} corridor(s), "
+                + ("a neutral fill, " if self.fill is not None else "") +
                 f"act grid {self.grid_w}x{self.grid_h} sections "
                 f"({self.cols}x{self.rows} cells)")
 
@@ -1121,7 +1171,48 @@ def load(path, donor_root=None, constants=None, warn=None, warning_records=None)
                   f"the sum of both zones' tiles in it. The bake prints the map size per "
                   f"section and refuses past the cap.", [_subject_of(m) for m in members])
 
-    return ClipAct(path, raw, clips, grid_w, grid_h, c, warnings, corridors)
+    fill = _load_fill(path, raw, placed, grid_w * sec_px, grid_h * sec_px)
+    return ClipAct(path, raw, clips, grid_w, grid_h, c, warnings, corridors, fill=fill)
+
+
+def _load_fill(path, raw, placed, act_w, act_h):
+    """K8 — the act's optional NEUTRAL FILL (see FILL in the header). `placed` is every
+    clip and corridor already validated; the fill paints around them, never over."""
+    if "fill" not in raw:
+        return None
+    fr = raw["fill"]
+    here = [subject("fill", 0, None)]
+    if not isinstance(fr, dict) or "rect" not in fr:
+        raise ClipManifestError(f"K8 {path}: `fill` must be an object with `rect` and `why`",
+                                here)
+    if not (isinstance(fr.get("why"), str) and fr["why"].strip()):
+        raise ClipManifestError(
+            f"K8 {path}: `fill` has no `why`. Every cell it paints is solid ground nobody "
+            f"authored; the reason it is there is written beside it", here)
+    _require_rect("fill.rect", fr["rect"], here)
+    fill = Fill(fr)
+    x, y, w, h = fill.rect
+    if any(v % COLL_QUANTUM_PX for v in fill.rect):
+        raise ClipManifestError(
+            f"K8 {path}: fill.rect ({_rect_str(fill.rect)}) is not on the {COLL_QUANTUM_PX}-px "
+            f"collision block grid. A fill cell is a full solid BLOCK, and a block half fill "
+            f"and half something else has no one word that is right for both halves", here)
+    if x + w > act_w or y + h > act_h:
+        raise ClipManifestError(
+            f"K8 {path}: fill.rect ({_rect_str(fill.rect)}) runs past the act "
+            f"({act_w}x{act_h} px)", here)
+    for p in placed:
+        px, py, pw, ph = p.dst
+        if not (px < x + w and x < px + pw and py < y + h and y < py + ph):
+            continue
+        for k, v in (("x", px), ("y", py), ("x + w", px + pw), ("y + h", py + ph)):
+            if v % COLL_QUANTUM_PX:
+                raise ClipManifestError(
+                    f"K8 {path}: {p.id!r} meets the fill with its edge {k} = {v}, which is "
+                    f"not on the {COLL_QUANTUM_PX}-px collision block grid: one block would "
+                    f"be half fill and half {p.id!r}, and a block has ONE collision word",
+                    here + [_subject_of(p)])
+    return fill
 
 
 # ---------------------------------------------------------------------------
@@ -1178,10 +1269,15 @@ def cell_grids(act, donor_root=None):
         dx, dy = cl.dst[0] // TILE_PX, cl.dst[1] // TILE_PX
         words[dy:dy + sh, dx:dx + sw] = src_words[sy:sy + sh, sx:sx + sw]
         zone_id[dy:dy + sh, dx:dx + sw] = cl.zone_key
-    for co, (cw, _sheet) in zip(act.corridors, corridor_art(act, donor_root)[1]):
+    art = connector_art(act, donor_root)
+    for co, (cw, _sheet) in zip(act.corridors, art["corridors"]):
         dx, dy, w, h = (v // TILE_PX for v in co.dst)
         words[dy:dy + h, dx:dx + w] = cw
         zone_id[dy:dy + h, dx:dx + w] = act.corridor_key
+    if act.fill is not None:
+        m = fill_mask(act)
+        words[m] = art["fill_word"]
+        zone_id[m] = act.corridor_key
     return words, zone_id
 
 
@@ -1377,10 +1473,37 @@ def corridor_collision(act, co, donor_root=None):
 
 def corridor_art(act, donor_root=None):
     """(sheet bytes, [(words, None)] per corridor) — the corridor sheet and every corridor's
-    nametable words, painted PIXEL BY PIXEL FROM THE CORRIDOR'S OWN COLLISION so the art
-    and the ground cannot disagree (a seam ramp is drawn exactly where it is stood on).
+    nametable words. `connector_art` is the whole painter (it also draws the neutral fill
+    into the same sheet); this is its corridor view, kept for the callers that read only
+    corridors."""
+    art = connector_art(act, donor_root)
+    return art["sheet"], art["corridors"]
 
-    Every pixel of the rectangle is one of:
+
+def fill_mask(act):
+    """(rows, cols) bool — the cells the neutral fill paints: inside `fill.rect`, outside
+    every clip and corridor. All False for an act with no fill."""
+    import numpy as np
+    m = np.zeros((act.rows, act.cols), dtype=bool)
+    if act.fill is None:
+        return m
+    x, y, w, h = (v // TILE_PX for v in act.fill.rect)
+    m[y:y + h, x:x + w] = True
+    for p in list(act.clips) + list(act.corridors):
+        dx, dy, dw, dh = (v // TILE_PX for v in p.dst)
+        m[dy:dy + dh, dx:dx + dw] = False
+    return m
+
+
+def connector_art(act, donor_root=None):
+    """{"sheet": bytes, "corridors": [(words, None)], "fill_word": int or None} — the
+    corridor sheet and everything painted from it: every corridor's nametable words and the
+    one word the neutral fill repeats.
+
+    CORRIDORS are painted PIXEL BY PIXEL FROM THEIR OWN COLLISION so the art and the ground
+    cannot disagree (a seam ramp is drawn exactly where it is stood on).
+
+    Every pixel of a corridor's rectangle is one of:
       * SOLID (its collision covers it, floor or ceiling): the tunnel's `wall_src` texture,
         or for an open corridor the plain stone course (CORRIDOR_COLOURS fill with a mortar
         line every 8 px). The floor's top two pixels are its lip (edge_hi, edge); a
@@ -1390,11 +1513,16 @@ def corridor_art(act, donor_root=None):
       * OPEN, in an open corridor: transparent (index 0), the background shows as before.
     Textures are anchored to the surface they hang from: the floor's to floor_y, the
     ceiling's and back wall's to ceiling_y, and to the corridor's left edge in x.
+
+    THE FILL is the plain stone course, one tile repeated (every fill cell is solid on both
+    planes, `collision_grids`). Its tile is appended AFTER every corridor's, so an act
+    without a fill has the sheet it always had, byte for byte.
+
     All of it on CORRIDOR_PAL_LINE. Tiles are deduplicated exactly (the act's keyed dedupe
     finds flips later); tile 0 is blank."""
     import numpy as np
     donor_root = _root(donor_root)
-    key = (donor_root, "corridor_art")
+    key = (donor_root, "connector_art")
     if key in act._memo:
         return act._memo[key]
     line0 = _palette_lines(open(LINE0_PALETTE, "rb").read()[:32])[0]
@@ -1403,6 +1531,14 @@ def corridor_art(act, donor_root=None):
     stone = np.full((8, 8), c["fill"], dtype=np.uint8)
     stone[7, :] = c["mortar"]
     sheet, index = [bytes(32)], {bytes(32): 0}
+
+    def tile_word(px8):
+        tb = _pack_tile(px8)
+        if tb not in index:
+            index[tb] = len(sheet)
+            sheet.append(tb)
+        return index[tb] | (CORRIDOR_PAL_LINE << 13)
+
     grids = []
     for co in act.corridors:
         cw, _ramps = corridor_collision(act, co, donor_root)
@@ -1451,13 +1587,10 @@ def corridor_art(act, donor_root=None):
         words = np.zeros((H // TILE_PX, W // TILE_PX), dtype=np.uint16)
         for ty in range(H // TILE_PX):
             for tx in range(W // TILE_PX):
-                tb = _pack_tile(pix[ty * 8:ty * 8 + 8, tx * 8:tx * 8 + 8])
-                if tb not in index:
-                    index[tb] = len(sheet)
-                    sheet.append(tb)
-                words[ty, tx] = index[tb] | (CORRIDOR_PAL_LINE << 13)
+                words[ty, tx] = tile_word(pix[ty * 8:ty * 8 + 8, tx * 8:tx * 8 + 8])
         grids.append((words, None))
-    out = (b"".join(sheet), grids)
+    fill_word = tile_word(stone) if act.fill is not None else None
+    out = {"sheet": b"".join(sheet), "corridors": grids, "fill_word": fill_word}
     act._memo[key] = out
     return out
 
@@ -1513,6 +1646,15 @@ def collision_grids(act, donor_root=None):
         dx, dy, w, h = (v // TILE_PX for v in co.dst)
         for p in range(2):
             planes[p][dy:dy + h, dx:dx + w] = cw
+    if act.fill is not None:
+        # the neutral fill: the bank's full solid block, solid on every side, both planes —
+        # the corridor floor's word (`corridor_floor_shape`), so it adds no attr entry an
+        # act with a corridor does not already carry
+        m = fill_mask(act)
+        full = corridor_floor_shape(collision_banks(act, donor_root)) | (
+            collision_pipeline.SOL_ALL << collision_pipeline.PLANE_SOL_SHIFT)
+        for p in range(2):
+            planes[p][m] = full
     return planes[0], planes[1]
 
 
@@ -1564,14 +1706,16 @@ def tilesets(act, donor_root=None):
                 f"{zm['tileset']['bytes']} — the converted tree is inconsistent; re-run "
                 f"tools/s2_zone_convert.py convert {donor}@{zone}")
         out.append((donor, zone, blob, zm))
-    if act.corridors:
+    if act.has_sheet:
         import hashlib
-        blob = corridor_art(act, donor_root)[0]
+        blob = connector_art(act, donor_root)["sheet"]
         out.append((CORRIDOR_SHEET[0], CORRIDOR_SHEET[1], blob,
                     {"tileset": {"bytes": len(blob),
                                  "sha256": hashlib.sha256(blob).hexdigest()},
                      "palette": None,
                      "synthesised": "clip_manifest.corridor_art()"}))
+    # (the stand-in's "synthesised" string is carried into clipact.json's zone_table, so it
+    # keeps the name it always had; the painter behind it is connector_art())
     return out
 
 
@@ -1652,6 +1796,9 @@ def _mode_validate(rest):
         print(f"  {cl.id}: src {_rect_str(cl.src)} -> dst {_rect_str(cl.dst)}{note}")
     for co in act.corridors:
         print(f"  corridor {co.id}: dst {_rect_str(co.dst)}, floor y={co.floor_y} "
+              f"(zone key {act.corridor_key}, synthesised)")
+    if act.fill is not None:
+        print(f"  fill: {_rect_str(act.fill.rect)}, {int(fill_mask(act).sum())} cell(s) "
               f"(zone key {act.corridor_key}, synthesised)")
     print(f"  {len(act.warnings)} warning(s)")
     return 0

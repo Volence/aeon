@@ -562,7 +562,7 @@ numbers.
 | 3 | Z2 and the music check on both axes | `clip_rom_bake.py` | M | required |
 | 4 | Walk every corridor, not `corr[0]` | `clip_rom_bake.py` | S | required |
 | 5 | 2-D reachability | `clip_reachability.py` | M | required |
-| 6 | **Neutral fill everywhere between clips** (v1's seal walls, generalised): solid, line 0, painted | new corridor-like kind | S-M | required |
+| 6 | **Neutral fill everywhere between clips** (v1's seal walls, generalised): solid, line 0, painted | new corridor-like kind | S-M | **DONE** 2026-09-27 (`parcel/woven-bake-2d`): `clips.json` `fill`, clip_manifest K8 |
 | 7 | The clip act owns its start | `clip_rom_bake`, `act_descriptor` | S | required |
 | 8 | Emit no inherited OJZ entities, which also lifts the multiple-of-3 section count | `ojz_entity_gen.py` | S | required |
 | 9 | **K6 into a zone with no plane-B floor.** MEASURED blocker for **every** tunnel in this layout. At Metropolis west's east edge every floor row is refused; 3 of them only by "planes disagree (16 and 0)" | `clip_manifest.py` K6 | **S** | **first** |

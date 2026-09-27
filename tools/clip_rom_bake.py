@@ -2153,6 +2153,8 @@ def _bake(manifest_path, donor_root=None, gen_dir=GEN_DIR, coll_dir=COLL_DIR,
             "the clip act's own table)",
         ],
     }
+    if act.fill is not None:
+        report["fill"] = act.fill.as_json()      # only when there is one (byte identity)
     with open(os.path.join(baked_dir, "clip_rom_bake.json"), "w") as fh:
         json.dump(report, fh, indent=2, sort_keys=True)
         fh.write("\n")
