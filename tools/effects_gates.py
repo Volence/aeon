@@ -1132,10 +1132,12 @@ def main() -> int:
                        "--rom", rom, "--lst", lst], "bg_wipe")
         results.append(row("bg_wipe",
                            "bg_wipe (GATE BG-WIPE: crossing into a region whose rg_bg_layout "
-                           "names a different blob arms a row sweep, the sweep retires exactly "
-                           "BG_WIPE_ROWS_PER_FRAME rows a tick starting at the top VISIBLE "
-                           "plane row, every row the cursor claims is one the producer drew, "
-                           "and a crossing between two rows with the same layout arms nothing)",
+                           "names a different blob arms a DMA row sweep, the sweep retires "
+                           "exactly the derived runs (ring wrap, held window's seam, "
+                           "BG_WIPE_DMA_ROWS) starting at the top VISIBLE plane row, the window "
+                           "is held until the last run lands, every row the cursor claims holds "
+                           "the held window's row, and a crossing between two rows with the "
+                           "same layout arms nothing)",
                            ok, msg, final=True))
 
     if wanted("bg_switch"):

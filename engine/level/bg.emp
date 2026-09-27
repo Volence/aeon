@@ -490,6 +490,17 @@ pub proc BG_UploadTiles (a1: *u8) clobbers(d1/a1-a2) {
 // possibility of a row being drawn twice — once by the sweep and once by the streamer when
 // it enters the window — and both draw it from the same new blob.
 //
+// ⚠ SUPERSEDED IN PART BY WOVEN-TALL-ENTRY (2026-09-27), and kept because the plane-row form
+// still earns its place. The paragraph above describes the CPU sweep, which followed a MOVING
+// window. That sweep is deleted: every map is now swept by DMA, and a queued DMA run cannot
+// follow a window that moves after it is queued, so the window is HELD for the sweep and its
+// landing (`.wipe_spend`, `.landing`, and BG_WIPE_HOLD_FRAMES' `ensure`). A stored plane row
+// is still right: runs are cut in PLANE rows (at the ring wrap and at the held window's seam),
+// and the map row each shows is derived from the held top. The costs this bought: the streamer
+// idles for the sweep's few frames (the lead absorbs the scroll's drift), and the "drawn twice"
+// case above cannot happen any more. The ordering rationale above (top visible row first,
+// walking down) is unchanged, at BG_WIPE_DMA_ROWS a run instead of BG_WIPE_ROWS_PER_FRAME.
+//
 // ---- WHAT THIS PROC DOES NOT DO, named so a green is not misread ----
 // Its steady-state half is the steady state only. A PRIME — the plane holding the wrong window
 // outright — is not reachable from here at 2 rows a frame, and the one path that

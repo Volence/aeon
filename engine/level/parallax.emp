@@ -761,8 +761,9 @@ ensure(VSCROLL_BG_MAX > 0,
 // it is the plane's own cell height, PLANE_B_SPAN / PLANE_B_CELL_ROWS, so a plane geometry
 // change carries it — and the step is stated in ROWS because rows are the unit the streamer
 // bills in. The spec names 16 px; 2 x 8 is that number with its reason attached. If the
-// budget ever becomes "N rows a frame" from the wipe's side (BG_WIPE_ROWS_PER_FRAME, step 6),
-// this is the constant that should be derived FROM it rather than agreeing with it by hand.
+// budget ever becomes "N rows a frame" from the streamer's side, this is the constant that
+// should be derived FROM it rather than agreeing with it by hand. (The wipe no longer bills
+// plane-buffer rows: it is a DMA sweep since WOVEN-TALL-ENTRY, 2026-09-27.)
 pub const BG_VSCROLL_ROW_PX        = PLANE_B_SPAN / PLANE_B_CELL_ROWS
 pub const BG_VSCROLL_MAX_STEP_ROWS = 2
 pub const BG_VSCROLL_MAX_STEP      = BG_VSCROLL_MAX_STEP_ROWS * BG_VSCROLL_ROW_PX
@@ -3082,10 +3083,12 @@ proc Parallax_Step5_Vscroll () clobbers(d0-d7/a0-a6) {
         // synchronous Plane B writers retire the cursor with `clr.w BG_Wipe_Cursor` as part
         // of priming. So the flag this site would have to test says "not being rebuilt" on
         // precisely the frame the plane was just rebuilt. Exempting the clamp during a WIPE
-        // would also be the wrong direction — the wipe is already spending
-        // BG_WIPE_ROWS_PER_FRAME row entries, so letting the scroll move faster there adds
-        // streamer rows on top of them. The booking stands, unchanged and now with a reason
-        // rather than a forecast.
+        // would also be the wrong direction — the window is HELD while a sweep runs (since
+        // WOVEN-TALL-ENTRY), so a faster scroll there only eats the lead the hold relies on.
+        // The booking stands. What WOVEN-TALL-ENTRY did add is the ONE frame a crossing
+        // changes the layout, (b1) below: the wipe then re-seeds the window from the scroll,
+        // so there is nothing to outrun. A warp still ratchets (its prime seeds the window
+        // BEFORE this runs; see Parallax_CheckBoundary's null-row rule).
         //
         // ---- (b0) NO WINDOW, NO RATE CLAMP (SHORT-TUNNEL-VSCROLL-RATCHET, 2026-09-27) ----
         //
