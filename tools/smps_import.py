@@ -183,11 +183,24 @@ S2_FTONE_MAP: dict[int, int] = {
 # toms go onto the S3K toms (the ruling's "kick and snare" wording did not name
 # them; the controller read the owner's "the Sonic 3 drums are fine" as covering
 # them). Sonic 2's own samples (s2disasm/sound/DAC/*.wav) stay a later option.
+#
+# MTZ (woven first screen, 2026-09-27) adds three names, each a READING of the same
+# ruling (docs/decisions.jsonl S2CLIP-MUSIC-DRUMS-MTZ records them): "the nearest Sonic 3
+# drum the engine carries". The engine carries exactly the six S3K HCZ2 drums (kick,
+# snare, hi/mid/low/floor tom, DacSampleTable ids 5..10) and no clap or scratch. A tom
+# goes to the tom of the same name; a clap and a scratch are unpitched noise transients,
+# and the one unpitched S3K sample carried besides the kick is the snare. MTZ plays each
+# as a fill at a phrase end (`dSnare, dScratch` rolls, `dClap` on the last beat). The song
+# converts cleanly through these (2,875 B + 192 B of patches) but is NOT embedded yet: it
+# does not fit the one 32 KB sound bank (docs/DEFERRED_WORK.md S2CLIP-MTZ-SONG-BANK).
 S2_DAC_MAP: dict[str, int] = {
-    "dKick":     5,   # -> s3k_kick     (EHZ, CPZ)
-    "dSnare":    6,   # -> s3k_snare    (EHZ, CPZ)
+    "dKick":     5,   # -> s3k_kick     (EHZ, CPZ, MTZ)
+    "dSnare":    6,   # -> s3k_snare    (EHZ, CPZ, MTZ)
     "dMidTom":   8,   # -> s3k_midtom   (EHZ)
-    "dFloorTom": 10,  # -> s3k_floortom (EHZ)
+    "dFloorTom": 10,  # -> s3k_floortom (EHZ, MTZ)
+    "dLowTom":   9,   # -> s3k_lowtom   (MTZ; the tom of the same name)
+    "dClap":     6,   # -> s3k_snare    (MTZ; the nearest carried noise transient)
+    "dScratch":  6,   # -> s3k_snare    (MTZ; the nearest carried noise transient)
 }
 
 
