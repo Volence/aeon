@@ -1179,8 +1179,15 @@ async def run(args) -> int:
             half_h = K["HALF_H"]
             wx, y_top, y_bot = px["x"], px["cam_y_lo"] + half_h, px["cam_y_hi"] + half_h
             await warp_to(b, sym, rig, wx, y_top)
+            # SETTLE WITH THE WARP'S BUDGET, NOT A TICK'S. Unlike leg W (which warps from leg
+            # D's end, inside the same row), X arrives here from W's end on the far side of the
+            # act (row 11 bottom -> row 1 top), and the first tick after that warp re-streams
+            # the whole window: MEASURED 2026-09-27, it ran 9..16 frames (stopped in
+            # PageCache_Audit.dw_fast, DEBUG) against TICK_MAX_FRAMES = 8, on the base ROM too,
+            # so it is this instrument's budget and not the engine change. Nothing is sampled
+            # while settling, so the wider ceiling measures nothing less.
             for _ in range(SETTLE_TICKS):
-                await rig.tick()
+                await rig.tick(WARP_MAX_FRAMES)
             await warp_to(b, sym, rig, wx, y_bot, tick=False)
             # As many samples as the ratchet WOULD take, so a reverted arm is seen whole.
             n = px["clamped_jump"] // step_max + 8
