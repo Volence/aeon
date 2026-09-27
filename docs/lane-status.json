@@ -16,11 +16,6 @@
       "id": "STEP8-RESIZE",
       "what": "Object video memory: halve the scroll plane now, or free savings now and halve it when badniks need it?",
       "since": "2026-09-27"
-    },
-    {
-      "id": "WOVEN-ACT-LOOK",
-      "what": "Fly the woven Sonic 2 act (s4.woven.debug.bin) and say what feels wrong",
-      "since": "2026-09-27"
     }
   ],
   "nextBoundary": "At a boundary, clearable. A fresh session starts the queue's next row; handoff is docs/lane-log.jsonl's last entry plus DEFERRED_WORK.",
@@ -160,10 +155,10 @@
     },
     {
       "id": "S2-COMPRESSED-ACT",
-      "title": "Woven act of all six Sonic 2 zones: built, plays through in test drives; your look next",
-      "state": "blocked",
+      "title": "Woven act of all six Sonic 2 zones: built and plays through in test drives; ready for your look",
+      "state": "open",
       "size": "L",
-      "blockedBy": "owner: fly the woven act",
+      "blockedBy": null,
       "project": "REGIONS"
     },
     {
@@ -212,5 +207,5 @@
   ],
   "awaiting": "Your look at the woven Sonic 2 act: open s4.woven.debug.bin (crc 617448a7) in the aeon folder, start at Emerald Hill.",
   "atBoundary": true,
-  "updatedAt": "2026-09-27T14:08:26Z"
+  "updatedAt": "2026-09-27T14:08:43Z"
 }
