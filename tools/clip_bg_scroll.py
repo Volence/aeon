@@ -1585,6 +1585,38 @@ def derive_tall(donor, zone, paste_dy, ext, words, donor_cam_x_max):
             "r0": r0, "rows": ext["rows"], "span": n, "v_lo": lo, "v_hi": hi}
 
 
+def vertical_coverage(donor, zone, paste_dy, cams, pick, wild=frozenset(),
+                      donor_cam_x_max=0):
+    """(exact, total, first_miss) over the act camera tops `cams`: a camera top is EXACT when
+    the engine's screen-top BG row (engine_vscroll + the spec's window_top, clamps included)
+    is Sonic 2's (v_bg), and every visible line whose BG row is not transparent (`wild`)
+    takes Sonic 2's kind for that row (the band the engine selects by PLANE line, compared as
+    Sonic 2's own ratio, `s2_ratio` where the engine approximates it, or drift rate).
+    `pick(camy)` is the spec the engine uses at that camera (a tall chain's layout, or the
+    zone's one windowed spec). The measure WINDOWED-BG-VERTICAL-CLAMP was booked on."""
+    raw, kind_of = _tall_source(donor, zone, donor_cam_x_max, 0)
+    exact, first = 0, None
+    for camy in cams:
+        spec = pick(camy)
+        vs = engine_vscroll(spec, camy)
+        top = vs + spec["window_top"]
+        ok = top == v_bg(raw, paste_dy, camy)
+        tops = [b["plane_top"] for b in spec["bands"]]
+        for line in range(SCREEN_LINES) if ok else ():
+            r = top + line
+            if r in wild:
+                continue
+            b = spec["bands"][max(i for i, t in enumerate(tops) if t <= (vs + line) % PLANE_LINES)]
+            got = ("drift", b["drift"]) if b.get("drift") else ("flat", b.get("s2_ratio", b["ratio"]))
+            if got != kind_of(r):
+                ok = False
+                break
+        exact += ok
+        if not ok and first is None:
+            first = camy
+    return exact, len(cams), first
+
+
 # ---------------------------------------------------------------------------
 # emission: scene_dsl text
 # ---------------------------------------------------------------------------
