@@ -5,11 +5,6 @@
       "what": "Clip levels taller than 3 sections (Oil Ocean off the woven act's bottom edge)",
       "where": "branch parcel/clip-act-taller",
       "agent": true
-    },
-    {
-      "what": "Rebuilding the woven act ROM for you with the new backgrounds",
-      "where": "main checkout",
-      "agent": false
     }
   ],
   "blockedOnOwner": [
@@ -217,7 +212,7 @@
       "project": "REGIONS"
     }
   ],
-  "awaiting": null,
+  "awaiting": "Your look at the woven act, now with full-height backgrounds: s4.woven.debug.bin (crc 2a0f1df3) in the aeon folder; the old one is kept as s4.woven.debug.prev-617448a7.bin.",
   "atBoundary": false,
-  "updatedAt": "2026-09-27T17:52:00Z"
+  "updatedAt": "2026-09-27T18:12:18Z"
 }
