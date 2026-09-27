@@ -250,6 +250,23 @@ first full window and FAILS unless it halts on the thrash raise (the demand path
 halt). Reads the baked tree the same nightly's mtz clip build wrote. Red-first in
 docs/DEFERRED_WORK.md PREFETCH-THRASH-AT-FULL-WINDOW. On a canonical ROM it exits 2."""
 
+# ---- the WOVEN MEGA-ACT ROM: tools/nightly_instrument_keepalive.sh builds DEBUG S2CLIP=s2_woven
+# and keeps it as s4.s2clip_woven.debug.* ----
+
+[wired."first_screen_fg_witness.py"]
+args = ["--rom", "{repo}/s4.s2clip_woven.debug.bin", "--lst", "{repo}/s4.s2clip_woven.debug.lst", "--clip", "s2_woven"]
+expect = 0
+timeout = 600
+note = """WOVEN-BOOT-FG-GARBAGE (2026-09-27). Boots the woven mega-act and grades its first screen,
+then warps to the centre of every clip rectangle and grades each landing: every visible Plane A
+cell and every cell of the 80x60 tile cache, resolved through VRAM, must be the cell the bake
+paints there (the baked tree the same nightly's woven build wrote; its page count must equal the
+ROM's). The woven act is the one whose start lies outside the bulk-loaded pages [0,
+PAGE_FRAMES_CLAMP), and its warps land in windows no page of which is loaded. RED on the unfixed
+ROM (crc 2a0f1df3): 20,393 cells wrong over 9 of 9 stops, every one drawn blank ($0000), the boot
+screen 191 visible cells. GREEN after Tile_Cache_Init's settle loop. On a canonical ROM it exits 2
+(no clip act, no baked tree named)."""
+
 # ---- --rom/--lst, optional (passed anyway, so the lane pins the artifact it graded) ----
 
 
