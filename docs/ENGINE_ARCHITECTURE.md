@@ -1853,6 +1853,14 @@ As the camera approaches blocks referencing non-resident pages
 ```
 See §9.7 for the full design (frame allocator, liveness masks, prefetch, eviction).
 
+**KNOWN GAP (measured 2026-09-27, woven clip act `s2_mtz_cpz`, not fixed): the build-time
+window budget and the runtime prefetch disagree by one frame.** The bake admits a window that
+needs exactly `PAGE_FRAMES` pages (worst 12 of 12, 0 over). At such a window every frame is
+named by a tile-cache word, so a PREFETCH of an ahead-strip page finds no free or evictable
+frame, and `PageCache_AllocFrame` takes its thrash arm: DEBUG `raise_error` ("thrash bug"),
+release re-queues the prefetch. The budget or the prefetch policy has to move; see
+DEFERRED_WORK PREFETCH-THRASH-AT-FULL-WINDOW.
+
 **Emergency spawn (mid-gameplay — DEFERRED, needs the §2.2 allocator):**
 ```
 Boss spawns new enemy type not in section layout
