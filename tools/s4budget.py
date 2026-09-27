@@ -700,7 +700,10 @@ def load_vram_layout(game: Optional[str]) -> Optional[VRAMLayout]:
     # Overlaps that vram.toml does NOT declare via overlay_with. Reported, not
     # gated: gen_vram_map owns enforcement, this is the dashboard saying what it
     # sees. Declared overlays are named so the row is not mistaken for a defect.
+    # A `borrows = "<host>"` region (gen_vram_map's borrow rule, 2026-09-27) sits
+    # inside its register-less host by declaration, so that pair is declared too.
     declared_overlay = {r["name"]: set(r.get("overlay_with", [])) for r in raw}
+    borrows = {r["name"]: r["borrows"] for r in raw if r.get("borrows")}
     overlaps: List[str] = []
     for i, a in enumerate(regions):
         for b in regions[i + 1:]:
@@ -710,6 +713,8 @@ def load_vram_layout(game: Optional[str]) -> Optional[VRAMLayout]:
             if b.name in declared_overlay.get(a.name, ()) or \
                a.name in declared_overlay.get(b.name, ()):
                 overlaps.append(f"{pair} (declared overlay)")
+            elif borrows.get(a.name) == b.name or borrows.get(b.name) == a.name:
+                overlaps.append(f"{pair} (declared borrow)")
             else:
                 overlaps.append(f"{pair} (UNDECLARED — no overlay_with)")
 

@@ -88,9 +88,10 @@ WHAT IT MEASURES.
   3. The READOUT is on screen and correct, byte for byte: VRAM tile
      VRAM_DEBUG_PRESET_READOUT+0 equals the digit sheet's row for the section, and tile +1
      equals the verdict sheet's row for the state the preset is actually in. (Both cells
-     moved from 1022-1023 to 957-958 with the consolidation; the four tiles they used to
-     share became the entry NAME tag, which this instrument does not sample — see WHAT IT
-     DOES NOT MEASURE.)
+     moved from 1022-1023 to 957-958 with the consolidation, and on 2026-09-27 into a
+     spare_nametable borrow; the tile is read from tools/vram_map.py, never typed. The
+     four tiles they used to share became the entry NAME tag, which this instrument does
+     not sample — see WHAT IT DOES NOT MEASURE.)
 
 EVERY EXPECTATION IS DERIVED, NEVER TYPED — and the first draft of this file proves why
 the rule is worth the trouble. It carried a hand-typed section-to-verdict table, and TWO
@@ -200,7 +201,12 @@ import region_table                               # noqa: E402  (the one Region 
 BOOT_FRAMES = 180        # into real gameplay before the first press
 SETTLE_FRAMES = 6        # let VBlank consume Raster_Pending and the glyph DMAs land
 TILE = 32                # one 8x8 4bpp tile
-VRAM_DEBUG_PRESET_READOUT = 957  # games/sonic4/vram.toml, region debug_preset_readout
+import vram_map                                   # noqa: E402  (generated from games/sonic4/vram.toml)
+assert vram_map.GAME == "sonic4", f"tools/vram_map.py was generated for {vram_map.GAME!r}, not sonic4"
+# READ from the generated mirror, not typed: this was the literal 957 until the
+# 2026-09-27 VRAM-TIER1 parcel moved the cells into a spare_nametable borrow, and a
+# typed copy would have read the old tiles and reported a blank readout as a verdict.
+VRAM_DEBUG_PRESET_READOUT = vram_map.VRAM_DEBUG_PRESET_READOUT
 
 # The verdict glyph indices, which are also row numbers in `.verdict_font`.
 V_NONE, V_BLIND, V_LIVE, V_PARALLAX = 0, 1, 2, 3

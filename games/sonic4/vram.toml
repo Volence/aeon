@@ -48,10 +48,164 @@ lifetime = "boot"                # $18), Plane B base (reg $04 = $03) and Window
 # which is the scarce thing here — spare tiles are not scarce, spare $2000-aligned
 # tiles are (all eight legal plane bases were occupied before this cut).
 #
+# BORROWED TOP, since 2026-09-27 (VRAM-TIER1): the four DEBUG-only lab tags declared
+# just below sit at tiles 883..895 with `borrows = "spare_nametable"`. They were 13
+# tiles of object neighbourhood before. Their placement leaves 768..882 (115 tiles)
+# contiguous for the claimants above. Adding `register` to this region fails the
+# build naming every borrower, which is the point: whoever wires this nametable must
+# move the tags first.
+#
 # ⚠ gen_vram_map.py does NOT check base-register alignment (its checks are bounds,
 # coverage, overlap, quantum, reserve, authority). A misaligned nametable region
 # passes it with exit 0. The rider that teaches it the granule table is booked in
 # docs/DEFERRED_WORK.md and rides the parcel that consumes this region.
+
+[[region]]
+name = "debug_preset_readout"
+owner = "games.sonic4.ojz_scroll_test"
+kind = "window"
+base = 883
+tiles = 2
+lifetime = "mode"
+const = "VRAM_DEBUG_PRESET_READOUT"
+borrows = "spare_nametable"
+# BORROWED from `spare_nametable` since 2026-09-27 (VRAM-TIER1, audit candidate F):
+# it was tiles 957..958. Written only in DEBUG, and nothing points a VDP
+# base register at the spare nametable, so the tag costs objects nothing in either
+# shape. gen_vram_map.py's borrow rule revokes it by name the day that host gets its
+# consumer (a `register` field). The history below is kept; its tile numbers and
+# its free-tile counts describe the map BEFORE that parcel.
+#
+# The effects lab's PRESET cells, MOVED here from 1022-1023 by the 2026-09-05 chord
+# consolidation. Two 8x8 cells, one System object each (they are single cells, not a
+# multi-cell piece, so they need no contiguity beyond their own order):
+#
+#   +0   the SECTION whose EffectsPreset is installed, one decimal digit
+#   +1   the VERDICT glyph — bar (nothing bound) / X (bound but off screen here) /
+#        diamond (live) / arrow (its own background scene; move to see it) / blank
+#        (the lab cursor is not on a preset entry at all)
+#
+# WHY THEY MOVED. The three lab chords collapsed into ONE list walked by
+# START+LEFT/RIGHT, and a single list wants a single NAME rather than a cursor
+# number. The name is four cells wide (the VDP's maximum sprite-piece width), and
+# the map's only free four-tile run was already spent on `debug_raster_tag`. So the
+# retiring two-digit cursor readout's own run — 1020-1023, four contiguous tiles —
+# became the name tag (`debug_lab_name` below) and these two cells came here, into
+# the last [[free]] run, leaving 959 free.
+#
+# RESERVED IN EVERY SHAPE, WRITTEN ONLY IN DEBUG, for the reason `debug_lab_name`
+# below records at length.
+
+[[region]]
+name = "debug_bganim_tag"
+owner = "games.sonic4.ojz_scroll_test"
+kind = "window"
+base = 885
+tiles = 3
+lifetime = "mode"
+const = "VRAM_DEBUG_BGANIM_TAG"
+borrows = "spare_nametable"
+# BORROWED from `spare_nametable` since 2026-09-27 (VRAM-TIER1, audit candidate F):
+# it was tiles 1501..1503. Written only in DEBUG, and nothing points a VDP
+# base register at the spare nametable, so the tag costs objects nothing in either
+# shape. gen_vram_map.py's borrow rule revokes it by name the day that host gets its
+# consumer (a `register` field). The history below is kept; its tile numbers and
+# its free-tile counts describe the map BEFORE that parcel.
+#
+# The effects lab's BG-ANIMATION NAME TAG: three 8x8 cells forming ONE 3x1 VDP
+# sprite piece, so the whole tag costs one System object slot instead of three
+# (Debug_TierTags_Update, games/sonic4/test/ojz_scroll_test.emp). It spells the
+# live BgAnim band table's short name — ACT / CMX / CMY / VRT / VCT / OTH.
+#
+# THE THREE TILES MUST STAY CONTIGUOUS AND IN THIS ORDER: a multi-cell sprite
+# piece reads consecutive VRAM tiles from its base, so splitting this run would
+# not merely move the tag, it would draw three unrelated tiles as a word.
+#
+# RESERVED IN EVERY SHAPE, WRITTEN ONLY IN DEBUG, for the reason `debug_lab_name`
+# above records at length: a VRAM reservation is not a ROM byte, and declaring it
+# in all shapes keeps this file the single placement authority.
+#
+# It took the map's 1501-1503 [[free]] run, which the retired `debug_readout`
+# region's own comment named as one of the three runs a grown readout would have to
+# come from. All three are now spent — this, `debug_raster_tag` below, and 957-958
+# (`debug_preset_readout`, taken by the 2026-09-05 chord consolidation). ONE free
+# tile is left in the whole map (959), so a fourth tag comes out of a region.
+
+[[region]]
+name = "debug_lab_name"
+owner = "games.sonic4.ojz_scroll_test"
+kind = "window"
+base = 888
+tiles = 4
+lifetime = "mode"
+const = "VRAM_DEBUG_LAB_NAME"
+borrows = "spare_nametable"
+# BORROWED from `spare_nametable` since 2026-09-27 (VRAM-TIER1, audit candidate F):
+# it was tiles 1020..1023. Written only in DEBUG, and nothing points a VDP
+# base register at the spare nametable, so the tag costs objects nothing in either
+# shape. gen_vram_map.py's borrow rule revokes it by name the day that host gets its
+# consumer (a `register` field). The history below is kept; its tile numbers and
+# its free-tile counts describe the map BEFORE that parcel.
+#
+# The effects lab's ENTRY NAME TAG: four 8x8 cells forming ONE 4x1 VDP sprite piece,
+# so the whole tag costs one System object slot instead of four. It spells the name
+# of the entry the ONE lab list's cursor is standing on — DFLT / HAZE / BAND / SWAP /
+# WATR / ... — one four-letter word per entry, whatever KIND of entry it is.
+#
+# THIS RUN USED TO BE THE TWO-DIGIT CURSOR READOUT plus the preset digit and verdict
+# (`debug_readout`, retired 2026-09-05). The owner's ask was "why are there 3 ways to
+# do things now?" and the answer was one list, walked by START+LEFT/RIGHT, with the
+# readout NAMING each entry as you pass it. A name beats a number for the thing he
+# actually does with it — relaying what he is looking at — so the digits went and the
+# four tiles they sat in became the name. The preset digit and verdict moved to
+# `debug_preset_readout` (957-958), the map's last free run.
+#
+# THE FOUR TILES MUST STAY CONTIGUOUS AND IN THIS ORDER: a multi-cell sprite piece
+# reads consecutive VRAM tiles from its base, so splitting this run would not merely
+# move the tag, it would draw four unrelated tiles as a word. Four is the VDP's
+# MAXIMUM piece width — that is what fixes lab entry names at four characters, and it
+# is a hardware limit, not a taste call. A fifth letter costs a second object, a
+# second System slot and a second VRAM run, and the map has one free tile left.
+#
+# RESERVED IN EVERY SHAPE, WRITTEN ONLY IN DEBUG — a VRAM reservation is not a ROM
+# byte, and declaring it in all shapes is what keeps this file the single placement
+# authority (the alternative, a shape-conditional region, would make the map mean two
+# different things and gen_vram_map.py checks adjacency across the whole 0..2047 span).
+#
+# Only the SELECTED glyphs are ever resident: the 26-letter alphabet stays in ROM and
+# is DMA'd one cell at a time, which is why a 26-tile sheet does not have to fit here.
+# THE MAP HAS ONE FREE TILE LEFT (959). A fourth tag, or a fifth letter, has to come
+# out of a region.
+
+[[region]]
+name = "debug_raster_tag"
+owner = "games.sonic4.ojz_scroll_test"
+kind = "window"
+base = 892
+tiles = 4
+lifetime = "mode"
+const = "VRAM_DEBUG_RASTER_TAG"
+borrows = "spare_nametable"
+# BORROWED from `spare_nametable` since 2026-09-27 (VRAM-TIER1, audit candidate F):
+# it was tiles 1532..1535. Written only in DEBUG, and nothing points a VDP
+# base register at the spare nametable, so the tag costs objects nothing in either
+# shape. gen_vram_map.py's borrow rule revokes it by name the day that host gets its
+# consumer (a `register` field). The history below is kept; its tile numbers and
+# its free-tile counts describe the map BEFORE that parcel.
+#
+# The effects lab's RASTER NAME TAG: four 8x8 cells forming ONE 4x1 VDP sprite
+# piece (four is the VDP's maximum piece width, which is what fixes the tag at
+# four characters). It spells the name of the raster program that is ACTUALLY
+# installed — BAND / SWAP / RMPW / PROB / SHIM / RAMP / NONE / PTCH / PSET — read
+# every frame off the engine's own `Raster_Program` cell rather than off the
+# cycle cursor, so a section crossing or a preset install moves it too.
+#
+# THE FOUR TILES MUST STAY CONTIGUOUS AND IN THIS ORDER, for the reason
+# `debug_bganim_tag` above records: a multi-cell piece reads consecutive tiles.
+#
+# It took the map's 1532-1535 [[free]] run — the map's ONLY remaining four-tile
+# run, which is why the raster tag (nine names to tell apart) got it and the
+# BG-animation tag (six) took the three-tile one.
 
 [[region]]
 name = "dust_puff"
@@ -106,40 +260,12 @@ const = "VRAM_INSTA_SHIELD"
 # re-derives it from the blob rather than trusting this number
 # (docs/superpowers/notes/2026-08-26-instashield-design.md §2.6).
 
-[[region]]
-name = "debug_preset_readout"
-owner = "games.sonic4.ojz_scroll_test"
-kind = "window"
-base = 957
-tiles = 2
-lifetime = "mode"
-const = "VRAM_DEBUG_PRESET_READOUT"
-# The effects lab's PRESET cells, MOVED here from 1022-1023 by the 2026-09-05 chord
-# consolidation. Two 8x8 cells, one System object each (they are single cells, not a
-# multi-cell piece, so they need no contiguity beyond their own order):
-#
-#   +0   the SECTION whose EffectsPreset is installed, one decimal digit
-#   +1   the VERDICT glyph — bar (nothing bound) / X (bound but off screen here) /
-#        diamond (live) / arrow (its own background scene; move to see it) / blank
-#        (the lab cursor is not on a preset entry at all)
-#
-# WHY THEY MOVED. The three lab chords collapsed into ONE list walked by
-# START+LEFT/RIGHT, and a single list wants a single NAME rather than a cursor
-# number. The name is four cells wide (the VDP's maximum sprite-piece width), and
-# the map's only free four-tile run was already spent on `debug_raster_tag`. So the
-# retiring two-digit cursor readout's own run — 1020-1023, four contiguous tiles —
-# became the name tag (`debug_lab_name` below) and these two cells came here, into
-# the last [[free]] run, leaving 959 free.
-#
-# RESERVED IN EVERY SHAPE, WRITTEN ONLY IN DEBUG, for the reason `debug_lab_name`
-# below records at length.
-
 [[free]]
-base = 959
-tiles = 1
-# the page-quantised carve's remainder — future sprite art. It was 957-959 (3
-# tiles) until the 2026-09-05 chord consolidation moved the preset readout's two
-# cells into 957-958; this is what is left of it, and it is the map's LAST free run.
+base = 957
+tiles = 3
+# 957-958 vacated 2026-09-27 (VRAM-TIER1) when `debug_preset_readout` moved into a
+# `spare_nametable` borrow; 959 was the page-quantised carve's remainder, the map's
+# last free tile before that parcel.
 
 [[region]]
 name = "character_window"
@@ -181,43 +307,11 @@ tiles = 4
 lifetime = "mode"
 const = "VRAM_TEST_MARKER"
 
-[[region]]
-name = "debug_lab_name"
-owner = "games.sonic4.ojz_scroll_test"
-kind = "window"
+[[free]]
 base = 1020
 tiles = 4
-lifetime = "mode"
-const = "VRAM_DEBUG_LAB_NAME"
-# The effects lab's ENTRY NAME TAG: four 8x8 cells forming ONE 4x1 VDP sprite piece,
-# so the whole tag costs one System object slot instead of four. It spells the name
-# of the entry the ONE lab list's cursor is standing on — DFLT / HAZE / BAND / SWAP /
-# WATR / ... — one four-letter word per entry, whatever KIND of entry it is.
-#
-# THIS RUN USED TO BE THE TWO-DIGIT CURSOR READOUT plus the preset digit and verdict
-# (`debug_readout`, retired 2026-09-05). The owner's ask was "why are there 3 ways to
-# do things now?" and the answer was one list, walked by START+LEFT/RIGHT, with the
-# readout NAMING each entry as you pass it. A name beats a number for the thing he
-# actually does with it — relaying what he is looking at — so the digits went and the
-# four tiles they sat in became the name. The preset digit and verdict moved to
-# `debug_preset_readout` (957-958), the map's last free run.
-#
-# THE FOUR TILES MUST STAY CONTIGUOUS AND IN THIS ORDER: a multi-cell sprite piece
-# reads consecutive VRAM tiles from its base, so splitting this run would not merely
-# move the tag, it would draw four unrelated tiles as a word. Four is the VDP's
-# MAXIMUM piece width — that is what fixes lab entry names at four characters, and it
-# is a hardware limit, not a taste call. A fifth letter costs a second object, a
-# second System slot and a second VRAM run, and the map has one free tile left.
-#
-# RESERVED IN EVERY SHAPE, WRITTEN ONLY IN DEBUG — a VRAM reservation is not a ROM
-# byte, and declaring it in all shapes is what keeps this file the single placement
-# authority (the alternative, a shape-conditional region, would make the map mean two
-# different things and gen_vram_map.py checks adjacency across the whole 0..2047 span).
-#
-# Only the SELECTED glyphs are ever resident: the 26-letter alphabet stays in ROM and
-# is DMA'd one cell at a time, which is why a 26-tile sheet does not have to fit here.
-# THE MAP HAS ONE FREE TILE LEFT (959). A fourth tag, or a fifth letter, has to come
-# out of a region.
+# vacated 2026-09-27 (VRAM-TIER1): the debug tag that sat here now borrows
+# `spare_nametable` (see the tag regions just after it). Object art may take it.
 
 [[region]]
 name = "bg_region"
@@ -444,32 +538,11 @@ tiles = 9
 lifetime = "act"
 const = "VRAM_TAILS_APPENDAGE"
 
-[[region]]
-name = "debug_bganim_tag"
-owner = "games.sonic4.ojz_scroll_test"
-kind = "window"
+[[free]]
 base = 1501
 tiles = 3
-lifetime = "mode"
-const = "VRAM_DEBUG_BGANIM_TAG"
-# The effects lab's BG-ANIMATION NAME TAG: three 8x8 cells forming ONE 3x1 VDP
-# sprite piece, so the whole tag costs one System object slot instead of three
-# (Debug_TierTags_Update, games/sonic4/test/ojz_scroll_test.emp). It spells the
-# live BgAnim band table's short name — ACT / CMX / CMY / VRT / VCT / OTH.
-#
-# THE THREE TILES MUST STAY CONTIGUOUS AND IN THIS ORDER: a multi-cell sprite
-# piece reads consecutive VRAM tiles from its base, so splitting this run would
-# not merely move the tag, it would draw three unrelated tiles as a word.
-#
-# RESERVED IN EVERY SHAPE, WRITTEN ONLY IN DEBUG, for the reason `debug_lab_name`
-# above records at length: a VRAM reservation is not a ROM byte, and declaring it
-# in all shapes keeps this file the single placement authority.
-#
-# It took the map's 1501-1503 [[free]] run, which the retired `debug_readout`
-# region's own comment named as one of the three runs a grown readout would have to
-# come from. All three are now spent — this, `debug_raster_tag` below, and 957-958
-# (`debug_preset_readout`, taken by the 2026-09-05 chord consolidation). ONE free
-# tile is left in the whole map (959), so a fourth tag comes out of a region.
+# vacated 2026-09-27 (VRAM-TIER1): the debug tag that sat here now borrows
+# `spare_nametable` (see the tag regions just after it). Object art may take it.
 
 [[region]]
 name = "hscroll_table"
@@ -481,27 +554,11 @@ lifetime = "boot"
 register = "vdp:0x0D"
 authority = "engine-bytebase:VRAM_HSCROLL_TABLE"
 
-[[region]]
-name = "debug_raster_tag"
-owner = "games.sonic4.ojz_scroll_test"
-kind = "window"
+[[free]]
 base = 1532
 tiles = 4
-lifetime = "mode"
-const = "VRAM_DEBUG_RASTER_TAG"
-# The effects lab's RASTER NAME TAG: four 8x8 cells forming ONE 4x1 VDP sprite
-# piece (four is the VDP's maximum piece width, which is what fixes the tag at
-# four characters). It spells the name of the raster program that is ACTUALLY
-# installed — BAND / SWAP / RMPW / PROB / SHIM / RAMP / NONE / PTCH / PSET — read
-# every frame off the engine's own `Raster_Program` cell rather than off the
-# cycle cursor, so a section crossing or a preset install moves it too.
-#
-# THE FOUR TILES MUST STAY CONTIGUOUS AND IN THIS ORDER, for the reason
-# `debug_bganim_tag` above records: a multi-cell piece reads consecutive tiles.
-#
-# It took the map's 1532-1535 [[free]] run — the map's ONLY remaining four-tile
-# run, which is why the raster tag (nine names to tell apart) got it and the
-# BG-animation tag (six) took the three-tile one.
+# vacated 2026-09-27 (VRAM-TIER1): the debug tag that sat here now borrows
+# `spare_nametable` (see the tag regions just after it). Object art may take it.
 
 [[region]]
 name = "plane_a"

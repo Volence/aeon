@@ -78,14 +78,14 @@ use engine.coords.{pixels_to_coord}
 // (config/constants.emp). VRAM_TEST_MARKER = VRAM_RING_PLACEHOLDER+16 =
 // VRAM_TEST_OBJ+$18. CHAR_COUNT is the roster length the DEBUG character-cycle
 // hotkey wraps at.
-// VRAM_DEBUG_LAB_NAME — the FOUR glyph cells (tiles 1020-1023) the effects lab's
-// ENTRY NAME TAG repaints; VRAM_DEBUG_PRESET_READOUT — the two (957-958) the preset
-// section digit and verdict glyph sit in. Both declared in games/sonic4/vram.toml like
-// every other region, reserved in both shapes and written only in DEBUG.
+// VRAM_DEBUG_LAB_NAME — the FOUR glyph cells the effects lab's ENTRY NAME TAG
+// repaints; VRAM_DEBUG_PRESET_READOUT — the two the preset section digit and verdict
+// glyph sit in. Both declared in games/sonic4/vram.toml like every other region,
+// reserved in both shapes and written only in DEBUG.
 // VRAM_DEBUG_RASTER_TAG / VRAM_DEBUG_BGANIM_TAG — the two NAME TAG strips
-// (EFFECTS-W1 F4): four cells at tiles 1532-1535 for the live raster program's
-// name, three at 1501-1503 for the BG-animation table's. Same authority, same
-// generated block, same rule as every other region const.
+// (EFFECTS-W1 F4): four cells for the live raster program's name, three for the
+// BG-animation table's. Same authority, same generated block, same rule as every
+// other region const. Since 2026-09-27 all four BORROW `spare_nametable` (vram.toml).
 //
 // AN UNIMPORTED VRAM CONST IS NOT A BUILD ERROR AT ITS DEFINITION SITE, which is
 // how this list is easy to forget: a bare name in `.emp` silently becomes a link
