@@ -128,14 +128,18 @@ async def scan_lines_1_3(client):
     return hits
 
 
-async def drive(sock, syms, equs, act, geo, direction, gsp, max_frames, scan, jump=False):
+async def drive(sock, syms, equs, act, geo, direction, gsp, max_frames, scan, jump=False,
+                co=None):
     a_right, b_left, x_in, x_out = geo
+    co = co or T.corridor_geometry(act)[0]
+    # the start is the MEASURED run-up (T.run_up): up to RUN_MARGIN px of surface the player
+    # can run along into the tunnel
     if direction == "right":
-        start_x, end_x, button = x_in - RUN_MARGIN, x_out + RUN_MARGIN, "right"
+        (start_x, feet), end_x, button = (T.run_up(act, co, "left", RUN_MARGIN),
+                                          x_out + RUN_MARGIN, "right")
     else:
-        start_x, end_x, button = x_out + RUN_MARGIN, x_in - RUN_MARGIN, "left"
-    co = act.corridors[0]
-    feet = T.ground_y(act, start_x, co.tunnel.ceiling_y if co.tunnel else 0)
+        (start_x, feet), end_x, button = (T.run_up(act, co, "right", RUN_MARGIN),
+                                          x_in - RUN_MARGIN, "left")
     radius = int(equs.get("PLAYER_Y_RADIUS", 19))
     client = BusClient(socket_path=sock, client_id="cxw", client_name="crossing-witness")
     await client.connect()
@@ -151,15 +155,9 @@ async def drive(sock, syms, equs, act, geo, direction, gsp, max_frames, scan, ju
     if (await b.read(A_DBG, 1))[0]:
         await client.call("emulator/press", {"buttons": ["b"]})
         await b.frames(4)
-    # tunnel_run_witness's measured placement: camera and player written together, the player
-    # PINNED while the far-away window streams in.
-    await b.write(syms["Camera_X"], (start_x - 160) << 16, 4)
-    await b.write(syms["Camera_Y"], (feet - radius - 112) << 16, 4)
-    for _ in range(T.PIN_FRAMES):
-        await b.write(A_X, start_x << 16, 4)
-        await b.write(A_Y, (feet - radius - 2) << 16, 4)
-        await b.write(A_YVEL, 0, 2)
-        await b.frames(1)
+    # tunnel_run_witness's measured placement (T.place: the warp mailbox in the DEBUG shape,
+    # never a bare camera write there), the player PINNED while the far-away window streams in.
+    await T.place(client, b, syms, start_x, feet - radius - 2)
     await b.check_alive("streaming settle")
     await b.frames(T.LAND_FRAMES * 4)
     if int.from_bytes(await b.read(A_YVEL, 2), "big"):
@@ -253,13 +251,7 @@ async def rescan(client, b, rows, button, gsp, direction, syms, equs, start_x, f
     if (await b.read(A_DBG, 1))[0]:
         await client.call("emulator/press", {"buttons": ["b"]})
         await b.frames(4)
-    await b.write(syms["Camera_X"], (start_x - 160) << 16, 4)
-    await b.write(syms["Camera_Y"], (feet - radius - 112) << 16, 4)
-    for _ in range(T.PIN_FRAMES):
-        await b.write(A_X, start_x << 16, 4)
-        await b.write(A_Y, (feet - radius - 2) << 16, 4)
-        await b.write(A_YVEL, 0, 2)
-        await b.frames(1)
+    await T.place(client, b, syms, start_x, feet - radius - 2)
     await b.frames(T.LAND_FRAMES * 4)
     await client.call("emulator/hold", {"buttons": [button], "down": True})
     if gsp:
@@ -383,6 +375,8 @@ def main():
                     help="comma list of ground speeds: an integer, `top` (PHYS_TOP_SPEED) or "
                          "`cap` (PHYS_GSP_CAP)")
     ap.add_argument("--directions", default="right,left")
+    ap.add_argument("--corridor", help="the corridor to cross (required when the act has more "
+                                       "than one; its two flanking clips are the two zones)")
     ap.add_argument("--scan", action="store_true",
                     help="replay each run and pixel-scan the in-flight window (slow: ~5 s a tick)")
     ap.add_argument("--trace", action="store_true", help="print every in-flight row")
@@ -402,13 +396,14 @@ def main():
     if missing:
         raise SystemExit(f"crossing_witness: {a.lst} carries no {missing} — COULD NOT RUN")
     act = CM.load(a.manifest)
-    clips = sorted(act.clips, key=lambda c: c.dst[0])
-    if len(clips) != 2 or not act.corridors:
-        raise SystemExit("crossing_witness: this reads a two-clip act with one corridor")
-    a_right, b_left = clips[0].dst[0] + clips[0].dst[2], clips[1].dst[0]
-    co = act.corridors[0]
+    co, left, right = T.corridor_geometry(act, a.corridor)
+    if left.zone_key == right.zone_key:
+        raise SystemExit(f"crossing_witness: corridor {co.id!r} joins two clips of one zone; "
+                         f"there is no crossing to witness")
+    a_right, b_left = left.dst[0] + left.dst[2], right.dst[0]
     geo = (a_right, b_left, co.dst[0], co.dst[0] + co.dst[2])
-    pals = zone_palettes(act)
+    all_pals = zone_palettes(act)
+    pals = [all_pals[left.zone_key], all_pals[right.zone_key]]
     rom = open(a.rom, "rb").read()
     # THE CROSSING IS A CHANGE OF PRESET, not of region row: since S2CLIP-REGION-MUSIC step 6
     # each zone's strip is split at the corridor mouth for its song (tools/clip_rom_bake.py
@@ -423,7 +418,7 @@ def main():
     if "VRAM_PLANE_B_BYTES" not in equs or "Parallax_Current_Vscroll_BG" not in syms:
         raise SystemExit("crossing_witness: the listing carries no VRAM_PLANE_B_BYTES / "
                          "Parallax_Current_Vscroll_BG — COULD NOT RUN")
-    names = [z for _d, z in act.zone_table]
+    names = [left.zone, right.zone]
     speed_of = {"top": equs["PHYS_TOP_SPEED"], "cap": equs["PHYS_GSP_CAP"]}
     speeds = [speed_of.get(s, None) if s in speed_of else int(s, 0) for s in a.speeds.split(",")]
     print(f"crossing_witness: {a.rom} — zones {names}, {names[0]} ends x {a_right}, "
@@ -435,7 +430,7 @@ def main():
         for gsp in speeds:
             with aether_emulator(a.rom, symbols=a.lst) as sock:
                 rows, _ = asyncio.run(drive(sock, syms, equs, act, geo, direction, gsp,
-                                            a.frames, False, jump=a.jump))
+                                            a.frames, False, jump=a.jump, co=co))
             n += 1
             if any("fault" in r for r in rows):
                 faults += 1
@@ -457,7 +452,7 @@ def main():
             if a.scan:
                 with aether_emulator(a.rom, symbols=a.lst) as sock:
                     scans = asyncio.run(_scan_only(sock, syms, equs, act, geo, direction, gsp,
-                                                   rows))
+                                                   rows, co=co))
             infl = [r for r in out_rows if live[r["i"]]["_inflight"]]
             span = (infl[0], infl[-1]) if infl else None
             cross = next((r for r in out_rows[1:]
@@ -524,15 +519,14 @@ def main():
     return 3 if total_bad else 0
 
 
-async def _scan_only(sock, syms, equs, act, geo, direction, gsp, rows):
+async def _scan_only(sock, syms, equs, act, geo, direction, gsp, rows, co=None):
     """Second pass: replay the same drive and pixel-scan the first pass's in-flight window."""
     a_right, b_left, x_in, x_out = geo
+    co = co or T.corridor_geometry(act)[0]
     if direction == "right":
-        start_x, button = x_in - RUN_MARGIN, "right"
+        (start_x, feet), button = T.run_up(act, co, "left", RUN_MARGIN), "right"
     else:
-        start_x, button = x_out + RUN_MARGIN, "left"
-    co = act.corridors[0]
-    feet = T.ground_y(act, start_x, co.tunnel.ceiling_y if co.tunnel else 0)
+        (start_x, feet), button = T.run_up(act, co, "right", RUN_MARGIN), "left"
     radius = int(equs.get("PLAYER_Y_RADIUS", 19))
     client = BusClient(socket_path=sock, client_id="cxs", client_name="crossing-scan")
     await client.connect()

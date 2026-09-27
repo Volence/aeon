@@ -78,6 +78,99 @@ def equs_state(name):
     return _EQUS[name]
 
 
+def corridor_geometry(act, cid=None):
+    """(corridor, the clip it leaves on the left, the clip it enters on the right).
+
+    `cid` names the corridor; None is allowed only for an act with exactly one (the two-clip
+    acts these witnesses were written for). The flanking clips are read off the rectangles:
+    the clip whose right edge is the nearest at or left of the corridor's left edge, and the
+    nearest whose left edge is at or right of its right edge. A woven act (s2_mtz_cpz,
+    2026-09-27) has two corridors and three clips, two of one zone."""
+    if cid is None:
+        if len(act.corridors) != 1:
+            raise SystemExit(f"this act has {len(act.corridors)} corridors "
+                             f"({', '.join(c.id for c in act.corridors)}); name one with "
+                             f"--corridor")
+        co = act.corridors[0]
+    else:
+        co = next((c for c in act.corridors if c.id == cid), None)
+        if co is None:
+            raise SystemExit(f"no corridor {cid!r} in the act "
+                             f"({', '.join(c.id for c in act.corridors)})")
+    x0, x1 = co.dst[0], co.dst[0] + co.dst[2]
+    left = [c for c in act.clips if c.dst[0] + c.dst[2] <= x0]
+    right = [c for c in act.clips if c.dst[0] >= x1]
+    if not left or not right:
+        raise SystemExit(f"corridor {co.id!r} has no clip on {'both sides' if not left and not right else 'one side'}")
+    return (co, max(left, key=lambda c: c.dst[0] + c.dst[2]), min(right, key=lambda c: c.dst[0]))
+
+
+async def place(client, b, syms, x, y, frames=None):
+    """Put the player at (x, y) (his centre) and hold him there while the window streams.
+
+    THE DEBUG SHAPE PLACES THROUGH THE WARP MAILBOX (Debug_Warp_Consume re-runs the boot
+    ladder, Section_Init -> EntityWindow_Init included): a bare camera write of thousands of
+    px halts it on EntityWindow_Slide's step assert (since 7c7ccf96). The plain shape has no
+    warp consumer; there the camera and the pinned player are written together (this file's
+    original, measured order). Either way the player is then PINNED for `frames`
+    (PIN_FRAMES by default)."""
+    frames = PIN_FRAMES if frames is None else frames
+    P = syms["Player_1"]
+    A_X, A_Y = P + _EQUS["SST_x_pos"], P + _EQUS["SST_y_pos"]
+    A_YVEL = P + _EQUS["SST_y_vel"]
+    if "Warp_Req_Flag" in syms:
+        await b.write(syms["Warp_Req_X"], x, 2)
+        await b.write(syms["Warp_Req_Y"], y, 2)
+        await b.write(syms["Warp_Req_Flag"], 1, 1)
+        for _ in range(120):
+            await b.frames(1)
+            if (await b.read(syms["Warp_Req_Flag"], 1))[0] == 0:
+                break
+        else:
+            raise SystemExit("the warp mailbox was never acknowledged; COULD NOT RUN")
+    else:
+        await b.write(syms["Camera_X"], (x - 160) << 16, 4)
+        await b.write(syms["Camera_Y"], (y - 112) << 16, 4)
+    for _ in range(frames):
+        await b.write(A_X, x << 16, 4)
+        await b.write(A_Y, y << 16, 4)
+        await b.write(A_YVEL, 0, 2)
+        await b.frames(1)
+
+
+def run_up(act, co, side, want):
+    """(x, feet y): where a run toward corridor `co` starts, on the `side` ("left"/"right") of
+    it, as far as `want` px out from its mouth. THE RUN-UP IS MEASURED, not assumed: from the
+    corridor's floor at the mouth, walk out 8 px at a time along plane A's surface while each
+    step is within 16 px of the last (Chemical Plant's track drops 10 px in the first 8 past
+    the woven act's first tunnel); the start is the farthest column reached whose surface is
+    within 1 px of its neighbour's (level ground), so a pinned player released there stands
+    instead of sliding. MEASURED 2026-09-27: placed where Metropolis's quarter pipe falls 13 px
+    in 8 he slid off and never landed; placed at its foot, 4 px in 8, he slid LEFT through the
+    whole tunnel during the landing frames, before the drive began. The two-clip acts have ground all the way out; Metropolis's
+    walkway at the woven act's first tunnel is 112 px, with a pit behind it that Sonic 2
+    crosses on objects this act does not carry."""
+    sign = -1 if side == "left" else 1
+    mouth = co.dst[0] - 1 if side == "left" else co.dst[0] + co.dst[2]
+    prev = co.floor_y
+    best = None
+    for d in range(0, want + 1, 8):
+        x = mouth + sign * d
+        try:
+            y = ground_y(act, x, prev - 32)
+        except SystemExit:
+            break
+        if abs(y - prev) > 16:
+            break
+        if abs(y - prev) <= 1:
+            best = (x, y)
+        prev = y
+    if best is None:
+        raise SystemExit(f"tunnel_run_witness: no ground at corridor {co.id!r}'s {side} mouth "
+                         f"at its floor y {co.floor_y}; nothing to run from")
+    return best
+
+
 def ground_y(act, x, y_from):
     """The first TOP-solid pixel at world column x scanning down from y_from, plane A."""
     pa, _pb = CM.collision_grids(act)
@@ -89,15 +182,20 @@ def ground_y(act, x, y_from):
     raise SystemExit(f"tunnel_run_witness: no ground under x={x} below y={y_from}")
 
 
-async def drive(sock, syms, equs, act, direction, gsp, max_frames, window=None):
-    co = act.corridors[0]
+async def drive(sock, syms, equs, act, direction, gsp, max_frames, window=None, cid=None):
+    co = corridor_geometry(act, cid)[0]
     x_in, x_out = window or (co.dst[0], co.dst[0] + co.dst[2])
     top = co.tunnel.ceiling_y if co.tunnel and window is None else 0
-    if direction == "right":
-        start_x, end_x, button = x_in - RUN_MARGIN, x_out + RUN_MARGIN, "right"
+    if window is not None:
+        if direction == "right":
+            start_x, end_x, button = x_in - RUN_MARGIN, x_out + RUN_MARGIN, "right"
+        else:
+            start_x, end_x, button = x_out + RUN_MARGIN, x_in - RUN_MARGIN, "left"
+        feet = ground_y(act, start_x, top)
+    elif direction == "right":
+        (start_x, feet), end_x, button = run_up(act, co, "left", RUN_MARGIN), x_out + RUN_MARGIN, "right"
     else:
-        start_x, end_x, button = x_out + RUN_MARGIN, x_in - RUN_MARGIN, "left"
-    feet = ground_y(act, start_x, top)
+        (start_x, feet), end_x, button = run_up(act, co, "right", RUN_MARGIN), x_in - RUN_MARGIN, "left"
     radius = int(equs.get("PLAYER_Y_RADIUS", 19))
 
     client = BusClient(socket_path=sock, client_id="trw", client_name="tunnel-run")
@@ -122,16 +220,10 @@ async def drive(sock, syms, equs, act, direction, gsp, max_frames, window=None):
     # MEASURED 2026-09-25, the camera set alone walks back toward the boot player at 16 px a
     # frame, and a player placed after 40 settle frames falls through ground the collision
     # cache does not cover yet, with the game ticking once every ~5 frames while the
-    # streamer catches up. So both are written together and the player is PINNED (x, y,
-    # y_vel rewritten every frame) until streaming has settled; 600 frames measured to
-    # land him on the first frame after release.
-    await b.write(syms["Camera_X"], (start_x - 160) << 16, 4)
-    await b.write(syms["Camera_Y"], (feet - radius - 112) << 16, 4)
-    for _ in range(PIN_FRAMES):
-        await b.write(A_X, start_x << 16, 4)
-        await b.write(A_Y, (feet - radius - 2) << 16, 4)
-        await b.write(A_YVEL, 0, 2)
-        await b.frames(1)
+    # streamer catches up. So the player is PINNED (x, y, y_vel rewritten every frame) until
+    # streaming has settled; 600 frames measured to land him on the first frame after
+    # release. `place` puts him there (the warp mailbox in the DEBUG shape).
+    await place(client, b, syms, start_x, feet - radius - 2)
     await b.check_alive("streaming settle")
     await b.frames(LAND_FRAMES * 4)        # 2 px of fall is several frames from rest
     await b.check_alive("placement")
@@ -208,6 +300,8 @@ def main():
     ap.add_argument("--lst", required=True)
     ap.add_argument("--manifest", required=True)
     ap.add_argument("--frames", type=int, default=900)
+    ap.add_argument("--corridor", help="the corridor to run (required when the act has more "
+                                       "than one)")
     ap.add_argument("--trace", action="store_true", help="print per-frame rows at both seams")
     ap.add_argument("--control-window", nargs=2, type=int, metavar=("X0", "X1"),
                     help="THE CONTROL: run the identical drive over this x span instead of "
@@ -224,7 +318,7 @@ def main():
         raise SystemExit("tunnel_run_witness: the manifest has no corridor")
     speeds = [0, equs["PHYS_TOP_SPEED"], equs["PHYS_GSP_CAP"]]
     results, bad = [], 0
-    co = act.corridors[0]
+    co = corridor_geometry(act, a.corridor)[0]
     span = a.control_window or (co.dst[0], co.dst[0] + co.dst[2])
     print(f"tunnel_run_witness: {a.rom} — "
           + (f"CONTROL window x {span[0]}..{span[1]} (not the corridor)" if a.control_window
@@ -233,7 +327,7 @@ def main():
         for gsp in speeds:
             with aether_emulator(a.rom, symbols=a.lst) as sock:
                 rows, geo = asyncio.run(drive(sock, syms, equs, act, direction, gsp, a.frames,
-                                              a.control_window))
+                                              a.control_window, a.corridor))
             r = summarise(rows, geo, direction, gsp)
             results.append(r)
             bad += r["faulted"]
