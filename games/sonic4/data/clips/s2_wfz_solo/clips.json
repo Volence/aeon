@@ -15,6 +15,8 @@
   },
   "unpainted_remainder": {
     "x_from": 6144,
+    "y_from": 1536,
+    "y_why": "MEASURED 2026-09-27 (clip_reachability check 4 on a clip_rom_bake --keep bake): WING FORTRESS, pasted 256 px up, paints rows 0..1535 (the deck rectangle's full 1536-px height); every row from y 1536 to the act's bottom (6144) carries no art in any column. The same fall the unbounded_fall count below declares, seen from its bottom edge.",
     "why": "NOTHING IS UNPAINTED ACROSS: the piece fills the act's whole width. The object stays because the fall declaration lives in it.",
     "unbounded_fall": {
       "columns": 768,

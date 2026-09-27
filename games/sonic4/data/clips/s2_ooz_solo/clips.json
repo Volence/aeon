@@ -15,6 +15,8 @@
   },
   "unpainted_remainder": {
     "x_from": 3072,
+    "y_from": 1840,
+    "y_why": "MEASURED 2026-09-27 (clip_reachability check 4 on a clip_rom_bake --keep bake): OIL OCEAN, paste dy 0, paints rows 0..1839; every row from y 1840 to the act's bottom (6144) carries no art in any column. The clip rectangle runs to 1888, but its last 48 px of donor rows (1840..1887) are artless in every column (below OOZ act 1's own LevelSize bottom, 1664, so Sonic 2 never shows them). The same fall the unbounded_fall count below declares, seen from its bottom edge.",
     "why": "The woven piece is 3072 px wide and the act slot is 6144 (a 3x3 grid, the multiple-of-3 section count the inherited OJZ entity pass still needs, woven item 8). Past x 3072 is the unused half of the slot.",
     "unbounded_fall": {
       "columns": 384,

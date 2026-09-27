@@ -15,6 +15,8 @@
   },
   "unpainted_remainder": {
     "x_from": 3664,
+    "y_from": 2048,
+    "y_why": "MEASURED 2026-09-27 (clip_reachability check 4 on a clip_rom_bake --keep bake): HIDDEN PALACE, paste dy 0, paints rows 0..2047 (hpz_west's full 2048-px height; hpz_east's y 1504..2047 ends on the same row); every row from y 2048 to the act's bottom (6144) carries no art in any column. The same fall the unbounded_fall count below declares, seen from its bottom edge.",
     "why": "The L is 2560 + 1104 = 3664 px wide (the east piece stops before the pit, see the note); past it is the unused rest of the 6144-px slot.",
     "unbounded_fall": {
       "columns": 458,
