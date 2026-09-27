@@ -311,3 +311,165 @@ def test_sc1_refuses_a_scroll_block_that_is_not_a_fresh_derivation(s2asm, ehz):
     assert wrong != text, "the mutation found nothing to change — re-derive its target"
     with pytest.raises(CRB.ClipRomError, match="fresh derivation"):
         CRB.check_scroll(plan, wrong)
+
+
+# ---- OIL OCEAN, HIDDEN PALACE, WING FORTRESS (woven prep, 2026-09-27) -----------------------
+# Before this, derive() returned None for all three (the act default's scroll) and
+# clip_bg_lower refused WFZ and HPZ outright.
+
+@pytest.fixture(scope="module")
+def protoasm():
+    try:
+        root = S.donor_root(S.S2_PROTOTYPE)
+    except (SystemExit, SuitePathError) as e:
+        pytest.skip(f"the {S.S2_PROTOTYPE} donor could not be resolved, so NOTHING in this row "
+                    f"is checked: {e}")
+    with open(os.path.join(root, "main.asm"), errors="replace") as fh:
+        return fh.read()
+
+
+def _ooz_prog(s2asm):
+    lines = CBS._lines(s2asm)
+    s, e = CBS._span(lines, "SwScrl_OOZ", "")
+    return CBS._assemble(lines, s, e, CBS._fixbugs(lines)), CBS._dc_bytes(lines, "SwScrl_RippleData")
+
+
+def test_ooz_model_reproduces_swscrl_ooz_on_every_line(s2asm):
+    """SwScrl_OOZ RUN at every 16th BG Y it can reach inside the plane and a sweep of camera X,
+    against the engine model of the derived scene: the ripple (sun) lines EXACT, the flat
+    lines within the one pixel of floor the shift order implies (S2 shifts -BG_X, the engine
+    shifts +camX), and exact at camera X multiples of 128 (no shift floors anything there)."""
+    spec = CBS.derive("s2disasm", "OOZ", 0)
+    assert spec["window_top"] == 0 and spec["table_label"] == CBS.TABLE_LABEL + "_Rev"
+    prog, ripple = _ooz_prog(s2asm)
+    tab = {"SwScrl_RippleData": [v & 0xFF for v in ripple]}
+    lo = spec["v_offset"]
+    for bgy in list(range(lo, CBS.PLANE_LINES - CBS.SCREEN_LINES + 1, 16)) + [CBS.PLANE_LINES - CBS.SCREEN_LINES]:
+        for camx in list(range(0, 12288, 331)) + [128 * 37, 128 * 81]:
+            s2 = CBS._ooz_run(prog, tab, camx, camx >> 3, bgy)
+            eng = CBS.engine_bg_words(spec, camx, vscroll=bgy - spec["window_top"])
+            for line in range(CBS.SCREEN_LINES):
+                row = bgy + line
+                b = [x for x in spec["bands"] if x["plane_top"] <= row][-1]
+                d = abs(eng[line] - s2[row])
+                if b["kind"] == "ripple" or camx % 128 == 0:
+                    assert d == 0, (bgy, camx, line, eng[line], s2[row])
+                else:
+                    assert d <= 1, (bgy, camx, line, eng[line], s2[row])
+
+
+def test_ooz_bands_are_its_cloud_rows_and_sun(s2asm):
+    spec = CBS.derive("s2disasm", "OOZ", 0)
+    rows = [(b["plane_top"], b["kind"], b["ratio"]) for b in spec["bands"]]
+    assert rows[0] == (spec["v_offset"], "flat", Fraction(1, 8))       # empty sky, camX/8
+    assert rows[-1][1:] == ("flat", Fraction(1, 8))                     # the factory
+    assert [r for r in rows if r[1] == "ripple"] == [(192, "ripple", 0)]  # the sun, 33 rows
+    assert {r[2] for r in rows if r[1] == "flat"} == {Fraction(1, n) for n in (8, 32, 64, 128)}
+    assert spec["approximations"] == []
+    # the first band's top maps back to world Y v_center: the lowest reachable plane line
+    assert CBS.layer_world_y(spec, spec["bands"][0]["plane_top"]) == spec["v_center"]
+
+
+def test_hpz_table_half_and_writer_cover_its_background(protoasm):
+    """The run table has one entry per 16-line block, and those blocks are the prototype
+    background's painted height exactly (HPZ_BG.bin, via Off_Level)."""
+    raw = CBS.derive_hpz_raw(protoasm)
+    grid = S.load_bg_grid("HPZ", S.S2_PROTOTYPE)
+    assert raw["blocks"] * raw["block"] == grid.shape[0] * 128
+    assert raw["v_factor"] == 1 and raw["x_shift"] == 2
+
+
+def test_hpz_bands_are_its_table_and_the_approximations_are_named(protoasm):
+    raw = CBS.derive_hpz_raw(protoasm)
+    spec = CBS.derive("s2-simonwai-disasm", "HPZ", 0)
+    for b in spec["bands"]:
+        s2 = raw["kinds"][b["plane_top"]][1]
+        got = CBS.factor_value(*b["factor"])
+        if b.get("s2_ratio") is None:
+            assert got == s2
+        else:
+            assert b["s2_ratio"] == s2 and got != s2
+            # nothing the engine can decode is nearer
+            assert CBS.nearest_factor(s2) == (b["factor"], False)
+    approx = {a["s2_ratio"] for a in spec["approximations"]}
+    for r in {k[1] for k in raw["kinds"].values()}:
+        try:
+            CBS.encode_factor(r)
+            assert r not in approx
+        except CBS.ClipScrollError:
+            if any(b.get("s2_ratio") == r for b in spec["bands"]):
+                assert r in approx
+    assert {Fraction(57, 128), Fraction(50, 128), Fraction(43, 128)} == approx
+
+
+def test_wfz_bands_are_the_segment_array_as_drift_rows(s2asm):
+    raw = CBS.derive_wfz_raw(s2asm)
+    r0 = __import__("clip_bg_lower").window_top("s2disasm", "WFZ")
+    spec = CBS.derive("s2disasm", "WFZ", -256)
+    assert spec["window_top"] == r0 == 896
+    assert (spec["v_factor"], spec["v_offset"], spec["v_center"]) == (0, -r0, -256)
+    rates = {int(v, 16) >> 8 for v in re.findall(
+        r"addi\.l\t#\$([0-9A-F]+),\(a2\)\+", s2asm[s2asm.index("\nSwScrl_WFZ:"):
+                                                 s2asm.index("\nSwScrl_WFZ_Transition_Array:")])}
+    assert rates == {128, 64, 32}
+    for pl in range(CBS.PLANE_LINES):
+        b = [x for x in spec["bands"] if x["plane_top"] <= pl][-1]
+        k = raw["arrays"]["Normal"][pl + r0]
+        if k[0] == "drift":
+            assert (b["factor"], b["drift"]) == ((CBS.LOCKED, CBS.LOCKED, 0), k[1])
+        else:
+            assert CBS.factor_value(*b["factor"]) == 1 and not b.get("drift")
+    txt = CBS.scene_text(spec, "X", CBS.TABLE_LABEL)
+    assert txt.count("drift: SceneDrift.Rate(") == len(spec["bands"])
+
+
+@pytest.mark.parametrize("zone,needle,repl,why", [
+    ("OOZ", "\tlsr.w\t#3,d0\n\taddi.w\t#$50,d0", "\tlsr.w\t#2,d0\n\taddi.w\t#$50,d0", "disagrees"),
+    ("WFZ", "\taddi.l\t#$8000,(a2)+", "\taddi.l\t#$8001,(a2)+", "whole"),
+    ("WFZ", "\tmove.l\t(Camera_X_pos).w,(Camera_BG_X_pos).w", "\tclr.l\t(Camera_BG_X_pos).w",
+     "copy the camera"),
+])
+def test_new_readers_refuse_a_source_that_stops_saying_what_they_read(s2asm, zone, needle,
+                                                                       repl, why):
+    fn = {"OOZ": CBS.derive_ooz_raw, "WFZ": CBS.derive_wfz_raw}[zone]
+    fn(s2asm)                                                       # control
+    assert needle in s2asm, f"the mutation's target {needle!r} is gone — re-derive"
+    with pytest.raises(CBS.ClipScrollError, match=why):
+        fn(s2asm.replace(needle, repl, 1))
+
+
+def test_hpz_reader_refuses_a_writer_it_does_not_recognise(protoasm):
+    CBS.derive_hpz_raw(protoasm)                                    # control
+    needle = "\t\tandi.w\t#$F,d2\n\t\tadd.w\td2,d2"
+    assert needle in protoasm
+    with pytest.raises(CBS.ClipScrollError, match="loc_6AA8"):
+        CBS.derive_hpz_raw(protoasm.replace(needle, "\t\tandi.w\t#$7,d2\n\t\tadd.w\td2,d2", 1))
+
+
+def test_every_windowed_zone_keeps_its_start_view_inside_the_plane():
+    import clip_bg_lower as L
+    for donor, zone in (("s2disasm", "OOZ"), ("s2disasm", "WFZ"), ("s2-simonwai-disasm", "HPZ")):
+        try:
+            S.donor_root(donor)
+        except (SystemExit, SuitePathError):
+            pytest.skip(f"{donor} unresolved")
+        raw = CBS.derive(donor, zone, 0, r0=0)
+        _x, y = S.start_position(zone, donor)
+        top = CBS.bg_row_at(raw, max(0, y - 0x60))
+        r0 = L.window_top(donor, zone)
+        assert r0 <= top and top + CBS.SCREEN_LINES <= r0 + CBS.PLANE_LINES, (zone, top, r0)
+    for zone in ("EHZ", "CPZ", "MTZ", "OOZ"):
+        assert L.window_top("s2disasm", zone) == 0
+
+
+def test_data_block_emits_one_table_per_direction(s2asm, ehz):
+    ooz = CBS.derive("s2disasm", "OOZ", 0)
+    txt = CBS.data_block_text([(0, ehz), (1, ooz)], 4096)
+    assert f"pub data {CBS.TABLE_LABEL}: [i8; 256]" in txt
+    assert f"pub data {CBS.TABLE_LABEL}_Rev: [i8; 256]" in txt
+    fwd = [int(v) for v in re.search(rf"pub data {CBS.TABLE_LABEL}: \[i8; 256\] = \[(.*?)\]",
+                                     txt, re.S).group(1).replace("\n", "").split(",")]
+    rev = [int(v) for v in re.search(rf"pub data {CBS.TABLE_LABEL}_Rev: \[i8; 256\] = \[(.*?)\]",
+                                     txt, re.S).group(1).replace("\n", "").split(",")]
+    assert all(rev[k] == fwd[(-k) % 256] for k in range(256))
+    assert f"deform_bg: SceneDeform.Shared({CBS.TABLE_LABEL}_Rev, 0)" in txt
