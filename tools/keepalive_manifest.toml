@@ -295,6 +295,18 @@ to face the edge. The owner's sighting (1609, 2848 feet, facing left) is a named
 unfixed ROM (crc 65eac6c3): 15 of 15 graded spots failed (8 WALL teetered, 7 LEDGE did not).
 GREEN after Player_AtLedgeEdge took S3K's rule (crc 2124ce00): 15 of 15."""
 
+[wired."path_b_floor_witness.py#woven"]
+args = ["--rom", "{repo}/s4.s2clip_woven.debug.bin", "--lst", "{repo}/s4.s2clip_woven.debug.lst", "--clip", "s2_woven", "--spot", "5133,1152"]
+expect = 0
+timeout = 600
+note = """WOVEN-WFZ-PLANE-B (2026-09-27). Every clip of a ONE-PATH zone (no plane switcher that selects
+path B in the zone's Sonic 2 object layout: clip_manifest.zone_path_b_switchers) must hold a
+LAYER-1 player on its plane A's level ground, derived from the baked tree the same nightly's
+woven build wrote: up to 6 spots per clip, each with a layer-0 control, plus the owner's sighting
+column (5133, deck y 1152). RED on the woven ROM from master 06185e04 (crc 1bce0476): 7 of 7
+Wing Fortress spots FELL on layer 1, 30 of 30 Metropolis / Hidden Palace / Oil Ocean spots held.
+GREEN after the bake keyed the one-path rule to the donor's object layout."""
+
 [wired."balance_witness.py"]
 args = ["--rom", "{rom}", "--lst", "{lst}"]
 expect = 0
