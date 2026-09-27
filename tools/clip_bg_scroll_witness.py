@@ -275,7 +275,8 @@ async def _entry_leg(b, sym, rom, act, chains, specs, plan, spec_at, blob_lab, r
                 k = ("drift", bd["drift"]) if bd.get("drift") else \
                     ("flat", bd.get("s2_ratio", bd["ratio"]))
                 factor_of.setdefault(k, bd["factor"])
-        origin = next(p for p in plan if p[0] != key)
+        # another zone's probe; a one-zone act starts from its own first probe (another layout)
+        origin = next((p for p in plan if p[0] != key), plan[0])
         targets = []
         for i in range(len(ch["specs"])):
             t = next((p for p in plan if p[0] == key and spec_at(key, p[4])[0] == i), None)
@@ -436,6 +437,9 @@ async def _fly_leg(b, sym, rom, act, chains, specs, plan, spec_at, blob_lab, rat
         clip = next(c for c in act.clips if c.zone_key == key)
         if key in drifting:
             out.append(f"OK   fly {clip.zone}: the zone drifts itself; nothing to inherit")
+            continue
+        if not drifting:
+            out.append(f"OK   fly {clip.zone}: no zone of this act drifts; nothing to inherit")
             continue
         route = _fly_route(act, drifting, key)
         if not route:
