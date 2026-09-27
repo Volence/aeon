@@ -112,7 +112,11 @@ SANDBOX_LINKS = ("project.json", "engine", "games/sonic4/config",
                  # The GENERATED act grid the descriptor's `const GRID_W` folds against
                  # since S2-COMPRESSED-ACT parcel 9. Without it every bound in
                  # region_flatten.BOUND_NAMES goes unfoldable and act_bounds refuses.
-                 "games/sonic4/data/generated/ojz/act1/act_grid.emp")
+                 "games/sonic4/data/generated/ojz/act1/act_grid.emp",
+                 # The GENERATED clip-act module, committed NEUTRAL: act_bounds reads its
+                 # OJZ_CLIP_ACT to choose the coverage rule (CLIP-ACT-TALLER-THAN-DOCUMENT)
+                 # and refuses rather than default it when it is missing.
+                 "games/sonic4/data/generated/ojz/act1/clip_act.emp")
 
 
 def golden_doc() -> dict:
