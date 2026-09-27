@@ -38,9 +38,12 @@ than hidden — these are the parts of the picture that are NOT Emerald Hill:
     shows its own Sonic 2 background: the start zone's as the act default, every other
     zone's through its region rows, and Oracle Jungle's (with its animation bank) is gone
     from the clip act. See the BACKGROUNDS block. Parallax is still the act default's.
-  * THE OBJECTS AND RINGS. Pass 8 (`ojz_entity_gen`) reads the shipped act's editor
-    objects/rings, so OJZ's entities appear at OJZ's world positions over Emerald
-    Hill geometry. Objects are out of scope for the whole first cut (owner's scope).
+  * THE OBJECTS AND RINGS — NO LONGER (2026-09-27, the woven report's §C item 8). The
+    staged project says `entities: none`, so Pass 8 (`ojz_entity_gen`) emits every
+    section's tables empty at the clip act's own grid. Until then it read the shipped
+    act's editor objects/rings (OJZ's entities at OJZ's world positions over Sonic 2
+    geometry), which also held every clip grid to >= 9 sections in whole rows of 3.
+    Objects are out of scope for the whole first cut (owner's scope).
   * THE EFFECTS PRESETS AND THE REGION TABLE. Both live in the hand-written
     `act_descriptor.emp`, which this does not touch. Nearly every OJZ preset binds
     `OJZ_Palette` — `embed(".../ojz_palette.bin")`, a GENERATED file — so the clip's
@@ -105,6 +108,7 @@ import clip_act_bake            # noqa: E402
 import clip_manifest            # noqa: E402
 import collision_pipeline       # noqa: E402
 import elect_pool_pages         # noqa: E402
+import ojz_entity_gen           # noqa: E402
 
 REPO = os.path.normpath(os.path.join(os.path.dirname(__file__), ".."))
 GEN_DIR = os.path.join(REPO, "games", "sonic4", "data", "generated", "ojz", "act1")
@@ -432,8 +436,9 @@ def check_tree_is_clean(paths, git="git"):
 # runs over the shipped document (per-row rules, overlap, exact coverage).
 #
 # ⚠ WHAT THE CLIP ACT STILL INHERITS: the shipped act's region TABLE is still assembled
-# (it is unused data in a clip ROM), and the objects and rings are still the shipped act's.
-# The BACKGROUND stopped being inherited on 2026-09-25: see the BACKGROUNDS block.
+# (it is unused data in a clip ROM). The BACKGROUND stopped being inherited on 2026-09-25
+# (see the BACKGROUNDS block) and the OBJECTS AND RINGS on 2026-09-27 (stage_project's
+# `entities: none`).
 
 CLIP_MODULE_REL = GEN_REL + "/clip_act.emp"
 CLIP_MODULE = os.path.join(REPO, CLIP_MODULE_REL)
@@ -1950,6 +1955,12 @@ def stage_project(act, baked_dir, donor_root, gen_dir=GEN_DIR, sheet_files=None)
                 "bgTiles": rel(os.path.join(REPO, sa["bgTiles"])),
                 "sceneRef": None,
                 "startPosition": dict(sa["startPosition"]),
+                # NO INHERITED ENTITIES (the woven report's §C item 8). Pass 8
+                # (ojz_entity_gen) reads this key: "none" emits every section's object,
+                # type and ring tables empty at THIS grid, instead of the shipped act's
+                # OJZ objects and rings at OJZ's world positions over Sonic 2 geometry —
+                # which also forced every clip grid to >= 9 sections, whole rows of 3.
+                ojz_entity_gen.ENTITIES_KEY: "none",
             }],
         }],
         "objectLibrary": rel(os.path.join(REPO, shipped["objectLibrary"])),
@@ -2138,7 +2149,6 @@ def _bake(manifest_path, donor_root=None, gen_dir=GEN_DIR, coll_dir=COLL_DIR,
                                if z.get("scroll") else "the act default (no transcription)")
                    for z in region_plan_["zones"]},
         "inherited_from_the_shipped_act": [
-            "objects and rings (Pass 8 reads the shipped act's editor entities)",
             "the shipped region table is still ASSEMBLED (unused: act_regions points at "
             "the clip act's own table)",
         ],
