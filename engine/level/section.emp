@@ -635,7 +635,8 @@ pub proc Section_RedrawPlanes () clobbers(d0-d4/d6/a0-a6/sr.ccr) out(d5: u16, d7
             // within the rate clamp's 16 px = 2 rows, which the 17-row lead absorbs. On the
             // WARP ladder it is already live when the prime fires (step 6 stands above step 7,
             // and the rate clamp deliberately holds the scroll near its pre-warp value across
-            // a teleport). On the BOOT ladder it is live only because `Parallax_Init` — the
+            // a teleport — on a TALL map, the only kind with a window to choose; since
+            // 2026-09-27 a one-plane map's scroll snaps, and its window is 0 whatever it reads). On the BOOT ladder it is live only because `Parallax_Init` — the
             // one writer that zeroes `Parallax_State`, which this cell is inside — now stands
             // ABOVE the `st Section_Plane_Dirty` pair rather than below it. That hoist is this
             // item's other half; without it this read would see the previous act's scroll or
