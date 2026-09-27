@@ -42390,6 +42390,15 @@ from boot, so its settle ticks also check a warp.
 every shape carries. The only release caller is the boot ladder, where no tagged object is
 live yet, so the added walk returns on `Dynamic_Live_Count` = 0 or skips untagged slots.
 
+**Landing evidence (code commit `56dc17d7`'s tree).** `tools/landing_build.sh` exit 0,
+`finished=0` (pytest `-m "not needs_build"` 3754 passed / 3 skipped / 35 deselected; 34 marked
+tests ran and passed, 1 EXEMPTED, the usual `test_deb2_appendix[demo.bin]`). CRC32 / size,
+base `835614a6` -> this branch: `s4.bin` 86aaa697 829746 -> 580bc557 829768 (+22 B, the
+void-id loop and the despawn call in `EntityWindow_Init`; base measured by a NO_LINT plain
+build of `835614a6` in a scratch worktree); `s4.debug.bin` aaffce16 -> e5febbd2 856731;
+`demo.debug.bin` a6df4e6b 106531 (moves too: demo links `engine.objects.entity_window`).
+Not in any effects-gate scope (no `engine/effects/*`, `bg_anim.emp` or `buffers.emp` touched).
+
 ## STRESSART-BUDGET: the stress bake takes the canonical pin rule and refuses a window over PAGE_FRAMES (SAH-1 B + C); SAH-2 traced (branch `fix/stressart-budget`, 2026-09-26)
 
 Base `3f310a1d`. Code commit `62140cd7`, test strengthening `9929d528`. Evidence:
