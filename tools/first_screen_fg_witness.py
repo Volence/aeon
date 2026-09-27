@@ -182,7 +182,7 @@ def grade_stop(bake, snap, label):
     left, top = snap["Cache_Left_Col"], snap["Cache_Top_Row"]
     oc, orow = snap["Cache_Origin_Col"], snap["Cache_Origin_Row"]
     skip_col, skip_row = snap["Cache_Fill_Resume_Col"], snap["Cache_Fill_RowResume_Row"]
-    skipped = 0
+    skipped = cache_art = 0
     for lr in range(CACHE_ROWS):
         row = top + lr
         for lc in range(CACHE_COLS):
@@ -192,6 +192,7 @@ def grade_stop(bake, snap, label):
                 continue
             i = (((lr + orow) % CACHE_ROWS) * CACHE_COLS + (lc + oc) % CACHE_COLS) * 2
             n_cache += 1
+            cache_art += bake.cell(col, row)[1] != 0
             why = grade(bake, vram, (tc[i] << 8) | tc[i + 1], col, row)
             if why:
                 bad.append(("CACHE", col, row, why))
@@ -199,13 +200,13 @@ def grade_stop(bake, snap, label):
     nb_c = len(bad) - nb_p
     print(f"  {label}: camera ({cx},{cy}); PLANE {n_plane - nb_p}/{n_plane} cells right "
           f"({art} painted); CACHE window cols {left}.. rows {top}..: {n_cache - nb_c}/{n_cache} "
-          f"right ({skipped} in a pending partial, not graded)")
+          f"right ({cache_art} painted; {skipped} in a pending partial, not graded)")
     for x in bad[:SHOW]:
         print(f"      {x[0]} world tile ({x[1]},{x[2]}): {x[3]}")
     if len(bad) > SHOW:
         print(f"      ... and {len(bad) - SHOW} more")
-    if art == 0:
-        raise CouldNotRun(f"{label}: the bake paints nothing on this screen; nothing to grade")
+    if cache_art == 0:
+        raise CouldNotRun(f"{label}: the bake paints nothing in the whole cache window; nothing to grade")
     return len(bad)
 
 
