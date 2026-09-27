@@ -281,11 +281,14 @@ def test_l6_refuses_a_prototype_obj03_inside_a_clip():
 
 def test_prototype_records_take_xflip_from_bit_14_and_mask_the_remember_bit(tmp_path):
     p = tmp_path / "proto.bin"
-    # x 100, y 200 with bit 14 set (x-flip) and bit 13 set (NOT x-flip in the prototype),
-    # id $83 (remember flag + Obj03), subtype $11
-    p.write_bytes(struct.pack(">HHBB", 100, 0x4000 | 0x2000 | 200, 0x83, 0x11))
-    assert SLL.read_layout(str(p), s2_donor.S2_PROTOTYPE) == [(100, 200, 1, 3, 0x11)]
-    assert SLL.read_layout(str(p), s2_donor.S2_FINAL) == [(100, 200, 1, 0x83, 0x11)]
+    # record 1: bit 14 only (the prototype's x-flip); record 2: bit 13 only (the final game's
+    # x-flip, which the prototype's loader does not read as one). id $83 = remember + Obj03.
+    p.write_bytes(struct.pack(">HHBB", 100, 0x4000 | 200, 0x83, 0x11)
+                  + struct.pack(">HHBB", 300, 0x2000 | 400, 0x03, 0x22))
+    assert SLL.read_layout(str(p), s2_donor.S2_PROTOTYPE) == [(100, 200, 1, 3, 0x11),
+                                                             (300, 400, 0, 3, 0x22)]
+    assert SLL.read_layout(str(p), s2_donor.S2_FINAL) == [(100, 200, 0, 0x83, 0x11),
+                                                         (300, 400, 1, 3, 0x22)]
 
 
 def test_l4_refuses_a_row_outside_the_act():
