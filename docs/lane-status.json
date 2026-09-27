@@ -15,6 +15,11 @@
       "what": "Level bake learns 2-D layouts: stacked regions, shafts, cloud band",
       "where": "branch parcel/woven-bake-2d",
       "agent": true
+    },
+    {
+      "what": "Object video memory: free the tiles nothing uses (about 53)",
+      "where": "branch parcel/vram-tier1",
+      "agent": true
     }
   ],
   "blockedOnOwner": [
@@ -215,5 +220,5 @@
   ],
   "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-09-27T09:03:26Z"
+  "updatedAt": "2026-09-27T09:03:51Z"
 }
