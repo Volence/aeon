@@ -18,6 +18,20 @@ Anything else is a violation: the session's exit status becomes 1 and the summar
 the rule to add. A read it cannot attribute to a tools/test_*.py frame is
 "<unattributed>", which no rule names, so it must be `code`.
 
+IT ALSO FAILS A TEST THAT LEAVES A docs/ DIRECTORY ON sys.path (checked after every
+test and after collection). Importing a docs-resident tool by putting its directory on
+sys.path is fine; leaving it there is not. Every later import in the session, by any
+test, then has importlib scan that directory (FileFinder._fill_cache, which re-lists it
+whenever its mtime moves, e.g. when the first import writes __pycache__ there), and this
+hook charges that listing to whichever test imported next, a test that never touches the
+directory. That is also a real exposure, not only noise: a module file added to the
+directory would shadow any not-yet-imported module for the rest of the session. Measured
+2026-09-27: tools/test_clip_manifest.py leaked docs/research/s2-compressed-act/, and a
+cold run (no __pycache__ there) charged its listing to tools/test_clip_woven_2d.py's
+lazy `import secrets` (numpy's default_rng), failing the session; the 2026-09-17 reader
+entry for tools/test_fg_page_order.py was the same leak. Import such a tool inside
+insert/try/finally-remove. Once reported, an entry is not re-reported for later tests.
+
 WHAT IT CANNOT SEE: a read by a CHILD process (a test that shells out to a tool, or a
 build.sh stage). tools/test_land_gate_classifier.py statically scans tracked code for
 docs paths; the CTRL-3 record's inotify trace watched every process of a full landing run
@@ -47,6 +61,8 @@ _EVENTS = {"open": "open", "os.listdir": "list", "os.scandir": "list"}
 _seen: set = set()
 _needs_build: dict = {}
 _active = [False]
+#: docs/ sys.path entries already reported as leaked
+_leaked: set = set()
 
 
 def _who():
@@ -105,6 +121,18 @@ def _observe(kind, args):
                cur.rsplit(" (", 1)[0] if cur else ""))
 
 
+def _check_syspath(who, nodeid):
+    """Record every sys.path entry under docs/ not already reported, charged to WHO."""
+    for e in sys.path:
+        if not isinstance(e, str) or not e:
+            continue
+        ap = os.path.normpath(os.path.join(os.getcwd(), e))
+        if (ap == _DOCS or ap.startswith(_DOCS_SEP)) and ap not in _leaked:
+            _leaked.add(ap)
+            rel = os.path.relpath(ap, _ROOT).replace(os.sep, "/").rstrip("/") + "/"
+            _seen.add((rel, "syspath", who, nodeid))
+
+
 def violations(seen=None, needs_build=None):
     """[(path, test file, why)] for every observation the RULES do not cover."""
     seen = _seen if seen is None else seen
@@ -113,6 +141,13 @@ def violations(seen=None, needs_build=None):
     for rel, kind, who, nodeid in sorted(seen):
         if kind == "error":
             out.append((rel, who, "the audit could not read an observation: unmeasurable"))
+            continue
+        if kind == "syspath":
+            out.append((rel, who, "%s left this docs directory on sys.path, so every later "
+                        "import scans it (the audit then charges the listing to whichever "
+                        "test imports next) and a file added there can shadow any module. "
+                        "Import the tool inside sys.path.insert / try / finally "
+                        "sys.path.remove" % (nodeid or who)))
             continue
         cls = land_gate.classify(rel)
         if cls == land_gate.CODE:
@@ -142,12 +177,25 @@ def pytest_configure(config):
         sys._aeon_land_gate_audit = True
     _seen.clear()
     _needs_build.clear()
+    _leaked.clear()
     _active[0] = True
 
 
 def pytest_collection_modifyitems(config, items):
     for it in items:
         _needs_build[it.nodeid] = it.get_closest_marker("needs_build") is not None
+
+
+def pytest_collection_finish(session):
+    if _active[0]:
+        _check_syspath("<collection>", "")      # a test module inserting at import time
+
+
+def pytest_runtest_logfinish(nodeid, location):
+    if _active[0]:                             # after the test's own fixtures tore down
+        who = location[0].replace(os.sep, "/") if location else "<unattributed>"
+        _check_syspath(who if who.startswith("tools/") else "tools/" + os.path.basename(who),
+                       nodeid)
 
 
 def pytest_sessionfinish(session, exitstatus):

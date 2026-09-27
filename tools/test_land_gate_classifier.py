@@ -234,7 +234,7 @@ def pytest_configure(config):
     config.pluginmanager.register(land_gate_audit, "land_gate_audit")
 '''
 
-_SANDBOX_TEST = '''import os
+_SANDBOX_TEST = '''import os, sys
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 def test_reads():
     open(os.path.join(ROOT, "docs", "declared.md")).read()
@@ -243,6 +243,15 @@ def test_reads():
         open(os.path.join(ROOT, "docs", "undeclared.md")).read()
     elif what == "dir":
         os.listdir(os.path.join(ROOT, "docs", "sub"))
+    elif what == "syspath":
+        sys.path.insert(0, os.path.join(ROOT, "docs", "sub"))    # and never removed
+    elif what == "syspath-restored":
+        d = os.path.join(ROOT, "docs", "sub")
+        sys.path.insert(0, d)
+        try:
+            import json
+        finally:
+            sys.path.remove(d)
 '''
 
 
@@ -281,6 +290,17 @@ def test_end_to_end_an_undeclared_read_fails_a_green_session():
     assert "LAND GATE" in out and "docs/undeclared.md" in out, out
     rc, out = _sandbox_session("dir")
     assert rc == 1 and "LAND GATE" in out and "docs/sub/" in out, out
+
+
+def test_end_to_end_a_docs_dir_left_on_sys_path_fails_a_green_session():
+    """A test that leaves a docs/ directory on sys.path fails the session, charged to it;
+    one that inserts and removes it around an import does not (the fixed shape)."""
+    rc, out = _sandbox_session("syspath")
+    assert rc == 1 and "1 passed" in out, out
+    assert "LAND GATE" in out and "docs/sub/" in out and "left this docs directory" in out, out
+    assert "tools/test_reads.py::test_reads" in out, out
+    rc, out = _sandbox_session("syspath-restored")
+    assert rc == 0 and "1 passed" in out and "LAND GATE" not in out, out
 
 
 def test_every_docs_path_named_in_code_is_covered():
