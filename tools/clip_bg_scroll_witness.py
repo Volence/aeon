@@ -53,6 +53,7 @@ SETTLE_MAX = 900
 # Parallax_Drift_Acc: one 16.16 long per band, MAX_PARALLAX_BANDS (engine/structs.emp: 16) of
 # them, [pixels:i16][fraction:u16] (engine/level/parallax.emp's drift banner).
 DRIFT_BANDS = 16
+COHERENT_TRIES = 8
 STABLE_FRAMES = 30
 
 
@@ -85,7 +86,7 @@ def probes(act, specs=None):
     return out
 
 
-async def _probe(b, sym, camx, camy):
+async def _probe(b, sym, camx, camy, rates=None):
     await b.call("emulator/write_memory", {"addr": hex(sym["Camera_X"]), "value": camx << 16,
                                            "width": 4})
     await b.call("emulator/write_memory", {"addr": hex(sym["Camera_Y"]), "value": camy << 16,
@@ -113,16 +114,38 @@ async def _probe(b, sym, camx, camy):
             break
     else:
         return None
-    rd = {}
     reads = [("Hscroll_Buffer", HSCROLL_BYTES), ("Camera_X", 4), ("Camera_Y", 4),
              ("Parallax_Current_Config", 4), ("Parallax_Current_Vscroll_BG", 2),
              ("Parallax_Deform_Phase_BG", 2)]
     if "Parallax_Drift_Acc" in sym:
         reads.append(("Parallax_Drift_Acc", 4 * DRIFT_BANDS))
-    for name, ln in reads:
-        r = await b.call("emulator/read_memory", {"addr": hex(sym[name]), "len": ln})
-        rd[name] = bytes.fromhex(r["bytes"])
-    return rd, n + 1
+    # A DRIFTING scene changes every frame, so a snapshot taken while the frame loop is still
+    # inside Parallax_Update's band loop (a lag frame) is a mix of two frames. MEASURED on
+    # s2_wfz_solo at camera (4101, 0): accumulators [240, 120, 60, 240, 119, 59, 239, ...]
+    # for three rates repeated, i.e. the loop stopped part-way. COHERENT means every band
+    # with the same drift rate holds the same accumulator (they start together at 0 and
+    # advance on the same frames); an incoherent snapshot is re-taken one frame later, up to
+    # COHERENT_TRIES times, and the number of re-takes is reported. A probe that never gets a
+    # coherent snapshot is COULD NOT MEASURE, never a pass.
+    for tries in range(COHERENT_TRIES):
+        rd = {}
+        for name, ln in reads:
+            r = await b.call("emulator/read_memory", {"addr": hex(sym[name]), "len": ln})
+            rd[name] = bytes.fromhex(r["bytes"])
+        if _coherent(rd.get("Parallax_Drift_Acc", b""), rates):
+            return rd, n + 1, tries
+        await b.call("emulator/run_frames", {"frames": 1})
+    return None
+
+
+def _coherent(acc, rates):
+    """Every band sharing a non-zero drift rate holds the same 16.16 accumulator."""
+    seen = {}
+    for k, rate in enumerate(rates or []):
+        if rate and 4 * k + 4 <= len(acc):
+            if seen.setdefault(rate, acc[4 * k:4 * k + 4]) != acc[4 * k:4 * k + 4]:
+                return False
+    return True
 
 
 def main():
@@ -151,6 +174,7 @@ def main():
         text = fh.read()
     cfg_of = {sym[CBS.PARALLAX_LABEL.format(key=k)] & 0xFFFFFF: k for k in zones}
     plan = probes(act, specs)
+    rates_of = {k: [b.get("drift") or 0 for b in sp["bands"]] for k, sp in specs.items()}
     results = []
 
     async def run(sock):
@@ -165,7 +189,7 @@ def main():
                                                "value": 1, "width": 1})
         await b.call("emulator/run_frames", {"frames": 2})
         for key, zone, dy, x, y in plan:
-            results.append((key, zone, x, y, await _probe(b, sym, x, y)))
+            results.append((key, zone, x, y, await _probe(b, sym, x, y, rates_of[key])))
         await b.close()
 
     with headless_emulator(rom) as sock:
@@ -174,10 +198,11 @@ def main():
     bad, unmeasured, report = 0, 0, []
     for key, zone, x, y, got in results:
         if got is None:
-            print(f"COULD NOT MEASURE {zone} cam ({x},{y}): never settled in {SETTLE_MAX} frames")
+            print(f"COULD NOT MEASURE {zone} cam ({x},{y}): never settled in {SETTLE_MAX} frames, "
+                  f"or no coherent drift snapshot in {COHERENT_TRIES} re-takes")
             unmeasured += 1
             continue
-        rd, frames = got
+        rd, frames, retakes = got
         camx = int.from_bytes(rd["Camera_X"][:2], "big")
         camy = int.from_bytes(rd["Camera_Y"][:2], "big")
         cfg = int.from_bytes(rd["Parallax_Current_Config"], "big") & 0xFFFFFF
@@ -190,7 +215,8 @@ def main():
         dpx = [CBS._sx(int.from_bytes(acc[i * 4:i * 4 + 2], "big"), 16)
                for i in range(len(acc) // 4)]
         line = (f"{zone} cam ({camx},{camy}) settled {frames}f vscroll {vs} phase {ph}"
-                + (f" drift px {[d for d in dpx if d]}" if any(dpx) else ""))
+                + (f" drift px {[d for d in dpx if d]}" if any(dpx) else "")
+                + (f" (re-taken {retakes}x: incoherent drift snapshot)" if retakes else ""))
         if (camx, camy) != (x, y):
             print(f"COULD NOT MEASURE {line}: the camera did not stay at ({x},{y})")
             unmeasured += 1
