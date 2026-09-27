@@ -545,6 +545,16 @@ from scene_spans import (AEON, capability_bits, expected_spans, game_caps,
 # (the engine commit 8ce19218 said it was, wrongly): `cmpi.w #BG_TALL_MAP_MIN_SPAN, d0` 4 +
 # `blo` 2 replace `beq` 2 + `ble` 2, so BG_Stream_Update 590 -> 592 (+2, MEASURED on both
 # sonic4 debug listings). This pin does not name that proc.
+# RE-DERIVATION LOG — 2026-09-27, WOVEN-TALL-ENTRY (`parcel/woven-tall-entry`, Step 5's (b1)
+# layout-change snap). The pin FAILED and was right to. ONE row moved: Parallax_Step5_Vscroll,
+# demo 176 -> 186 (+10), sonic4 418 -> 428 (+10). DERIVED from the source change, then read off
+# both images (this witness's differential), and the two agree:
+#     tst.b   Parallax_BG_Snap        4   (abs.w, a Parallax_State byte)
+#     bne     .v_store                2   (short reach)
+#     clr.b   Parallax_BG_Snap        4   (at `.v_store`, every arm)
+#                                  = +10 B, UNGATED (beside the rate clamp, outside every CAP_*
+# block), so the same in both games. Parallax_CheckBoundary grew too (the layout compare that
+# sets the byte); this pin does not name that proc.
 DEMO_SPECIALISED_PROCS = {
     "Effects_LatchWorldLines":   26,   # CAP_ANCHOR_MOTION          (sonic4 126)
     "Effects_SetTargetY":         2,   # CAP_ANCHOR_MOTION          (sonic4  36) — a bare rts
@@ -554,7 +564,7 @@ DEMO_SPECIALISED_PROCS = {
     "Parallax_Set_Roles_Swapped": 0,   # CAP_ROLE_SWAP              (sonic4  56) — no unconditional caller, so the whole proc elides
     "Parallax_StartTransition":  78,   # CAP_PER_COL_VSRAM, CAP_TRANSITIONS  (sonic4 106)
     "Parallax_Step4_Fill":      188,   # CAP_ANCHORS, CAP_FACTOR_CURVE  (sonic4 656 at its 32 B record stride). 192 -> 188 on 2026-09-13, RE-DERIVED, not re-baselined: the band record is per game now (GAME_SCANLINE_CAPS) and demo's is the legacy 10 B, not sonic4's 32. Two ungated sites follow sizeof(band_record): `mul_const.w d3, #sizeof(band_record), d5` goes from x32 = `lsl.w #5` (2 B) to x10 = the word LTR chain move/lsl #2/add/double (8 B, +6), and copy_band_entry_fwd goes from 8 x move.l (16 B) to 2 x move.l + move.w (6 B, -10). Net -4, derived before building in docs/superpowers/notes/2026-09-13-per-game-band-defines.md §1.3
-    "Parallax_Step5_Vscroll":   176,   # CAP_PER_COL_VSRAM, CAP_TRANSITIONS, CAP_ROLE_SWAP  (sonic4 418; 170 -> 176 on 2026-09-27, the one-plane arm, +6 DERIVED, see the log above. Before that: sonic4 412, MEASURED this parcel — the parenthetical said 280 and the listing said 362 even before step 4 moved it; these numbers are commentary and nothing asserts them, so the stale one had gone unnoticed). 120 -> 170 on 2026-09-16, regions part 2 step 4's BG V-scroll clamp: DERIVED +50 instruction by instruction before the build, see the RE-DERIVATION LOG above
+    "Parallax_Step5_Vscroll":   186,   # CAP_PER_COL_VSRAM, CAP_TRANSITIONS, CAP_ROLE_SWAP  (sonic4 428; 176 -> 186 on 2026-09-27, the layout-change snap, +10 DERIVED, see the log above; sonic4 418 before; 170 -> 176 on 2026-09-27, the one-plane arm, +6 DERIVED, see the log above. Before that: sonic4 412, MEASURED this parcel — the parenthetical said 280 and the listing said 362 even before step 4 moved it; these numbers are commentary and nothing asserts them, so the stale one had gone unnoticed). 120 -> 170 on 2026-09-16, regions part 2 step 4's BG V-scroll clamp: DERIVED +50 instruction by instruction before the build, see the RE-DERIVATION LOG above
     "Parallax_Update":          260,   # CAP_ROLE_SWAP              (sonic4 290). 246 -> 260 on 2026-09-06: the DEBUG-only live-effects arm poll, +14 in BOTH fixtures (shape-gated, not capability-gated) — see the log above
     "Raster_GetChannelBand":      8,   # CAP_ANCHORS                (sonic4  50)
     "Raster_HInt":              316,   # CAP_DENSE_TIER             (sonic4 338) — see the
