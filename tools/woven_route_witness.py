@@ -101,8 +101,12 @@ def expected_requests(act, legs, ids):
     first = legs[0][1]
     playing = ids[first.music] if first.music else None
     if start is not None:
-        holder = next(c for c in act.clips if c.id == start["clip"])
-        playing = ids[holder.music] if holder.music else None
+        # the clip whose rectangle holds the start point (either `start` form); a start in
+        # a corridor plays nothing (a corridor row names no song)
+        holder = next((c for c in act.clips
+                       if c.dst[0] <= start["x"] < c.dst[0] + c.dst[2]
+                       and c.dst[1] <= start["y"] < c.dst[1] + c.dst[3]), None)
+        playing = ids[holder.music] if holder is not None and holder.music else None
     out = [("boot", playing)] if playing is not None else []
     for co, _left, right in legs:
         want = ids[right.music] if right.music else None
