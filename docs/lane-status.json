@@ -15,11 +15,6 @@
       "what": "Level bake learns 2-D layouts: stacked regions, shafts, cloud band",
       "where": "branch parcel/woven-bake-2d",
       "agent": true
-    },
-    {
-      "what": "Design for freeing video memory for objects, sized against the woven act",
-      "where": "branch design/regions-p2-step8",
-      "agent": true
     }
   ],
   "blockedOnOwner": [
@@ -32,6 +27,11 @@
       "id": "S2CLIP-OBJECTS",
       "what": "Bring Sonic 2's objects (bridges and springs first) into the Sonic 2 level?",
       "since": "2026-09-26"
+    },
+    {
+      "id": "STEP8-RESIZE",
+      "what": "Object video memory: halve the scroll plane now, or free savings now and halve it when badniks need it?",
+      "since": "2026-09-27"
     }
   ],
   "nextBoundary": "When the three agents land: then assemble the full woven act.",
@@ -178,7 +178,7 @@
     },
     {
       "id": "REGIONS-P2-STEP8",
-      "title": "Video memory for objects: next after the woven act (your overnight order)",
+      "title": "Object video memory: 256 tiles from halving the plane, not 384; free savings build tonight, the halving is your call",
       "state": "next",
       "size": "L",
       "blockedBy": null
@@ -215,5 +215,5 @@
   ],
   "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-09-27T08:51:55Z"
+  "updatedAt": "2026-09-27T09:03:26Z"
 }
