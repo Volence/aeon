@@ -1,5 +1,5 @@
 {
- "title": "Woven Sonic 2 mega-act (layout v2)",
+ "title": "Woven Sonic 2 mega-act (layout v2.1: Hidden Palace runs east)",
  "subtitle": "To scale, 1 px = 8 world px. Each box holds its donor clip's foreground. Grey = neutral fill (line-0 art, solid). Coloured bars = the connector lanes, sized by the seam rule.",
  "scale": 8,
  "grid": [
@@ -124,11 +124,11 @@
    "route": "must"
   },
   {
-   "id": "hpz_diagonal",
+   "id": "hpz_west",
    "tree": "s2-simonwai-disasm/HPZ",
    "zone": "HPZ",
    "src": [
-    5632,
+    4688,
     0,
     2560,
     2048
@@ -138,7 +138,25 @@
     3136
    ],
    "label": "HIDDEN PALACE (under Emerald Hill)",
-   "what": "the great diagonal + lake",
+   "what": "the great diagonal",
+   "route": "optional"
+  },
+  {
+   "id": "hpz_east",
+   "tree": "s2-simonwai-disasm/HPZ",
+   "zone": "HPZ",
+   "src": [
+    7248,
+    1504,
+    1968,
+    544
+   ],
+   "dst": [
+    2560,
+    4640
+   ],
+   "label": "HIDDEN PALACE (runs on east)",
+   "what": "its east floor, under Metropolis",
    "route": "optional"
   },
   {
@@ -388,33 +406,58 @@
   },
   {
    "id": "C10",
-   "kind": "tunnel",
+   "kind": "shaft",
    "joins": [
     "HPZ",
     "MTZ"
    ],
    "lanes": [
     [
-     2496,
-     3600,
-     752,
+     3456,
+     4016,
+     256,
+     720
+    ]
+   ],
+   "rect": [
+    3456,
+    4016,
+    256,
+    720
+   ],
+   "route": "optional",
+   "how": "ledges up into Metropolis; fall back down",
+   "rule": "vertical, BG blob change: 528 px"
+  },
+  {
+   "id": "C11",
+   "kind": "tunnel",
+   "joins": [
+    "HPZ",
+    "OOZ"
+   ],
+   "lanes": [
+    [
+     4464,
+     4896,
+     704,
      96
     ]
    ],
    "rect": [
-    2496,
-    3600,
-    752,
+    4464,
+    4896,
+    704,
     96
    ],
    "route": "optional",
    "how": "walk",
-   "rule": "horizontal, BG blob change: 624 px"
+   "rule": "horizontal, BG blob change: 576 px"
   }
  ],
  "notes": [
   "MAIN ROUTE: Emerald Hill -C5-> Metropolis (west) -C6-> Chemical Plant -C7-> Metropolis (east) -C9-> Oil Ocean.   CPZ is a pocket you pass through; MTZ carries on at the other side.",
-  "UNDER: Emerald Hill -C4-> Hidden Palace -C10-> Metropolis (west).   SKY: Emerald Hill -C1-> Wing Fortress; Metropolis -C2-> Wing Fortress -C3-> drop into Chemical Plant.   DROP: Chemical Plant -C8-> Oil Ocean.",
+  "UNDER: Emerald Hill -C4-> Hidden Palace, which runs east under Metropolis: up -C10-> Metropolis (west), or on -C11-> Oil Ocean (a second way to the end).   SKY: Emerald Hill -C1-> Wing Fortress; Metropolis -C2-> Wing Fortress -C3-> drop into Chemical Plant.   DROP: Chemical Plant -C8-> Oil Ocean.",
   "Each lane's length is its seam's minimum: screen (320 across / 224 up-down) + 16 px x the background frames of both sides (2 when the two zones share a BG blob).",
   "Checked over every reachable camera (woven.py check): 0 screens show two zones; every crossing at slack 0.   Collision 245 / 255.   Art window 12 / 12 on the clips.",
   "No objects: every 'ledges' lane stands in for a spring until objects exist."

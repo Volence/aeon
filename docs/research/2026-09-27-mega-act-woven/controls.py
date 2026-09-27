@@ -33,17 +33,31 @@ def c_mtz_own_blob(d):
 
 def c_hpz_up(d):
     """Hidden Palace 64 px up: the C4 shaft is 224, screen height with no BG time."""
-    clip(d, "hpz_diagonal")["dst"][1] -= 64
+    clip(d, "hpz_west")["dst"][1] -= 64
 
 
 def c_hpz_touch(d):
     """Hidden Palace directly under Emerald Hill, no band at all."""
-    c = clip(d, "hpz_diagonal")
+    c = clip(d, "hpz_west")
     e = clip(d, "ehz_double_loop")
     c["dst"][1] = e["dst"][1] + e["src"][3]
 
 
-CONTROLS = [c_cpz_closer, c_mtz_own_blob, c_hpz_up, c_hpz_touch]
+def c_hpz_east_up(d):
+    """r2: Hidden Palace's east piece 16 px up: the C10 shaft to Metropolis is 512."""
+    c = clip(d, "hpz_east")
+    c["dst"][1] -= 16
+    c["src"][1] -= 16
+    c["src"][3] += 16
+
+
+def c_hpz_east_wider(d):
+    """r2: Hidden Palace's east piece 16 px wider: the C11 tunnel to Oil Ocean is 560."""
+    clip(d, "hpz_east")["src"][2] += 16
+
+
+CONTROLS = [c_cpz_closer, c_mtz_own_blob, c_hpz_up, c_hpz_touch, c_hpz_east_up,
+            c_hpz_east_wider]
 
 
 def main():

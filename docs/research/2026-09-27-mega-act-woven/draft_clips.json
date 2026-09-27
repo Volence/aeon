@@ -100,11 +100,11 @@
       "unaligned_dst_reason": "woven proposal placement (docs/research/2026-09-27-mega-act-woven.md)"
     },
     {
-      "id": "hpz_diagonal",
+      "id": "hpz_west",
       "donor": "s2-simonwai-disasm",
       "zone": "HPZ",
       "src_rect": {
-        "x": 5632,
+        "x": 4688,
         "y": 0,
         "w": 2560,
         "h": 2048
@@ -114,6 +114,24 @@
         "y": 3136,
         "w": 2560,
         "h": 2048
+      },
+      "unaligned_dst_reason": "woven proposal placement (docs/research/2026-09-27-mega-act-woven.md)"
+    },
+    {
+      "id": "hpz_east",
+      "donor": "s2-simonwai-disasm",
+      "zone": "HPZ",
+      "src_rect": {
+        "x": 7248,
+        "y": 1504,
+        "w": 1968,
+        "h": 544
+      },
+      "dst_rect": {
+        "x": 2560,
+        "y": 4640,
+        "w": 1968,
+        "h": 544
       },
       "unaligned_dst_reason": "woven proposal placement (docs/research/2026-09-27-mega-act-woven.md)"
     },

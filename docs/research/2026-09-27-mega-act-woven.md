@@ -9,8 +9,9 @@ conversion, collision equivalence and bake-gap findings still stand.
 emulator was used, not even headless: every runtime number here is quoted from the 09-25
 witnesses, and the report says so each time.
 
-**The picture:** [`2026-09-27-mega-act-woven/mega-act-woven.png`](2026-09-27-mega-act-woven/mega-act-woven.png).
-It is drawn to scale (1 px = 8 world px), and each box holds a render of its donor clip.
+**The picture (v2.1):** [`2026-09-27-mega-act-woven/mega-act-woven.png`](2026-09-27-mega-act-woven/mega-act-woven.png).
+It is drawn to scale (1 px = 8 world px), and each box holds a render of its donor clip. The
+v2 picture this replaced is the same path at `1190d409`.
 
 ![The woven act](2026-09-27-mega-act-woven/mega-act-woven.png)
 
@@ -19,6 +20,145 @@ Every figure below is tagged:
 - **INFERRED:** arithmetic on measured numbers, or a reading of the source. The sentence says
   which.
 - **QUOTED:** measured by an earlier parcel, whose report is named.
+
+---
+
+## v2.1 (revision r2, same day): Hidden Palace runs east
+
+**Branch** `design/mega-act-woven-r2`, base `origin/master` `9e7519c6` (contains v2 at
+`1190d409`). **This section supersedes** v2's Hidden Palace row and its C10 in §0, §A.2, §B
+and the routes. Everything else below still stands as written, and every budget is re-measured
+here.
+
+**The owner, with a sketch:** *"can you do hidden palace zone so it goes under that section on
+metropolis, can connect to it (where metropolis is above) and can connect to oil ocean to the
+right of it?"*
+
+### What changed
+
+- **Hidden Palace is an L: ONE donor rectangle cut into two clips pasted with the same
+  offset.**
+  - **West piece**, under Emerald Hill: donor x 4688..7247, y 0..2047, at act (0, 3136),
+    2560 x 2048. It holds the great diagonal.
+  - **East piece**, under Metropolis west: donor x 7248..9215, y 1504..2047, at act
+    (2560, 4640), 1968 x 544. It holds the zone's east floor, up to the end of its painted
+    width (9216, MEASURED from `zone.json`).
+  - **Why one rectangle cut in two, and not a wider clip or two separate pieces:**
+    - **Not one wider rectangle.** Under Emerald Hill, Hidden Palace's top is at y 3136
+      (288 below Emerald Hill). Under Metropolis west it cannot start above y 4640 (528 below
+      Metropolis's bottom, a background reload). A single rectangle would have to start at
+      4640 everywhere, which leaves a 1,792 px drop under Emerald Hill where the 288 px shaft
+      is now.
+    - **Not two separate pieces.** Two separate pieces would meet at a seam made up of two
+      different parts of the donor.
+    - **Same offset.** Cut from one rectangle with one offset, the place where the two pieces
+      touch is Sonic 2's own geometry.
+    - **No connector.** It is one zone, with one palette and one background, so nothing
+      crosses and no connector is needed.
+  - **Why this donor window.** The east piece has to end 576 px before Oil Ocean (the
+    HPZ/OOZ rule), so the whole L is 4,528 px wide. Ending it at the donor's painted edge puts
+    the west piece's start at 4688.
+    - A scan over every start from 0 to 4688 in 256-px steps (MEASURED) found that only
+      starts 4608 and 4688 keep collision at **245** (0 entries added). 4688 is the one
+      that ends exactly at the painted edge.
+    - Its east piece's top is open under Metropolis, and its east edge is open at the rows
+      Oil Ocean's west edge is.
+    - Other starts cost more (MEASURED):
+
+      | Start | Entries |
+      |---|---|
+      | 4096 / 4352 | 250 / 246 |
+      | 2048 | 255 (0 spare) |
+      | 2304..3840 | 259, **over by 4**. These have more open ground in the east piece |
+      | 0..1792 | 269 to 290 |
+- **C10 is now a vertical shaft**, Hidden Palace east up to Metropolis west.
+  - It is 528 px: 224 + 16 x (10 + 9), a background reload, because HPZ is in blob A and MTZ
+    in blob M.
+  - It sits at act x 3456..3711, where both edges are open (MEASURED, `woven.py edges`).
+  - You climb ledges up into Metropolis (a spring later) and fall back down.
+  - **v2's side tunnel between Hidden Palace and Metropolis is gone.** The owner's picture
+    does not need it, and the L now fills that spot (under the C5 gap).
+- **New C11, a tunnel from Hidden Palace east into Oil Ocean.**
+  - It is 576 px: 320 + 16 x (10 + 6), a background reload.
+  - It runs at y 4896, a row both edges have open (MEASURED).
+
+### The background groups, re-checked
+
+The new joins are HPZ/MTZ (vertical) and HPZ/OOZ (horizontal). Both cross groups: HPZ is in A
+(EHZ + HPZ + WFZ), MTZ in M (CPZ + MTZ), and OOZ in O. The regroupings that fit the 376-tile
+arena, priced with the §A.2 rule (INFERRED from the MEASURED tile counts):
+
+| Grouping | EHZ/HPZ (C4) | HPZ/MTZ (C10) | HPZ/OOZ (C11) | Other changes | Verdict |
+|---|---|---|---|---|---|
+| **A {EHZ,HPZ,WFZ} 369, M {CPZ,MTZ} 314, O {OOZ} 117 (kept)** | **288** | 528 | 576 | none | **kept** |
+| {EHZ,WFZ} 224, {HPZ,OOZ} 262, M | 464 | 496 | **384** | C5 624→576, C2/C3 528→480, C8/C9 464→496 | the showcase Emerald-Hill-on-Hidden-Palace shaft grows 288→464 |
+| {EHZ,HPZ} 286, {WFZ,OOZ} 200, M | 288 | 512 | 576 | C1 288→480, C5 624→608, C2/C3 528→480, C8/C9 464→480 | the showcase Wing-Fortress-over-Emerald-Hill band grows 288→480 |
+| any group with HPZ+MTZ | — | 288 | — | breaks CPZ+MTZ (C6/C7 384→ a reload) | rejected: the Chemical-Plant-inside-Metropolis seam is the showcase |
+| {EHZ,HPZ,OOZ} | — | — | — | 403 tiles | over 376 |
+
+**Recommendation: keep the three groups.** Both new joins reload a background, which is why
+they are 528 and 576 rather than 288 and 384.
+
+### Budgets, re-measured on v2.1
+
+| Budget | v2 | v2.1 | Tag |
+|---|---|---|---|
+| Screens showing two zones (`woven.py check`, 264,594 reachable camera centres) | 0 | **0** | MEASURED |
+| Crossing directions / slack | 18, all +0 | **20** (adds HPZ↔OOZ), all **+0** | MEASURED |
+| Controls red | 4 of 4 | **6 of 6** (new: HPZ east 16 px up, C10 = 512, and 16 px wider, C11 = 560) | MEASURED |
+| Collision attr entries | 245 of 255 | **245 of 255**. HPZ west adds 7 and HPZ east adds 0 (bake C2) | MEASURED |
+| Art window, clips only | 12 of 12, 0 over | **12 of 12, 0 of 725,207 over**. Pool 2,659 tiles, 45 pages | MEASURED (bake N1/N2) |
+| Art window with the connector art | 13 in 108 windows | **13 in the same 108 windows**, still at the MTZ/CPZ seam. Windows touching HPZ east need at most 8 (9 with the rock page) | MEASURED (`art_window.py`) |
+| Sections | 20 of 48 (5 x 4) | **20 of 48** | MEASURED |
+| Largest section tile map | 773 of 2,047 | **773**. Section 14 now holds four zones (MTZ, CPZ, HPZ, OOZ): 641 entries | MEASURED |
+| Level data (clips only) | 306,786 B | **312,936 B** (+6,150): block stream 266,080, local maps 11,820, art pool 35,036 | MEASURED (`measure_rom.py`) |
+
+**No budget breaks.** Collision was the likely one: the whole Hidden Palace is 152 entries.
+The trade is the window choice above: a Hidden Palace window starting at donor x 2304..3840
+has a roomier east piece but costs **259, 4 over**. Starting at 2048 fits exactly: 255, 0
+spare.
+
+### The one trade the owner may want: a taller east piece, with its lake
+
+The east piece is Hidden Palace's bottom 544 px. The lake (donor y about 1100..1450) is just
+above it, cut off by the 528 px rule under Metropolis west. The alternative is to shorten
+Metropolis west to 1,536 px (dropping its bottom 512), set with `MTZ_WEST_H=1536` in
+`build_layout.py`. MEASURED:
+
+| | Default (recommended) | Trimmed Metropolis west |
+|---|---|---|
+| Metropolis west | 1536 x 2048 | 1536 x **1536** (bottom 512 px gone) |
+| Hidden Palace east piece | 1968 x 544 at y 4640 | **1920 x 1056** at y 4128, **with the lake** |
+| C11 | 576 | 624. The east piece now rises beside Chemical Plant, so it keeps the HPZ/CPZ rule |
+| `woven.py check` | PASS | PASS, 0 mixed screens |
+| Collision | 245 | 245 (`measure_clips.py union`) |
+
+*Recommendation: the default.* Metropolis's maze is a must-pass and the lake is optional
+scenery. It is the owner's call, and a one-line switch either way.
+
+### Routes (v2.1)
+
+- **Main (unchanged):** Emerald Hill, C5, Metropolis west, C6, through Chemical Plant, C7,
+  Metropolis east, C9, Oil Ocean.
+- **Under (new):** Emerald Hill, C4, Hidden Palace, which runs east inside the zone, then
+  either:
+  - **C10 up into Metropolis west**, a second way into the maze; or
+  - **C11 across into Oil Ocean**, a second way to the end that skips Metropolis and
+    Chemical Plant.
+- **Sky (unchanged):** Emerald Hill C1, Metropolis west C2, Wing Fortress C3 drop into
+  Chemical Plant.
+- **Drop (unchanged):** Chemical Plant, C8, Oil Ocean.
+- There are now **two ways to the end**: through the maze, or under it through Hidden Palace.
+
+### What needs building: changes from §C
+
+- **Nothing new.** C10 is now a shaft, and C11 is a tunnel into Oil Ocean; both kinds are
+  already on the list:
+  - C10 needs item 2's vertical kind;
+  - C11 needs item 9 (K6 into a zone with no plane-B floor), which now blocks one more tunnel.
+- **Two clips of one zone with one offset** already pass the manifest (R3 and R10) and the
+  bake (MEASURED: `clip_manifest.py validate` OK, bake OK). The 2-D region plan (item 1) must
+  treat them as one region.
 
 ---
 
@@ -50,7 +190,7 @@ Every figure below is tagged:
   | Vertical shaft or cloud band, both backgrounds already in memory | C4 (Emerald Hill / Hidden Palace), C1 (Wing Fortress / Emerald Hill) | 288 px |
   | Vertical, one background loaded in the lane | C8, C9 (down to Oil Ocean) | 464 px |
   | Vertical, one background loaded in the lane | C2, C3 (up to Wing Fortress) | 528 px |
-  | Horizontal, one background loaded in the lane | C5, C10 (the Emerald Hill / Hidden Palace column to Metropolis) | 624 px |
+  | Horizontal, one background loaded in the lane | C5 (Emerald Hill to Metropolis); v2's C10 is replaced in v2.1 | 624 px |
 
   - v1 used 832 px across and at least 768 px up or down everywhere.
 - **Checked over every reachable camera position** (`woven.py check`, MEASURED):
@@ -164,7 +304,7 @@ Its controls show it goes red at 16 px shorter.
 | **Horizontal tunnel, same blob** | **384 px** (C6, C7) | MEASURED glitch-free before B-2 (09-25 §8.4) | The screen width (320), plus 2 frames of repaint a side at 16 px a frame |
 | Same, on today's engine after B-2 | **480 px** | MEASURED (09-25 §8.7) | The background's vertical-scroll ratchet: a 3 to 4 frame slide at the camera cap. SHORT-TUNNEL-VSCROLL-RATCHET, not built. With it, back to 384 |
 | **Vertical shaft or cloud band, same blob** | **288 px** (C1, C4) | INFERRED: the same rule on the 224-px axis. No vertical crossing between clip zones has been flown | The screen height (224), plus 2 x 2 frames |
-| **Horizontal, blob change** | 320 + 16 x (T_a + T_b). **624 px** for A to M (C5, C10) | INFERRED from the MEASURED chunk count and the QUOTED repaint | The arena overwrite of the blob being entered |
+| **Horizontal, blob change** | 320 + 16 x (T_a + T_b). **624 px** for A to M (C5); **576** for A to O (v2.1's C11) | INFERRED from the MEASURED chunk count and the QUOTED repaint | The arena overwrite of the blob being entered |
 | **Vertical, blob change** | 224 + 16 x (T_a + T_b). **528 px** for A to M (C2, C3), **464 px** for M to O (C8, C9) | INFERRED, as above | As above |
 | **Sealed seam** (the zones meet but nothing crosses) | **96 to 176 px** of neutral fill | MEASURED (`woven.py seal`) | Only the view distance. The camera inside a zone sees at most 160 + 16 across or 112 + 32 down past its own edge (screen half plus deadzone). No background time is needed, because nobody crosses |
 | Zones touching with nothing between | **never**, for these clips | MEASURED | Every clip has reachable air at its edges: Sonic 2 levels run their pits to the bottom. Control `c_hpz_touch`: 6,416 camera positions show both zones |
@@ -352,7 +492,7 @@ them.
 | Metropolis west: the opening maze, first half | `s2disasm` MTZ, x 0..1535, y 0..2047 | 1536 x 2048 | (3184, 2064) | must |
 | Chemical Plant: the loop cluster | `s2disasm` CPZ, x 7168..9215, y 0..2047 | 2048 x 2048 | (5104, 2064) | must |
 | Metropolis east: the same maze, continued | `s2disasm` MTZ, x 1536..3071, y 0..2047 | 1536 x 2048 | (7536, 2064) | must |
-| Hidden Palace: the great diagonal and lake | `s2-simonwai-disasm` HPZ, x 5632..8191, y 0..2047 | 2560 x 2048 | (0, 3136) | optional |
+| Hidden Palace: the great diagonal and lake. **v2.1: an L, see the v2.1 section** | ~~`s2-simonwai-disasm` HPZ, x 5632..8191, y 0..2047~~ | 2560 x 2048 | (0, 3136) | optional |
 | Oil Ocean: the east refinery | `s2disasm` OOZ, x 8192..11263, y 0..1887 | 3072 x 1888 | (5104, 4576) | must, the end |
 
 **Connectors.**
@@ -372,7 +512,7 @@ them.
 | C7 | tunnel | CPZ / MTZ east | **384** | horizontal, blob M | walk out the other side |
 | C8 | shaft | CPZ / OOZ | 464 | vertical, M to O | drop through CPZ's one open floor span |
 | C9 | shaft | MTZ east / OOZ | 464 | vertical, M to O | ledges up and down |
-| C10 | tunnel | HPZ / MTZ west | 624 | horizontal, A to M | walk. It uses the gap C5 already set, and that gap is exactly its own rule |
+| ~~C10~~ | ~~tunnel~~ | ~~HPZ / MTZ west~~ | ~~624~~ | ~~horizontal, A to M~~ | **v2.1: replaced by a 528-px vertical shaft HPZ east / MTZ west, plus the new C11 HPZ east / OOZ, 576 (see the v2.1 section)** |
 
 **Mouths are placed on measured open edges** (`woven.py edges`: how far a camera in the clip
 sees past each edge, per 256-px span). For example:
@@ -389,7 +529,8 @@ is empty (MEASURED, §C item 9).
 - **Main:** Emerald Hill, C5, Metropolis west, C6, **through Chemical Plant**, C7, Metropolis
   east, C9, Oil Ocean.
 - **Under:** Emerald Hill, C4, Hidden Palace, C10, Metropolis west. This is a second way to
-  Metropolis.
+  Metropolis. **(v2.1: C10 is now a shaft up from Hidden Palace's east piece, and C11 adds
+  Hidden Palace to Oil Ocean. See the v2.1 routes.)**
 - **Sky:**
   - Emerald Hill, C1, Wing Fortress;
   - Metropolis west, C2, Wing Fortress;
