@@ -6251,8 +6251,11 @@ following are deliberately **deferred to follow-up plans** (not bugs):
   (`games/sonic4/player/player_common.emp:86`, `// camera look/duck pan seam — stays 0 this
   pass`), cleared at `:210`. `_pl_look_offset` has **zero hits** tree-wide — that name never
   survived the port. The substance is unchanged: the seam exists, still zero, still unwired.
-- **Balance threshold tuning** — `LEDGE_NO_GROUND` in `player_sensors.asm` is
-  flagged as tunable; the current value is a first estimate.
+- ~~**Balance threshold tuning** — `LEDGE_NO_GROUND` in `player_sensors.asm` is
+  flagged as tunable; the current value is a first estimate.~~ **SUPERSEDED 2026-09-27
+  (WOVEN-FALSE-BALANCE, below):** the probe and both its constants are gone; the rule is
+  S3K's, with S3K's `$C` (`BALANCE_DROP_MIN`). Any wider/narrower window is now a deviation
+  from S3K to be ruled on, not a tuning of a first estimate.
 - ~~**Dropdash, instashield** — Sonic move-kit extensions.~~ **INSTASHIELD DONE
   (parcel/instashield, 2026-08-26); DROPDASH still open.**
   `games/sonic4/player/player_instashield.emp` — `Ability_InstaShield` bound through
@@ -42727,3 +42730,113 @@ Open riders:
 - **GPL-A3-5 (sweep margin):** `LIVE_SWEEP_MARGIN_LINES` (12) is priced by hand (~2.4k cycles a
   unit), like AA-3; no instrument prices a real unit.
 - **GPL-A3-6 (owner's look):** the clip in Chemical Plant on this build, by eye.
+
+## WOVEN-FALSE-BALANCE: Sonic teetered on flat ground in front of a step; the balance rule is now S3K's (branch `fix/woven-false-balance`, 2026-09-27)
+
+**The sighting.** Woven DEBUG ROM crc `65eac6c3` (`S2CLIP=s2_woven DEBUG=1`, master `727b87d3`),
+Emerald Hill: Sonic standing on a low grass floor, a raised grass step behind him to the left,
+playing BALANCE. Read from the owner's window: Player_1 x 1609, y 2829, anim 6 (ANIM_BALANCE, the
+7th id of the enum in `player_common.emp`), status $02 (ST_XFLIP only: grounded, facing left),
+layer 0. Reproduced headless on the same ROM: placed at (1609, 2829) facing left -> anim 6;
+facing right -> anim 5; at x 1640 facing left -> anim 5.
+
+**The collision there, and Sonic 2's.** Woven (1609, 2829) is donor EHZ act 1 (7753, 909) (clip
+`ehz_double_loop`, src x 6144, dst (0, 1920)). Both planes, woven bake and donor alike: the floor
+he stands on starts at x 1600 (donor 7744), top-only, surface at feet y 2848 (donor 928); the step
+is x 1560..1599, 28-32 px tall (feet y 2816..2847), its right column (x 1568..1599, donor
+7712..7743) solid on all sides; under the step (x < 1600, y >= 2848) there is NO collision (the
+dirt is art only). So the step is a real 32-px step with a wall face. Sonic 2 blocks there too:
+its push sensor is at y_pos + 8 on flat ground (CalcRoomInFront), 917 in donor terms, inside the
+step. **The "wall he can't walk through" is Sonic 2's own**, and the art shows it (rendered from
+the converted donor tree). Whole-act fidelity, measured: every pixel column of every 16-px
+collision row of all 8 clips, both planes, woven bake vs the converted donor at the same donor
+point (height byte and solidity class): **0 differing** of 4,068,096 samples (one-path zones
+compared plane B against the donor's plane A, which is what the bake pastes). Control: the same
+comparison with Emerald Hill offset 16 px finds 21,207 / 20,807 differing.
+
+**The cause: our balance rule, not the data.** `Player_AtLedgeEdge` probed ONE point at
+x -/+ (PLAYER_X_RADIUS + 2) = x - 11 = 1598 (facing left) from the foot, and called anything more
+than 8 px down a ledge. x 1598 is inside the step's own column, under the step: primary cell and
+the one below empty -> 32 ("nothing") -> teeter, with the centre (x 1609) and both floor sensors
+(1600, 1618) reading 0. Sonic 2 (s2.asm:36322 `Sonic_Balance`, :43674 `ChkFloorEdge`) and Sonic 3K
+(sonic3k.asm:22535) ask the CENTRE: balance only when the floor under x_pos is at least $C below
+the foot, the side is the floor sensor that found no block at all (next_tilt / tilt == 3, preset
+by Player_AnglePos, sonic3k.asm:18752), and the player is turned to face it; only on near-flat
+ground ((angle + $20) & $C0 == 0). Neither teeters at this spot.
+
+**The fix** (`games/sonic4/player/player_sensors.emp` `Player_AtLedgeEdge`, comments in
+`player_common.emp`): S3K's rule, as above, with `BALANCE_DROP_MIN = 12` (S3K's `$C`), sensors
+at x -/+ width_pixels/2 (Player_SensorSurface's radius), right asked first, ST_XFLIP written to
+face the edge, the flat-angle gate. The object path keeps its half-width test, then the ground
+past the object's edge by the same centre rule, the side taken from which side of the object he
+hangs off. `LEDGE_PROBE_REACH` / `LEDGE_NO_GROUND` are deleted (and PLAYER_X_RADIUS left the
+module's `use` list). `tools/collision_consistency.py` RULE B is re-modelled on the new rule (stage
+4: the centre over the gap and `balances()` fires; `BALANCE_DROP_MIN` read from source): canonical
+0 candidates OK; every clip act re-baked and re-graded, **no verdict moved**: s2_ehz_boot,
+s2_ehz_cpz, s2_hpz_solo, s2_mtz_cpz, s2_ooz_solo, s2_wfz_solo, s2_woven green with the same
+exemptions (woven: 11 RULE B still exposed, 0 stale); s2_woven_2d fails with the SAME 5 keys on
+the base gate (pre-existing, it has no baseline); s2_two_clip(_pins) refuse to bake (Z1, a
+pre-existing owner ruling), unchanged.
+
+**Scope, measured statically over the woven bake** (every standing position: floor pair 0, body
+box clear; old rule vs S3K's):
+- WALL class (the sighting's class: centre supported, the old probe point under a solid face):
+  plane A 62 facing left + 35 facing right = 97 positions, plane B 42 + 33 = 75. **0 after** (the
+  new rule cannot fire with the centre supported). Canonical OJZ: 0 before.
+- The old rule's WIDER WINDOW at real ledges (centre still on the floor, the probe point 11 px
+  out over the drop): woven plane A 3,673 L / 3,289 R positions, canonical OJZ plane A 77 / 103,
+  plane B 110 / 86. These no longer teeter until the centre is past the edge, as in S2/S3K.
+- Positions S3K balances where the old rule did not (mostly facing away from the edge, where S3K
+  turns him round): woven plane A 1,440 L / 1,802 R; OJZ 70 / 54.
+
+**The check.** `tools/balance_witness.py` (+ `tools/test_balance_witness.py`, pure, in the pytest
+lane): derives every standing position from the collision the ROM was built from (a clip's baked
+tree, or the committed canonical strips), and on the ROM places the player at up to 8 WALL spots
+(must NOT teeter) and 8 LEDGE spots with flat support (must teeter and end facing the edge; placed
+facing away). The owner's spot is a named row (`--spot 1609,2848,left`, refused if it does not
+classify WALL). RED on `65eac6c3`: 15 of 15 graded failed (8 WALL teetered, 7 LEDGE did not).
+GREEN on the fixed woven DEBUG ROM `2124ce00`: 15 of 15, 1 unmeasured (slid off). Wired:
+`tools/keepalive_manifest.toml` rows `balance_witness.py#woven` (the nightly's woven ROM) and
+`balance_witness.py` (canonical, LEDGE class only: OJZ has no WALL position).
+
+Open riders:
+- **WOVEN-FALSE-BALANCE-1 (Balance2):** S3K's farther lean (anim $C, when x -/+ 6 is also over the
+  drop, sonic3k.asm:22552) has no ANIM_* and no art script here. Content work.
+- **WOVEN-FALSE-BALANCE-2 (window is now S3K's, TAGGED for the owner's eye):** he teeters later at
+  a real ledge than before (only once his centre is past it) and turns to face the edge. Faithful
+  to S2/S3K; if a wider window is wanted, that is a ruled deviation, not a tuning.
+- **WOVEN-FALSE-BALANCE-3 (slope gate):** the new flat-angle gate means no teeter at rest on a
+  slope steeper than $20, as in S3K. Not separately measured on the ROM.
+
+## WOVEN-WFZ-PLANE-B: Wing Fortress keeps a plane B Sonic 2 never uses; a player carried onto layer 1 falls through its decks (found 2026-09-27, OPEN)
+
+**The sighting** (read-only, the owner's window): woven (5133, 1389), grounded idle, status 0,
+**layer 1**, "should Wing Fortress have collision?". That spot is the act's neutral FILL floor at
+y 1408, directly under Wing Fortress's clip (dst y 0..1407): he fell through the ship.
+
+**Measured:** at x 5133 plane A has Wing Fortress floors at y 320, 512, 640 (top-only), 1152 and
+1280; plane B has only 512 (and the fill at 1408). The bake matches the donor on both planes
+(the fidelity sweep above: 0 differing), so this is Sonic 2's own plane B. But Sonic 2 never puts
+the player on it: **Wing Fortress's act-1 object layout has 0 plane switchers (Obj03)** (EHZ 19,
+CPZ 60, MTZ 0, OOZ 0; HPZ's prototype layout 0), and every act starts on path A. The clip bake's
+one-path rule (`tools/clip_manifest.py` `zone_has_plane_b` / `_clip_collision`) states that
+principle ("no plane switcher in its layout ... a clip act can deliver him on plane B from a
+neighbour") but MEASURES plane-B solidity instead, and Wing Fortress's secondary index has
+solidity, so it keeps its own plane B. Result per zone today: WFZ True (kept), EHZ True, CPZ True,
+MTZ / HPZ / OOZ False (plane A on both).
+
+**How he got layer 1:** nothing in the woven act resets the layer at a zone crossing, and the
+only way into Wing Fortress is up a shaft from Emerald Hill / Metropolis / Chemical Plant (or
+DEBUG flight). Measured: a run right from the woven start goes to layer 1 at x 1151 (EHZ line
+x 1144, crossing right -> B) and back to 0 at x 1553 (line x 1544), so the bottom route is clean;
+any route that leaves Emerald Hill or Chemical Plant on path B arrives in Wing Fortress on B.
+The owner's own route was not recorded, so which one he took is not known.
+
+**Not fixed here (out of this parcel's scope, and `clip_manifest.py` sits beside the concurrent
+HPZ-background parcel's bake files).** Recommended fix, one rule: a zone is two-path iff its
+donor act-1 layout carries a plane switcher (`s2_layer_lines.obj03_id` + `read_layout`, the
+same reader the layer-line bake uses), which is Sonic 2's own criterion; only Wing Fortress
+changes. Cost: the woven and s2_wfz_solo bakes change (WFZ plane B := plane A), their
+`collision_baseline.json` RULE B entries keyed to WFZ plane B must be regenerated
+(`build_woven_act.py baseline`), and a witness row (place on layer 1 in Wing Fortress, must stand
+on the deck plane A has).

@@ -3831,7 +3831,7 @@ Each character's `Ani_<char>` table is ordered by these ids, and the contract is
 
 **Generalized speed-scaled timing** (`engine/objects/animate.emp`): `AnimateSprite` recognizes duration byte `DUR_DYNAMIC` ($FF) as a sentinel. When present, the per-anim hold is taken from register `d3` (via the `reloadAnimTimer` macro) instead of the script byte. The player computes `d3 = max(0, ($800 − |gsp|) >> 8)`; walk/run/roll scripts use `DUR_DYNAMIC`; the walk↔run split is the separate `ANIM_RUN_THRESHOLD` threshold. Generic objects never use the sentinel, so they are unaffected.
 
-**Balance sensor** (`player_sensors.emp`): `Player_AtLedgeEdge` — a single downward floor probe one foot-width toward the facing direction (via `Player_SensorPair` + `Collision_ProbeDown`). Returns no-ground flag used by `Player_Animate` to select `ANIM_BALANCE`. Threshold constant `LEDGE_NO_GROUND` is marked as tunable.
+**Balance sensor** (`player_sensors.emp`): `Player_AtLedgeEdge` — S3K's balance rule (`Sonic_Balance`, sonic3k.asm:22535; S2's is the same): only on near-flat ground ((angle + $20) & $C0 == 0); the floor under the CENTRE (x_pos, foot Y) at least `BALANCE_DROP_MIN` (12, S3K's `$C`) below the foot; and one floor sensor (x -/+ x radius) finding no surface at all (S3K's next_tilt/tilt == 3), right first. The player is then turned to face that edge (writes ST_XFLIP), and `Player_Animate` selects `ANIM_BALANCE`. On a solid object the object's half-width decides first, then the ground past its edge. Until 2026-09-27 this was a single probe at x -/+ (PLAYER_X_RADIUS+2) toward the facing, > 8 px = ledge, which teetered in front of solid steps whose column holds no collision below (WOVEN-FALSE-BALANCE, DEFERRED_WORK). S3K's farther-lean Balance2 (anim $C at x -/+ 6) has no ANIM_* yet.
 
 **`_pl_look_offset` seam:** Duck/look-up camera-pan is NOT implemented this pass. A zero-valued field `_pl_look_offset` is reserved in the `PlayerV` SST overlay as a deliberate hook for the future pass that implements it.
 
@@ -3881,7 +3881,7 @@ Animation Classifier + Speed-Scaled Timing (5.6)  [SHIPPED — feat/sonic-animat
     → Player_Animate classifies once per frame, read-only (no new PSTATE / ST_* bits)
       → Skid uses _pl_skid_latch; duck/lookup are pure display conditions
         → DUR_DYNAMIC sentinel in AnimateSprite routes hold to d3 (generic objects unaffected)
-          → Player_AtLedgeEdge probes one foot-width toward facing → ANIM_BALANCE
+          → Player_AtLedgeEdge: S3K's centre + sensor rule, faces the edge → ANIM_BALANCE
             → _pl_look_offset zero-seam reserved for future duck/look-up camera pan
               → DEBUG anim viewer (ifdef __DEBUG__): cycle all ANIM_* ids with fixed gsp
 ```
