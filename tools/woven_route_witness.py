@@ -46,6 +46,15 @@ VERDICT:
      30 frames of a run and at the end of each phase).
 Exit 0 all held · 1 an assertion failed or the ROM faulted · 2 could not run.
 
+A 2-D ACT (s2_woven, 2026-09-27): `--route id,id,...` names the legs in order, corridors AND
+shafts. A corridor leg runs RIGHT as above. A SHAFT leg is a DROP: the player is placed
+crossing_witness.DROP_ABOVE px over the shaft's top mouth on its lane (crossing_witness.
+drop_start: the fall path is MEASURED clear of collision, or COULD NOT RUN), let go with no
+button held, and the leg ends when the camera centre is RUN_OUT_Y px under the shaft's bottom
+mouth or he has stood still for LAND_FRAMES (landed, below it or short of it); R1 then asks
+that the camera centre got past the bottom mouth. Without --route the legs are every corridor left to right,
+exactly as before (the 1-D acts).
+
 Usage:
     python3 tools/woven_route_witness.py --rom s4.s2clip.debug.bin --lst s4.s2clip.debug.lst \\
         --manifest games/sonic4/data/clips/s2_mtz_cpz/clips.json
@@ -82,6 +91,8 @@ RUN_MARGIN = T.RUN_MARGIN
 #: through the pocket's interior is placed, not run (see the parcel's DEFERRED_WORK entry).
 RUN_OUT = T.RUN_MARGIN
 RUN_MAX = 900
+#: a DROP leg ends this far past the shaft's bottom mouth (a screen half, RUN_OUT's reason)
+RUN_OUT_Y = 112
 SETTLE_FRAMES = 60
 KEYON_WINDOW = 180
 
@@ -125,6 +136,7 @@ async def drive(sock, syms, equs, act, legs, ym=False):
     A_GSP, A_DBG = P + L.PLAYERV_GROUND_SPEED, P + L.PLAYERV_DEBUG_FLAG
     radius = int(equs.get("PLAYER_Y_RADIUS", 19))
     half_w = CRB.crossing_constants()[2]
+    half_h = CRB._cam_constants()["CAM_SCREEN_HALF_H"]
     handle = None
     if not ym:
         w = await b.call("emulator/watchpoint_add", {"addr": hex(equs["MUSIC_SLOT"]), "len": 1,
@@ -172,6 +184,7 @@ async def drive(sock, syms, equs, act, legs, ym=False):
             "frame": frame, "leg": leg,
             "region": int.from_bytes(await rd("Region_Current", 4), "big"),
             "centre": (int.from_bytes(await rd("Camera_X", 4), "big") >> 16) + half_w,
+            "cy": (int.from_bytes(await rd("Camera_Y", 4), "big") >> 16) + half_h,
             "px": int.from_bytes(await bus.read(A_X, 4), "big") >> 16,
             "py": int.from_bytes(await bus.read(P + equs["SST_y_pos"], 4), "big") >> 16,
             "layer": (await bus.read(P + equs["SST_layer"], 1))[0],
@@ -195,6 +208,35 @@ async def drive(sock, syms, equs, act, legs, ym=False):
         raise CouldNotRun("the B press did not leave debug free flight")
     cram_end = {}
     for co, left, right in legs:
+        if getattr(co, "axis", "x") == "y":
+            sx, sy = X.drop_start(act, co)
+            await T.place(b, bus, syms, sx, sy)
+            await alive(f"placement before {co.id}")
+            y_out = co.dst[1] + co.dst[3]
+            still = 0
+            for k in range(RUN_MAX):
+                await step(f"run {co.id}")
+                t = samples[-1]
+                if t["cy"] >= y_out + RUN_OUT_Y:
+                    break
+                # STOOD STILL for LAND_FRAMES anywhere ends the leg: under the shaft that is
+                # the landing; above its bottom mouth it is a drop that landed SHORT, which
+                # R1 then fails (a result, not a failure to run)
+                still = still + 1 if t["py"] == samples[-2]["py"] else 0
+                if still >= L.LAND_FRAMES:
+                    break
+                if k % 30 == 29:
+                    await alive(f"the drop through {co.id} (y {t['py']})")
+            else:
+                tail = "; ".join(f"f{t['frame']} x{t['px']} y{t['py']} lag{t['lag']} reg{t['region']:#x}"
+                                 for t in samples[-6:])
+                raise CouldNotRun(f"the drop through {co.id} never arrived; last frames: {tail}")
+            for _ in range(SETTLE_FRAMES):
+                await step(f"run {co.id}")
+            await alive(f"the drop through {co.id}")
+            if not ym:
+                cram_end[co.id] = await X.cram_1_3(b)
+            continue
         sx, feet = T.run_up(act, co, "left", RUN_MARGIN)
         await T.place(b, bus, syms, sx, feet - radius - 2)
         for _ in range(L.LAND_FRAMES * 4):
@@ -233,6 +275,9 @@ def main():
     ap.add_argument("--rom", required=True)
     ap.add_argument("--lst", required=True)
     ap.add_argument("--manifest", required=True)
+    ap.add_argument("--route", help="comma list of connector ids (corridors run right, shafts "
+                                    "are dropped), in order; default every corridor left to "
+                                    "right")
     a = ap.parse_args()
     try:
         syms, equs = L.parse_lst(a.lst)
@@ -248,11 +293,23 @@ def main():
         rom = Path(a.rom).read_bytes()
         rows = RT.read_regions(rom, syms[RMW.ACT_SYMBOL])
         act = CM.load(a.manifest)
-        cors = sorted(act.corridors, key=lambda c: c.dst[0])
-        if len(cors) < 2:
-            raise CouldNotRun("the manifest has fewer than two corridors; use the one-corridor "
-                              "witnesses")
-        legs = [T.corridor_geometry(act, co.id) for co in cors]
+        if a.route:
+            by_id = {k.id: k for k in list(act.corridors) + list(getattr(act, "shafts", []))}
+            legs = []
+            for cid in a.route.split(","):
+                if cid not in by_id:
+                    raise CouldNotRun(f"--route names {cid!r}, which is no corridor or shaft "
+                                      f"of the act ({sorted(by_id)})")
+                _ax, bef, aft = CM.connector_ends(act, by_id[cid])
+                if bef is None or aft is None:
+                    raise CouldNotRun(f"connector {cid!r} does not join two clips")
+                legs.append((by_id[cid], bef, aft))
+        else:
+            cors = sorted(act.corridors, key=lambda c: c.dst[0])
+            if len(cors) < 2:
+                raise CouldNotRun("the manifest has fewer than two corridors; use the "
+                                  "one-corridor witnesses")
+            legs = [T.corridor_geometry(act, co.id) for co in cors]
         ids = CRB.song_ids()
         expect = expected_requests(act, legs, ids)
         pals = X.zone_palettes(act)
@@ -280,7 +337,9 @@ def main():
     at = {s["frame"]: s for s in samples}
     for co, left, right in legs:
         leg = [s for s in samples if s["leg"] == f"run {co.id}"]
-        near = [s for s in leg if co.dst[0] - 16 <= s["px"] < co.dst[0] + co.dst[2] + 16]
+        vert = getattr(co, "axis", "x") == "y"
+        pk, i0 = ("py", 1) if vert else ("px", 0)
+        near = [s for s in leg if co.dst[i0] - 16 <= s[pk] < co.dst[i0] + co.dst[i0 + 2] + 16]
         lag_near = (near[-1]["lag"] - near[0]["lag"]) if near else None
         lag_run = leg[-1]["lag"] - leg[0]["lag"]
         p_first, p_last = preset_of.get(leg[0]["region"]), preset_of.get(leg[-1]["region"])
@@ -297,7 +356,11 @@ def main():
             fails.append(f"R2 {co.id}: the region preset never changed")
         if cram != right.zone:
             fails.append(f"R2 {co.id}: CRAM lines 1-3 hold {cram} after the run, not {right.zone}")
-        if leg[-1]["px"] < co.dst[0] + co.dst[2] + RUN_OUT:
+        if vert:
+            if max(t["cy"] for t in leg) < co.dst[1] + co.dst[3]:
+                fails.append(f"R1 {co.id}: the drop ended with the camera centre at y "
+                             f"{leg[-1]['cy']}, above the shaft's bottom mouth")
+        elif leg[-1]["px"] < co.dst[0] + co.dst[2] + RUN_OUT:
             fails.append(f"R1 {co.id}: the run ended at x {leg[-1]['px']}")
     requests = [(f, v) for f, via, v in w["events"] if via != "z80" and v != 0]
     zeros = [(f, v) for f, via, v in w["events"] if via != "z80" and v == 0]
@@ -313,13 +376,18 @@ def main():
     if zeros:
         fails.append(f"68k wrote 0 to the music slot {len(zeros)} time(s)")
     for f, v in requests:
-        c = at[f]["centre"]
+        c, cy = at[f]["centre"], at[f]["cy"]
         for co, _l, right in legs:
-            if co.dst[0] <= c < co.dst[0] + co.dst[2]:
+            # a corridor's dead band is its x span (the 1-D rule, unchanged); a shaft's is
+            # its rectangle
+            if (co.dst[0] <= c < co.dst[0] + co.dst[2]
+                    and (getattr(co, "axis", "x") == "x"
+                         or co.dst[1] <= cy < co.dst[1] + co.dst[3])):
                 fails.append(f"P2 song {v} requested at frame {f} with the camera centre INSIDE "
-                             f"corridor {co.id} (x {c})")
+                             f"connector {co.id} ({c}, {cy})")
         named = [(co, r) for co, _l, r in legs if r.music and ids[r.music] == v]
-        if named and not any(c >= r.dst[0] for _co, r in named):
+        if named and not any((cy >= r.dst[1]) if getattr(co_, "axis", "x") == "y"
+                             else (c >= r.dst[0]) for co_, r in named):
             fails.append(f"P2 song {v} requested at frame {f} (centre {c}) before the camera "
                          f"reached the zone that names it")
     if y["tap_dropped"]:

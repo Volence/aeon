@@ -65,6 +65,7 @@ import tunnel_run_witness as T                             # noqa: E402  (ground
 from aether_instance import aether_emulator                # noqa: E402
 from aether import BusClient                               # noqa: E402
 import clip_manifest as CM                                 # noqa: E402
+import collision_pipeline as CP                            # noqa: E402
 
 SCREEN_W = 320
 SCREEN_H = 224
@@ -76,6 +77,9 @@ BG_PLANE_ROWS = 64
 BG_VSCROLL_MAX_STEP = 16
 ROW_BYTES = 128           # PLANE_H_CELLS (64) words: one plane row, one layout row
 RUN_MARGIN = 400          # start/end this far outside the corridor: past every mouth
+#: a DROP (shaft) starts this far above the shaft's top mouth, inside the clip above: the
+#: player's body (2 x PLAYER_Y_RADIUS) clear of the mouth, so the fall begins in that zone
+DROP_ABOVE = 40
 NEED = ("Camera_X", "Camera_Y", "Region_Current", "Palette_Buffer", "Pal_Fade_Frames",
         "Parallax_Transition_Frames",
         "BG_Tiles_Current", "BG_Tiles_Target", "BG_Plane_Layout", "BG_Wipe_Cursor",
@@ -128,10 +132,33 @@ async def scan_lines_1_3(client):
     return hits
 
 
+def drop_start(act, sh):
+    """(x, y): where a DROP through shaft `sh` starts — the player's centre, DROP_ABOVE px
+    above the shaft's top mouth inside the clip above, on the lane's centre column. MEASURED,
+    not assumed: every collision cell a standing-width body passes on the way from there to
+    the shaft's bottom mouth must be air on plane A (the composed act collision), or the drop
+    would land on something and never cross — COULD NOT RUN rather than a result. The lane's
+    ledges hug its two sides (clip_manifest.shaft_collision), so the centre column misses them
+    whenever the lane is wider than two ledges."""
+    pa, _pb = CM.collision_grids(act)
+    x = sh.lane[0] + sh.lane[1] // 2
+    y0 = sh.dst[1] - DROP_ABOVE
+    half = int(T._EQUS.get("PLAYER_X_RADIUS", 9))
+    for y in range(y0 - int(T._EQUS.get("PLAYER_Y_RADIUS", 19)), sh.dst[1] + sh.dst[3], 8):
+        for xx in range(x - half, x + half + 1, 4):
+            w = int(pa[y // 8, xx // 8])
+            if (w & CP.BLOCK_ID_MASK) and (w >> CP.PLANE_SOL_SHIFT) & CP.SOL_ALL:
+                raise SystemExit(f"crossing_witness: shaft {sh.id!r}: the drop from ({x}, {y0}) "
+                                 f"meets solid collision at ({xx}, {y}); COULD NOT RUN")
+    return x, y0
+
+
 async def drive(sock, syms, equs, act, geo, direction, gsp, max_frames, scan, jump=False,
                 co=None):
     a_right, b_left, x_in, x_out = geo
     co = co or T.corridor_geometry(act)[0]
+    if getattr(co, "axis", "x") == "y":
+        return await drive_drop(sock, syms, equs, act, geo, gsp, max_frames, co)
     # the start is the MEASURED run-up (T.run_up): up to RUN_MARGIN px of surface the player
     # can run along into the tunnel
     if direction == "right":
@@ -174,6 +201,7 @@ async def drive(sock, syms, equs, act, geo, direction, gsp, max_frames, scan, ju
             "cam": int.from_bytes(await rd("Camera_X", 4), "big") >> 16,
             "camy": int.from_bytes(await rd("Camera_Y", 4), "big") >> 16,
             "px": int.from_bytes(await b.read(A_X, 4), "big") >> 16,
+            "py": int.from_bytes(await b.read(A_Y, 4), "big") >> 16,
             "region": int.from_bytes(await rd("Region_Current", 4), "big"),
             "pbuf": [(pb[i] << 8) | pb[i + 1] for i in range(0, 96, 2)],
             "fade": (await rd("Pal_Fade_Frames", 1))[0],
@@ -223,6 +251,76 @@ async def drive(sock, syms, equs, act, geo, direction, gsp, max_frames, scan, ju
     return rows, scans
 
 
+async def drive_drop(sock, syms, equs, act, geo, gsp, max_frames, sh):
+    """THE VERTICAL DRIVE (a shaft, 2026-09-27): place the player DROP_ABOVE px over the
+    shaft's top mouth (drop_start), pinned while the window streams (T.place), then let go
+    with no button held and, when `gsp` is non-zero, his y velocity set to it ONCE (the fall's
+    speed; `cap` = PHYS_FALL_CAP). The run ends when his centre is RUN_MARGIN px under the
+    shaft's bottom mouth, or he has stood still on the ground below it for LAND_FRAMES.
+    Only DOWN is driven: going up a shaft is a climb from ledge to ledge (a spring later),
+    not a drive this witness has."""
+    a_bot, b_top, y_in, y_out = geo
+    start_x, start_y = drop_start(act, sh)
+    client = BusClient(socket_path=sock, client_id="cxw", client_name="crossing-witness")
+    await client.connect()
+    b = L.Bus(client)
+    P = syms["Player_1"]
+    A_X, A_Y = P + equs["SST_x_pos"], P + equs["SST_y_pos"]
+    A_YVEL = P + equs["SST_y_vel"]
+    A_DBG = P + L.PLAYERV_DEBUG_FLAG
+    await client.call("emulator/reset", {})
+    await b.frames(240)
+    await b.check_alive("boot")
+    if (await b.read(A_DBG, 1))[0]:
+        await client.call("emulator/press", {"buttons": ["b"]})
+        await b.frames(4)
+    await T.place(client, b, syms, start_x, start_y)
+    await b.check_alive("streaming settle")
+
+    async def state():
+        rd = lambda n, w: b.read(syms[n], w)                            # noqa: E731
+        pb = await b.read(syms["Palette_Buffer"] + 0x20, 96)
+        return {
+            "tick": int.from_bytes(await rd("Logic_Tick", 4), "big"),
+            "lag": int.from_bytes(await rd("Lag_Frame_Count", 4), "big"),
+            "cam": int.from_bytes(await rd("Camera_X", 4), "big") >> 16,
+            "camy": int.from_bytes(await rd("Camera_Y", 4), "big") >> 16,
+            "px": int.from_bytes(await b.read(A_X, 4), "big") >> 16,
+            "py": int.from_bytes(await b.read(A_Y, 4), "big") >> 16,
+            "yvel": int.from_bytes(await b.read(A_YVEL, 2), "big", signed=True),
+            "region": int.from_bytes(await rd("Region_Current", 4), "big"),
+            "pbuf": [(pb[i] << 8) | pb[i + 1] for i in range(0, 96, 2)],
+            "fade": (await rd("Pal_Fade_Frames", 1))[0],
+            "bg_cur": int.from_bytes(await rd("BG_Tiles_Current", 4), "big"),
+            "bg_tgt": int.from_bytes(await rd("BG_Tiles_Target", 4), "big"),
+            "bg_lay": int.from_bytes(await rd("BG_Plane_Layout", 4), "big"),
+            "wipe": (await rd("BG_Wipe_Cursor", 1))[0],
+            "cram": await cram_1_3(client),
+            "vs_bg": int.from_bytes(await rd("Parallax_Current_Vscroll_BG", 2), "big"),
+            "plx": (await rd("Parallax_Transition_Frames", 1))[0],
+            "plane": await read_plane_b(client, equs["VRAM_PLANE_B_BYTES"]),
+        }
+
+    rows = [await state()]
+    if gsp:
+        await b.write(A_YVEL, gsp & 0xFFFF, 2)
+    still = 0
+    for f in range(max_frames):
+        await b.frames(1)
+        st = await b.status()
+        if "ErrorHandler" in (st.get("symbolAtPc") or ""):
+            rows.append({"fault": st.get("symbolAtPc")})
+            break
+        s = await state()
+        s["frame"] = f
+        rows.append(s)
+        still = still + 1 if (s["py"] > y_out and s["yvel"] == 0) else 0
+        if s["py"] >= y_out + RUN_MARGIN or still >= T.LAND_FRAMES:
+            break
+    await client.close()
+    return rows, {}
+
+
 async def read_plane_b(client, base):
     """Plane B's whole nametable (PLANE_H_CELLS x PLANE_V_CELLS words) out of VRAM."""
     out = bytearray()
@@ -270,8 +368,12 @@ async def rescan(client, b, rows, button, gsp, direction, syms, equs, start_x, f
     return out
 
 
-def analyse(rows, scans, pals, names, geo, blobs_seen, rom=None):
+def analyse(rows, scans, pals, names, geo, blobs_seen, rom=None, axis="x"):
+    """`geo` is (zone A's far edge, zone B's near edge, connector start, connector end) on
+    the connector's AXIS: x for a corridor (A left of B), y for a shaft (A above B). The
+    screen's extent on that axis is SCREEN_W or SCREEN_H; everything else is axis-free."""
     a_right, b_left, _x_in, _x_out = geo
+    ck, extent = ("cam", SCREEN_W) if axis == "x" else ("camy", SCREEN_H)
     live = [r for r in rows if "tick" in r]
     zone_of_region = {}
     for r in live:
@@ -292,8 +394,8 @@ def analyse(rows, scans, pals, names, geo, blobs_seen, rom=None):
         # tick i's camera with the CRAM and nametable that VBlank shipped, all read here.
         nxt = r
         cram = classify(r["cram"], pals, names)
-        zone_here = names[0] if r["cam"] + SCREEN_W // 2 < (a_right + b_left) // 2 else names[1]
-        shows = ("A" if r["cam"] < a_right else "") + ("B" if r["cam"] + SCREEN_W > b_left else "")
+        zone_here = names[0] if r[ck] + extent // 2 < (a_right + b_left) // 2 else names[1]
+        shows = ("A" if r[ck] < a_right else "") + ("B" if r[ck] + extent > b_left else "")
         bg_blob = blobs_seen.get(r["bg_cur"], "?") if r["bg_cur"] else "partial"
         bg_tgt = blobs_seen.get(r["bg_tgt"], "?") if r["bg_tgt"] else ""
         lay = blobs_seen.get(("lay", r["bg_lay"]), "?")
@@ -350,7 +452,8 @@ def analyse(rows, scans, pals, names, geo, blobs_seen, rom=None):
                 bad.append(f"{z} on screen, background {bg_blob}{'->' + bg_tgt if bg_tgt else ''}"
                            f" layout {lay} wipe {r['wipe']}; visible plane rows not {z}'s: "
                            f"{bad_rows[z]}")
-        row = {"i": i, "tick": r["tick"], "cam": r["cam"], "px": r["px"], "zone": zone_here,
+        row = {"i": i, "tick": r["tick"], "cam": r["cam"], "camy": r["camy"], "px": r["px"],
+               "py": r.get("py"), "zone": zone_here,
                "bg_ok": dict(bg_visible_ok),
                "shows": shows or "-", "pal": pal, "cram": cram, "fade": r["fade"],
                "bg": bg_blob + ("->" + bg_tgt if bg_tgt else ""), "lay": lay,
@@ -396,12 +499,29 @@ def main():
     if missing:
         raise SystemExit(f"crossing_witness: {a.lst} carries no {missing} — COULD NOT RUN")
     act = CM.load(a.manifest)
-    co, left, right = T.corridor_geometry(act, a.corridor)
+    # A SHAFT (the woven act's vertical connectors, 2026-09-27) is crossed DOWN: the drop
+    # drive (drive_drop) and the analysis on the y axis. A corridor is as before.
+    sh = next((k for k in getattr(act, "shafts", []) if k.id == a.corridor), None)
+    if sh is not None:
+        if a.scan or a.jump:
+            raise SystemExit("crossing_witness: --scan and --jump are corridor drives; a shaft "
+                             "is crossed by a drop")
+        _ax, left, right = CM.connector_ends(act, sh)
+        if left is None or right is None:
+            raise SystemExit(f"crossing_witness: shaft {sh.id!r} does not join two clips")
+        co, axis = sh, "y"
+        a.directions = "down"
+        if a.speeds == "0,top,cap":
+            a.speeds = "0,cap"
+    else:
+        co, left, right = T.corridor_geometry(act, a.corridor)
+        axis = "x"
     if left.zone_key == right.zone_key:
-        raise SystemExit(f"crossing_witness: corridor {co.id!r} joins two clips of one zone; "
+        raise SystemExit(f"crossing_witness: connector {co.id!r} joins two clips of one zone; "
                          f"there is no crossing to witness")
-    a_right, b_left = left.dst[0] + left.dst[2], right.dst[0]
-    geo = (a_right, b_left, co.dst[0], co.dst[0] + co.dst[2])
+    i = 0 if axis == "x" else 1
+    a_right, b_left = left.dst[i] + left.dst[i + 2], right.dst[i]
+    geo = (a_right, b_left, co.dst[i], co.dst[i] + co.dst[i + 2])
     all_pals = zone_palettes(act)
     pals = [all_pals[left.zone_key], all_pals[right.zone_key]]
     rom = open(a.rom, "rb").read()
@@ -419,10 +539,12 @@ def main():
         raise SystemExit("crossing_witness: the listing carries no VRAM_PLANE_B_BYTES / "
                          "Parallax_Current_Vscroll_BG — COULD NOT RUN")
     names = [left.zone, right.zone]
-    speed_of = {"top": equs["PHYS_TOP_SPEED"], "cap": equs["PHYS_GSP_CAP"]}
+    speed_of = {"top": equs["PHYS_TOP_SPEED"],
+                "cap": equs["PHYS_GSP_CAP"] if axis == "x" else equs["PHYS_FALL_CAP"]}
     speeds = [speed_of.get(s, None) if s in speed_of else int(s, 0) for s in a.speeds.split(",")]
-    print(f"crossing_witness: {a.rom} — zones {names}, {names[0]} ends x {a_right}, "
-          f"{names[1]} starts x {b_left}, corridor {b_left - a_right} px")
+    print(f"crossing_witness: {a.rom} — zones {names}, {names[0]} ends {axis} {a_right}, "
+          f"{names[1]} starts {axis} {b_left}, "
+          f"{'corridor' if axis == 'x' else 'shaft'} {b_left - a_right} px")
     total_bad, faults, n = 0, 0, 0
     uncrossed = []
     results = []
@@ -440,14 +562,15 @@ def main():
             # which blob/layout pointer belongs to which zone: the value each settles on while
             # the camera centre is deep inside that zone's side (first and last rows).
             first, last = live[0], live[-1]
-            start_zone, end_zone = (names[0], names[1]) if direction == "right" else (names[1], names[0])
+            start_zone, end_zone = ((names[0], names[1]) if direction in ("right", "down")
+                                    else (names[1], names[0]))
             # ONE arena blob on both sides = the zones' tiles are CO-RESIDENT (clip_rom_bake's
             # per-clip override): the arena is right for either zone, `*`.
             shared = first["bg_cur"] == last["bg_cur"]
             blobs = ({first["bg_cur"]: "*"} if shared else
                      {first["bg_cur"]: start_zone, last["bg_cur"]: end_zone})
             blobs.update({("lay", first["bg_lay"]): start_zone, ("lay", last["bg_lay"]): end_zone})
-            out_rows, glitches = analyse(rows, {}, pals, names, geo, blobs, rom=rom)
+            out_rows, glitches = analyse(rows, {}, pals, names, geo, blobs, rom=rom, axis=axis)
             scans = {}
             if a.scan:
                 with aether_emulator(a.rom, symbols=a.lst) as sock:
@@ -458,11 +581,13 @@ def main():
             cross = next((r for r in out_rows[1:]
                           if preset_of.get(live[r["i"]]["region"])
                           != preset_of.get(live[0]["region"])), None)
-            print(f"  {direction:>5} gsp ${gsp:04X}: {len(out_rows)} ticks; crossing at tick-row "
-                  f"{cross['i'] if cross else None} cam {cross['cam'] if cross else None} "
-                  f"(centre {cross['cam'] + 160 if cross else None}); in flight "
+            ck, hk = ("cam", 160) if axis == "x" else ("camy", 112)
+            print(f"  {direction:>5} gsp ${gsp & 0xFFFF:04X}: {len(out_rows)} ticks; crossing at tick-row "
+                  f"{cross['i'] if cross else None} cam{'' if axis == 'x' else 'y'} "
+                  f"{cross[ck] if cross else None} "
+                  f"(centre {cross[ck] + hk if cross else None}); in flight "
                   + (f"{len(infl)} tick(s), rows {span[0]['i']}..{span[1]['i']}, cam "
-                     f"{span[0]['cam']}..{span[1]['cam']}" if span else "never")
+                     f"{span[0][ck]}..{span[1][ck]}" if span else "never")
                   + f"; GLITCH ticks {len(glitches)}")
             if cross is None:
                 # PRINTED-NOT-GATED residue (2026-09-26): a drive that never changed preset
@@ -477,7 +602,7 @@ def main():
                 # whose screen reaches that zone's cells. slack = the last minus the later
                 # of the first two; negative = frames of visible glitch.
                 far = end_zone
-                arrive = "B" if direction == "right" else "A"
+                arrive = "B" if direction in ("right", "down") else "A"
                 c0 = cross["i"]
                 t_pal = next((r["i"] - c0 for r in out_rows[c0:] if r["cram"] == far), None)
                 t_bg = next((r["i"] - c0 for r in out_rows[c0:]
@@ -491,6 +616,13 @@ def main():
                 results.append({"direction": direction, "gsp": gsp, "t_pal": t_pal,
                                 "t_bg": t_bg, "t_show": t_show, "slack": slack,
                                 "glitches": len(glitches)})
+            # LAG, printed (a measurement, not a verdict): Lag_Frame_Count's advance while the
+            # player is within 16 px of the connector on its axis, and over the whole run
+            pk = "px" if axis == "x" else "py"
+            near = [r for r in live if geo[2] - 16 <= r[pk] < geo[3] + 16]
+            print(f"      lag frames within 16 px of the {'corridor' if axis == 'x' else 'shaft'} "
+                  f"{(near[-1]['lag'] - near[0]['lag']) if near else None}, over the run "
+                  f"{live[-1]['lag'] - live[0]['lag']}")
             if a.trace:
                 for r in infl:
                     print(f"      {r}")

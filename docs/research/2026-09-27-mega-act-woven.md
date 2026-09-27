@@ -152,6 +152,7 @@ scenery. It is the owner's call, and a one-line switch either way.
 
 ### What needs building: changes from §C
 
+- **BUILT 2026-09-27 (`parcel/woven-full-act`): `games/sonic4/data/clips/s2_woven`**, the whole act, with every number that moved in its manifest note: the east piece is recut (it was rock, §C W4), the act is 5 x 3 not 5 x 4 (§C W5), same-blob seams are 320 / 416 (the bake's rule). §C W6 has the results.
 - **Nothing new.** C10 is now a shaft, and C11 is a tunnel into Oil Ocean; both kinds are
   already on the list:
   - C10 needs item 2's vertical kind;
@@ -563,9 +564,9 @@ numbers.
 | 4 | Walk every corridor, not `corr[0]` | `clip_rom_bake.py` | S | **DONE** 2026-09-27 (`parcel/woven-bake-2d`): every connector, on its own axis |
 | 5 | 2-D reachability | `clip_reachability.py` | M | **DONE** 2026-09-27 (`parcel/woven-bake-2d`): the downward remainder is checked two-sided (`y_from`) |
 | 6 | **Neutral fill everywhere between clips** (v1's seal walls, generalised): solid, line 0, painted | new corridor-like kind | S-M | **DONE** 2026-09-27 (`parcel/woven-bake-2d`): `clips.json` `fill`, clip_manifest K8 |
-| 7 | The clip act owns its start | `clip_rom_bake`, `act_descriptor` | S | required |
-| 8 | Emit no inherited OJZ entities, which also lifts the multiple-of-3 section count | `ojz_entity_gen.py` | S | required |
-| 9 | **K6 into a zone with no plane-B floor.** MEASURED blocker for **every** tunnel in this layout. At Metropolis west's east edge every floor row is refused; 3 of them only by "planes disagree (16 and 0)" | `clip_manifest.py` K6 | **S** | **first** |
+| 7 | The clip act owns its start | `clip_rom_bake`, `act_descriptor` | S | **DONE** (`s2_mtz_cpz`'s `start`; `s2_woven` starts on Emerald Hill's ground) |
+| 8 | Emit no inherited OJZ entities, which also lifts the multiple-of-3 section count | `ojz_entity_gen.py` | S | **DONE** 2026-09-27 (`parcel/woven-bake-2d`, DEFERRED_WORK S2-COMPRESSED-ACT) |
+| 9 | **K6 into a zone with no plane-B floor.** MEASURED blocker for **every** tunnel in this layout. At Metropolis west's east edge every floor row is refused; 3 of them only by "planes disagree (16 and 0)" | `clip_manifest.py` K6 | **S** | **CLOSED** (one-path zones pasted with plane A on both planes). What refused the tunnels was geometry; `s2_woven` chooses its floors (the manifest note, ruling 2) |
 | 10 | Layer lines accept HPZ (L1) and WFZ (L5) | `s2_layer_lines.py` | S | **DONE** (`parcel/woven-hpz-wfz-prep`): WFZ's object layout resolved per `gameRevision`, the prototype's Objects_Layout read for HPZ (a prototype Obj03 inside a clip is refused, L6). MEASURED: 0 Obj03 in WFZ_1, OOZ_1 and prototype HPZ_1, so all three clip with 0 lines; `plan()` gives 0 rows for the solo clips `s2_{ooz,wfz,hpz}_solo` |
 | 11 | Backgrounds: HPZ's registry (145 tiles MEASURED from the file), WFZ's non-repeating sky (83 tiles MEASURED), scroll records for four zones | `clip_bg_lower`, `s2_donor`, `clip_bg_scroll` | M | **DONE for what a 512-row plane can hold** (`parcel/woven-hpz-wfz-prep`): HPZ 145 tiles, window 0, camY/2, 6 bands (3 ramp ratios at the nearest engine factor); OOZ 117 tiles, 12 bands incl. the reversed sun ripple; WFZ 18 tiles, window at BG row 896, 1:1, cloud rows DRIFT only (Sonic 2's bug, kept); MTZ's record came with `s2_mtz_cpz`. Solo clips `s2_{ooz,wfz,hpz}_solo` build both shapes and `clip_bg_scroll_witness` is exact on every probe (16/16, 16/16, 28/28). **Not done: the BG past the plane window.** The plane holds 512 BG rows and V-scroll clamps at 288, so HPZ's BG stops moving below act camera Y 576 (its BG is 1152 rows) and WFZ's outside camera Y 640..928 (the 83-tile sky, fortress rows included, is 2048 rows); OOZ holds to 1792. Booked WINDOWED-BG-VERTICAL-CLAMP |
 | 12 | **Music:** decide 5 drum names and fTone 0C, import S2 PSG envelope 12, fix `NoteFill` on a PSG route for HPZ | `smps_import` tables, `gen_sound_tables`, `song_packer` | M, content | required (§A.8) |
@@ -574,9 +575,12 @@ numbers.
 | 15 | Z1 counted on the screen, both axes. `woven.py check` is the model to promote into the bake, with per-pair T | `clip_rom_bake`, `clip_act_bake` | M | **DONE** 2026-09-27 (`parcel/woven-bake-2d`): `tools/clip_camera.py` + `check_screen` (MIXED, WRONG, per-pair slack, VOID) |
 | 16 | Per-region camera bounds | `camera.emp` | M | optional |
 | 17 | CRAM line-0 cells (CPZ 168, WFZ 32) | content | S to accept | as v1 |
-| W1 | **Art headroom at the MTZ / CPZ seam:** re-measure with real tunnels once item 9 lands; then trim or add a frame (§A.5) | bake, maybe VRAM | S to measure | required |
+| W1 | **Art headroom at the MTZ / CPZ seam:** re-measure with real tunnels once item 9 lands; then trim or add a frame (§A.5) | bake, maybe VRAM | S to measure | **MEASURED** 2026-09-27 on `s2_woven` with its real connectors: worst window 12 of 12, 673 windows at 12, 0 over (no trim, no frame) |
 | W2 | Faster BG overwrite (optional lever, §A.2) | `engine/level/bg.emp` | S-M, engine | optional |
-| W3 | **A pit in Hidden Palace's east piece** (found building item 10/11's solo clip, MEASURED from the donor words): donor x 8448..8703 has no art in y 1504..2047, and x 8352..8447 no plane-A landing surface. In the woven act Metropolis west paints those columns above, so `clip_reachability`'s art check passes, but the pit falls to the act's bottom. Needs a floor, a trimmed east piece, or the death plane | content | S | required, the owner's call |
+| W3 | **A pit in Hidden Palace's east piece** (found building item 10/11's solo clip, MEASURED from the donor words): donor x 8448..8703 has no art in y 1504..2047, and x 8352..8447 no plane-A landing surface. In the woven act Metropolis west paints those columns above, so `clip_reachability`'s art check passes, but the pit falls to the act's bottom. Needs a floor, a trimmed east piece, or the death plane | content | S | **RULED** (controller): stop before the pit; `s2_woven`'s east piece ends at donor x 8336 |
+| W4 | **The v2.1 east piece was rock** (found building the full act, MEASURED): donor y 1504..2047 of x 7248..8351 is solid rock art with the rock chunks' interior collision (floors every 128 px inside it). Recut to donor y 1296..1599: an air band, the lake bridge, rock under | `s2_woven` | S | **DONE** 2026-09-27 (`parcel/woven-full-act`) |
+| W5 | **A clip act is at most 3 sections tall** (the inherited region document; DEFERRED_WORK CLIP-ACT-TALLER-THAN-DOCUMENT). The act was cut to 5 x 3 by trimming 304 px of artless rows | descriptor, `region_flatten` | S-M | open |
+| W6 | **THE WHOLE ACT, `games/sonic4/data/clips/s2_woven`**, written by `build_woven_act.py` from the bake's rule: bake accepted (15 sections, collision 250 of 255, worst window 12 of 12), both S2CLIP shapes build, the MUST route flown GREEN (`woven_route_witness.py --route`), `crossing_witness.py` 0 glitch ticks on all 11 connectors (drops newly driven) | `s2_woven` | L | **DONE** 2026-09-27 (`parcel/woven-full-act`; DEFERRED_WORK S2-COMPRESSED-ACT has the numbers) |
 
 **Total to a first playable woven act (INFERRED):**
 - items 1 to 15 and W1: two L, six M, eight S;
