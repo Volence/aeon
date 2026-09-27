@@ -1,12 +1,6 @@
 {
-  "focus": "Assembling the woven act of all six Sonic 2 zones, now that all its groundwork has landed.",
-  "inFlight": [
-    {
-      "what": "Assembling the full woven act of all six Sonic 2 zones, then building and flying it",
-      "where": "branch parcel/woven-full-act",
-      "agent": true
-    }
-  ],
+  "focus": "The woven Sonic 2 act of all six zones is built and plays through; waiting for you to fly it.",
+  "inFlight": [],
   "blockedOnOwner": [
     {
       "id": "SP6-MODULATION-DIVERGENCE",
@@ -22,9 +16,14 @@
       "id": "STEP8-RESIZE",
       "what": "Object video memory: halve the scroll plane now, or free savings now and halve it when badniks need it?",
       "since": "2026-09-27"
+    },
+    {
+      "id": "WOVEN-ACT-LOOK",
+      "what": "Fly the woven Sonic 2 act (s4.woven.debug.bin) and say what feels wrong",
+      "since": "2026-09-27"
     }
   ],
-  "nextBoundary": "When the woven act builds and flies; then your look at it on screen.",
+  "nextBoundary": "At a boundary now: nothing in flight.",
   "queue": [
     {
       "id": "SHORT-TUNNEL-VSCROLL-RATCHET",
@@ -153,10 +152,10 @@
     },
     {
       "id": "S2-COMPRESSED-ACT",
-      "title": "Woven act of all six Sonic 2 zones: groundwork landed; assembling and flying the whole act",
-      "state": "doing",
+      "title": "Woven act of all six Sonic 2 zones: built, plays through in test drives; your look next",
+      "state": "blocked",
       "size": "L",
-      "blockedBy": null,
+      "blockedBy": "owner: fly the woven act",
       "project": "REGIONS"
     },
     {
@@ -203,7 +202,7 @@
       "project": "REGIONS"
     }
   ],
-  "awaiting": null,
-  "atBoundary": false,
-  "updatedAt": "2026-09-27T12:29:22Z"
+  "awaiting": "Your look at the woven Sonic 2 act: open s4.woven.debug.bin (crc 617448a7) in the aeon folder, start at Emerald Hill.",
+  "atBoundary": true,
+  "updatedAt": "2026-09-27T14:08:08Z"
 }
