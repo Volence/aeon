@@ -2682,7 +2682,10 @@ def _bake(manifest_path, donor_root=None, gen_dir=GEN_DIR, coll_dir=COLL_DIR,
         log(f"clip_rom_bake: PER-CLIP OVERRIDE crossing_overrides.zone_separation = screen — "
             f"Z1 counted on the SCREEN ({z1['need_cells']} cells), not the tile cache: gap "
             f"{z1['gap_cells']} cells; {z1['tile_cache_windows_mixed']} tile-cache window(s) "
-            f"hold both zones (their margin columns are never displayed)")
+            f"hold both zones (their margin columns are never displayed)"
+            + (f"; BOTH AXES: 0 of {z1['reachable_centres']} reachable camera centres show two "
+               f"zones ({z1['mixed_unreachable']} unreachable ones would, REPORTED)"
+               if z1.get("axes") == "both" else ""))
 
     sheet_files = [os.path.join(REPO, z["tileset_file"]) for z in summary["zone_table"]]
     project_path, zone_tree = stage_project(act, baked_dir, donor_root, gen_dir,
