@@ -272,15 +272,18 @@ def s2_backdrop_register(donor):
     line L, entry C. A clip act installs its donor's CRAM lines 1-3 onto CRAM lines 1-3, so
     the same byte selects the same colour in Aeon. Refuses anything but exactly one write."""
     import s2_donor as sd
-    text = open(os.path.join(sd.donor_root(donor), "s2.asm"), "r", errors="replace").read()
+    # The donor's OWN top-level file (s2.asm final, main.asm prototype): Hidden Palace's
+    # only donor is the prototype, and its `Level:` makes the same single write ($8720).
+    text = sd._main_asm(donor)
+    top = sd._donor(donor)["marker"]
     try:
         start = text.index("\nLevel:")
         end = text.index("\nLevel_LoadPal:", start)
     except ValueError as exc:
-        raise ClipBgError(f"{donor}'s s2.asm has no `Level:` .. `Level_LoadPal:` span") from exc
+        raise ClipBgError(f"{donor}'s {top} has no `Level:` .. `Level_LoadPal:` span") from exc
     m = re.findall(r"move\.w\s+#\$87([0-9A-Fa-f]{2}),\(a6\)", text[start:end])
     if len(m) != 1:
-        raise ClipBgError(f"{donor}'s s2.asm `Level:` sets the backdrop register {len(m)} "
+        raise ClipBgError(f"{donor}'s {top} `Level:` sets the backdrop register {len(m)} "
                           f"times; expected exactly one")
     reg = int(m[0], 16)
     if reg >> 4 == 0:

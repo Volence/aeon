@@ -183,3 +183,19 @@ def test_refuses_an_opaque_cell_that_would_lower_to_the_transparent_word():
     with pytest.raises(L.ClipBgError) as exc:
         L.lower("synthetic", "Z", loader=_synthetic(8, line=0))
     assert "$0000" in str(exc.value)
+
+
+@pytest.mark.parametrize("donor,top", [(S.S2_FINAL, "s2.asm"), (S.S2_PROTOTYPE, "main.asm")])
+def test_backdrop_register_is_read_from_each_donors_own_top_file(donor, top):
+    """The clip bake reads the backdrop colour (VDP register 7) off the START zone's donor.
+    Hidden Palace's only donor is the prototype, whose top file is main.asm, not s2.asm: the
+    reader used to open s2.asm for every donor, so an act starting in HPZ could not bake.
+    Expected value re-read here from the named file by line, not through s2_donor."""
+    root = _need_donor(donor)
+    lines = open(os.path.join(root, top), errors="replace").read().split("\n")
+    s = next(i for i, ln in enumerate(lines) if ln.rstrip() == "Level:")
+    e = next(i for i in range(s + 1, len(lines)) if lines[i].rstrip() == "Level_LoadPal:")
+    writes = [ln.split("#$87", 1)[1][:2] for ln in lines[s:e]
+              if "move.w" in ln and "#$87" in ln and "(a6)" in ln]
+    assert len(writes) == 1
+    assert L.s2_backdrop_register(donor) == int(writes[0], 16)
