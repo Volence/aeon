@@ -1,5 +1,5 @@
 {
-  "focus": "The woven Sonic 2 act of all six zones is built and plays through; waiting for you to fly it.",
+  "focus": "Rebooted fresh; the woven Sonic 2 act waits for your look, and tall-background scrolling is next up.",
   "inFlight": [],
   "blockedOnOwner": [
     {
@@ -205,7 +205,7 @@
       "project": "REGIONS"
     }
   ],
-  "awaiting": "Your look at the woven Sonic 2 act: open s4.woven.debug.bin (crc 617448a7) in the aeon folder, start at Emerald Hill.",
+  "awaiting": "Your look at the woven act (s4.woven.debug.bin, crc 617448a7), and a go to start on tall backgrounds that stop scrolling part-way down.",
   "atBoundary": true,
-  "updatedAt": "2026-09-27T14:08:43Z"
+  "updatedAt": "2026-09-27T14:09:54Z"
 }
