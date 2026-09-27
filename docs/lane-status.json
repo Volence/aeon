@@ -1,12 +1,6 @@
 {
-  "focus": "Building the woven Sonic 2 act: three of four parts landed; the last is held for a small fix found while landing it.",
-  "inFlight": [
-    {
-      "what": "Three-zone prep held: its clip fix is done; fixing a test check that fails on fresh checkouts before landing both",
-      "where": "branch fix/solo-clips-y-from",
-      "agent": true
-    }
-  ],
+  "focus": "Building the woven act of all six Sonic 2 zones: all the groundwork has landed; next is assembling the act itself.",
+  "inFlight": [],
   "blockedOnOwner": [
     {
       "id": "SP6-MODULATION-DIVERGENCE",
@@ -24,7 +18,7 @@
       "since": "2026-09-27"
     }
   ],
-  "nextBoundary": "When the three-zone prep lands with its fix; then build and fly the woven act.",
+  "nextBoundary": "Now: nothing in flight. Next is assembling and flying the full woven act.",
   "queue": [
     {
       "id": "SHORT-TUNNEL-VSCROLL-RATCHET",
@@ -153,8 +147,8 @@
     },
     {
       "id": "S2-COMPRESSED-ACT",
-      "title": "Woven act of all six Sonic 2 zones: builder and slide fix landed; zone prep under way",
-      "state": "doing",
+      "title": "Woven act of all six Sonic 2 zones: builder, slide fix and all six zones ready; assembling the act next",
+      "state": "next",
       "size": "L",
       "blockedBy": null,
       "project": "REGIONS"
@@ -204,6 +198,6 @@
     }
   ],
   "awaiting": null,
-  "atBoundary": false,
-  "updatedAt": "2026-09-27T12:05:21Z"
+  "atBoundary": true,
+  "updatedAt": "2026-09-27T12:28:32Z"
 }
