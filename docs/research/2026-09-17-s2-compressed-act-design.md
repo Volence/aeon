@@ -592,6 +592,8 @@ could later mean *most of* Sonic 2, not just six postcards.
 In both shapes the natural layout is a single horizontal section ROW — every zone is at most
 2048 px tall, and a 1-row act keeps the camera's vertical behaviour trivial. A vertical stack
 is the alternative and has one real advantage (§9.1).
+*(2026-09-27: superseded, the owner wants a 2-D act. See §9.4's note and
+`docs/research/2026-09-27-mega-act-layout.md`.)*
 
 ---
 
@@ -962,6 +964,13 @@ anyone proposes widening the field.
 
 A single 2048-px-tall section row keeps camera behaviour simple and every zone fits it. Only
 adopt a vertical stack if §9.1(c) is ever pursued.
+
+> **SUPERSEDED BY THE OWNER, 2026-09-27:** *"regions can be any boxes anywhere"*. He wants a
+> 2-D act, and the single row above is not the plan any more. A vertical stack does NOT need
+> §9.1(c): a vertical shaft carries the palette crossing the way a corridor does. The row
+> assumption turned out to live in the Python clip bake (`region_plan` refuses stacked clips),
+> not in the engine. See `docs/research/2026-09-27-mega-act-layout.md` (§2 for this point, §6
+> for the priced bake work).
 
 ---
 

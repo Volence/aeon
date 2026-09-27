@@ -1,0 +1,43 @@
+{
+  "EHZ": {
+    "EHZ first loop + corkscrew": "s2disasm/EHZ:3584,0,2560,1024",
+    "EHZ first loop": "s2disasm/EHZ:3584,0,1792,1024",
+    "EHZ double loop": "s2disasm/EHZ:6144,0,2048,1024",
+    "EHZ double loop wide": "s2disasm/EHZ:6144,0,2560,1024",
+    "EHZ opening": "s2disasm/EHZ:0,0,2048,1024",
+    "EHZ last loop + corkscrew": "s2disasm/EHZ:8192,0,2048,1024"
+  },
+  "CPZ": {
+    "CPZ opening": "s2disasm/CPZ:0,0,2048,2048",
+    "CPZ opening wide": "s2disasm/CPZ:0,0,2560,2048",
+    "CPZ first loops": "s2disasm/CPZ:2816,0,2048,2048",
+    "CPZ twin loops narrow": "s2disasm/CPZ:3072,0,1024,2048",
+    "CPZ loop cluster": "s2disasm/CPZ:7168,0,2048,2048",
+    "CPZ loop cluster 1536": "s2disasm/CPZ:7168,512,1536,1536"
+  },
+  "HPZ": {
+    "HPZ great diagonal + lake": "s2-simonwai-disasm/HPZ:5632,0,2560,2048",
+    "HPZ great diagonal": "s2-simonwai-disasm/HPZ:5632,0,1536,2048",
+    "HPZ caves + green pipe": "s2-simonwai-disasm/HPZ:0,0,2560,2048",
+    "HPZ ledges": "s2-simonwai-disasm/HPZ:2048,0,2560,2048"
+  },
+  "WFZ": {
+    "WFZ deck + tail fins": "s2disasm/WFZ:1024,256,4096,1536",
+    "WFZ first tail": "s2disasm/WFZ:1024,256,2560,1536",
+    "WFZ top deck": "s2disasm/WFZ:1024,256,4096,1024",
+    "WFZ towers": "s2disasm/WFZ:6656,384,3584,1280",
+    "WFZ stern": "s2disasm/WFZ:9728,640,2560,1152"
+  },
+  "OOZ": {
+    "OOZ towers + slides": "s2disasm/OOZ:5120,0,3072,1888",
+    "OOZ slides": "s2disasm/OOZ:5632,0,1536,1888",
+    "OOZ east": "s2disasm/OOZ:8192,0,3072,1888",
+    "OOZ west": "s2disasm/OOZ:3840,0,2048,1888"
+  },
+  "MTZ": {
+    "MTZ opening": "s2disasm/MTZ:0,0,3072,2048",
+    "MTZ opening 2048": "s2disasm/MTZ:0,0,2048,2048",
+    "MTZ middle": "s2disasm/MTZ:4608,0,3072,2048",
+    "MTZ 2048..4608": "s2disasm/MTZ:2048,0,2560,2048"
+  }
+}
