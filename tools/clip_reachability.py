@@ -36,6 +36,11 @@ See scan() for the measurement and check() for the two-sided declaration rule:
      (2) is a claim about the TOP of a column and says nothing to a player already below
      it. This third check is the one the first version of this gate did not have, and its
      absence is what let the x = 4,096 edge be published as the whole story.
+  4. WHERE THE PAINTED WORLD ENDS DOWNWARD (the woven report's §C item 5, 2026-09-27):
+     the first 8-px row from which every row to the act's bottom holds no art in any
+     column. Two-sided against the manifest's `unpainted_remainder.y_from`,
+     exactly as the columns' edge is against `x_from`. A woven act stacks zones, and until
+     then the vertical remainder was printed and never tested.
 
 WHAT "REACHABLE" MEANS, AND WHY THE GATE IS SHAPED THIS WAY. The engine has two
 collision planes and the querying object's `layer` byte selects between them
@@ -179,6 +184,21 @@ class StripGeometry:
         d = self._strip(n)
         off = self.stride * lx + self.nt_bytes + plane * self.coll_rows + (ly // 2)
         return d[off]
+
+    def art_rows(self, grid_h):
+        """(act rows,) bool — True for every 8-px world row holding a non-zero tile in ANY
+        column of the act. Decoded straight out of each strip's nametable words (the same
+        bytes `tile` reads, all at once)."""
+        import numpy as np
+        out = np.zeros(grid_h * self.section_tiles, dtype=bool)
+        for n in range(self.grid_w * grid_h):
+            sy = n // self.grid_w
+            d = np.frombuffer(self._strip(n), dtype=np.uint8).reshape(self.tile_rows,
+                                                                        self.stride)
+            words = d[:, :self.nt_bytes].copy().view(">u2")       # (columns, rows)
+            rows = ((words & 0x07FF) != 0).any(axis=0)
+            out[sy * self.section_tiles:(sy + 1) * self.section_tiles] |= rows
+        return out
 
     def tile(self, wx, wy):
         n, lx, ly = self._where(wx, wy)
@@ -339,8 +359,14 @@ def scan(manifest_path, donor_root=None, gen_dir=GEN_DIR, coll_dir=COLL_DIR, log
                              for y in range(last + cell_h, act_h, cell_h)):
             unbounded.append(wx)
 
+    # THE VERTICAL HALF (the woven report's §C item 5, 2026-09-27): the same question asked
+    # of ROWS. A woven act stacks zones, so where the painted world ENDS DOWNWARD is as much a
+    # boundary a fall meets as where it ends across; it used to be REPORTED and never checked.
+    art_rows = geo.art_rows(grid_h)
+    no_art_rows = [i * 8 for i in range(len(art_rows)) if not art_rows[i]]
+
     return {"act": act.id, "planes": planes, "why": why, "cell_w": cell_w,
-            "unbounded": unbounded,
+            "unbounded": unbounded, "no_art_rows": no_art_rows,
             "act_w": act_w, "act_h": act_h,
             "grid": [grid_w, grid_h], "section_px": section_px,
             "clip_rects": {c.id: list(c.dst) for c in act.clips},
@@ -482,14 +508,11 @@ def check(manifest_path, donor_root=None, gen_dir=GEN_DIR, coll_dir=COLL_DIR, lo
         for cid, rect in r["clip_rects"].items():
             log(f"  clip {cid} paints dst (x={rect[0]}, y={rect[1]}, w={rect[2]}, "
                 f"h={rect[3]})")
-        # The VERTICAL remainder is reported, never checked: this gate measures columns,
-        # so it can say where the painted world ENDS in x but not where each column's
-        # band ends in y. Said out loud because a fall leaves through the bottom too, and
-        # a number a gate prints but does not test must say so beside itself.
+        # THE VERTICAL REMAINDER IS CHECKED since the woven report's §C item 5 (it was
+        # reported and never tested): see `y_from` below. The clips' own band is printed
+        # beside it so the two can be read together.
         band = max((rect[1] + rect[3]) for rect in r["clip_rects"].values())
-        log(f"  vertical remainder (REPORTED, NOT CHECKED): the clips paint down to "
-            f"y={band} of {r['act_h']} — {r['act_h'] - band} px of the act below that is "
-            f"air that only a fall can reach")
+        log(f"  the clips paint down to y={band} of {r['act_h']}")
 
     # The measured edge of the painted world: the first column with no art, if the
     # columns from there on are ALL artless (a trailing remainder). A hole in the middle
@@ -502,9 +525,28 @@ def check(manifest_path, donor_root=None, gen_dir=GEN_DIR, coll_dir=COLL_DIR, lo
         else:
             break
     interior_no_art = sorted(x for x in no_art if x < trailing_from)
+    # ... and the painted world's BOTTOM: the first row from which every row down to the
+    # act's bottom is artless. Artless rows ABOVE it are not holes (a Sonic 2 sky is empty
+    # foreground over the background), so only the trailing band is the remainder.
+    act_h = r["act_h"]
+    no_art_rows = set(r.get("no_art_rows", []))
+    trailing_y_from = act_h
+    for wy in range(act_h - 8, -8, -8):
+        if wy in no_art_rows:
+            trailing_y_from = wy
+        else:
+            break
 
     declared = r["declared"]
     if declared is None:
+        if trailing_y_from < act_h and not (interior_no_art or trailing_from < act_w):
+            failures.append(
+                f"the act's painted world ends at y={trailing_y_from} and the act runs to "
+                f"y={act_h}: below it there is no art in any column, and the manifest "
+                f"declares no `unpainted_remainder`. A fall leaves through the bottom as "
+                f"surely as through the side — declare it: "
+                f'"unpainted_remainder": {{"x_from": {act_w}, "y_from": {trailing_y_from}, '
+                f'"why": "<why this act does not paint it>"}}, or paint it (a `fill`)')
         if interior_no_art or trailing_from < act_w:
             failures.append(
                 f"the act has {len(no_art)} artless column(s) and the manifest declares "
@@ -515,6 +557,7 @@ def check(manifest_path, donor_root=None, gen_dir=GEN_DIR, coll_dir=COLL_DIR, lo
                 f"A clip act baked into a bigger act's slot ALWAYS has this remainder — "
                 f"declare it: "
                 f'"unpainted_remainder": {{"x_from": {trailing_from}, '
+                f'"y_from": {trailing_y_from}, '
                 f'"why": "<why this act does not paint it>"}}')
     elif not isinstance(declared, dict):
         raise Unmeasurable('manifest "unpainted_remainder" is not an object')
@@ -538,6 +581,18 @@ def check(manifest_path, donor_root=None, gen_dir=GEN_DIR, coll_dir=COLL_DIR, lo
         elif log:
             log(f"  painted world ends at x={trailing_from}, exactly as declared "
                 f"(why: {declared.get('why')})")
+        want_y = _declared_bound(declared, "y_from", act_h, "y")
+        if trailing_y_from != want_y:
+            failures.append(
+                f"the painted world ends DOWNWARD at y={trailing_y_from} but the manifest "
+                f"declares y_from={want_y}. "
+                + (f"CONTENT IS MISSING: {want_y - trailing_y_from} px of rows the "
+                   f"declaration says are painted carry no art in any column."
+                   if trailing_y_from < want_y else
+                   f"THE DECLARATION IS STALE: it reserves {trailing_y_from - want_y} px of "
+                   f"rows the act actually paints."))
+        elif log:
+            log(f"  painted world ends downward at y={trailing_y_from}, exactly as declared")
 
     if interior_no_art:
         failures.append(

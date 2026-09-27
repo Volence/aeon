@@ -16,6 +16,8 @@
   },
   "unpainted_remainder": {
     "x_from": 6144,
+    "y_from": 2496,
+    "y_why": "MEASURED 2026-09-27 (clip_reachability check 4, the woven report's §C item 5): METROPOLIS, lowered 448 px, paints rows 448..2495; every row from y 2496 to the act's bottom (6144) carries no art in any column. The same fall the unbounded_fall count below declares, seen from its bottom edge.",
     "why": "NOTHING IS UNPAINTED ACROSS: the five rectangles fill x 0..6143, the act's whole width (Metropolis east was trimmed to end there, see the note's point 3). The object stays because the two fall declarations below live in it.",
     "floorless_columns": {
       "why": "METROPOLIS'S OWN PIT, x 1024..1151 (MTZ x 1024..1151), on both planes: faithful donor content. Sonic 2 crosses it on the objects this clip does not carry (the nut and platform pieces drawn over it); here it has no landing surface down to the act's bottom. Plane B is the same run because Metropolis carries plane A on both planes (note, point 7).",

@@ -561,7 +561,7 @@ numbers.
 | 2 | **Vertical connector kinds:** drop shaft, stair shaft, and the **cloud band** (opaque line-0 art, cloud ledges) | `clip_manifest.py`, `clip_act_bake.py` | **L** (+S for the cloud band on top of the shaft) | **DONE** 2026-09-27 (`parcel/woven-bake-2d`): `clips.json` `shafts`, K7/K9/K10. Crossing them is items 1/3/15 |
 | 3 | Z2 and the music check on both axes | `clip_rom_bake.py` | M | **DONE** 2026-09-27 (`parcel/woven-bake-2d`). NOTE: the bake's Z2 wants 320 / 416 for a same-blob seam, not 288 / 384 (DEFERRED_WORK finding) |
 | 4 | Walk every corridor, not `corr[0]` | `clip_rom_bake.py` | S | **DONE** 2026-09-27 (`parcel/woven-bake-2d`): every connector, on its own axis |
-| 5 | 2-D reachability | `clip_reachability.py` | M | required |
+| 5 | 2-D reachability | `clip_reachability.py` | M | **DONE** 2026-09-27 (`parcel/woven-bake-2d`): the downward remainder is checked two-sided (`y_from`) |
 | 6 | **Neutral fill everywhere between clips** (v1's seal walls, generalised): solid, line 0, painted | new corridor-like kind | S-M | **DONE** 2026-09-27 (`parcel/woven-bake-2d`): `clips.json` `fill`, clip_manifest K8 |
 | 7 | The clip act owns its start | `clip_rom_bake`, `act_descriptor` | S | required |
 | 8 | Emit no inherited OJZ entities, which also lifts the multiple-of-3 section count | `ojz_entity_gen.py` | S | required |

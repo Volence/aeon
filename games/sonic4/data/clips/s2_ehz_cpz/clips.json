@@ -11,6 +11,8 @@
   },
   "unpainted_remainder": {
     "x_from": 15936,
+    "y_from": 2048,
+    "y_why": "MEASURED 2026-09-27 (clip_reachability check 4, the woven report's §C item 5): CHEMICAL PLANT, the taller clip, paints rows 0..2047; every row from y 2048 to the act's bottom (6144) carries no art in any column. The same fall the unbounded_fall count below declares, seen from its bottom edge.",
     "why": "THE LAST 448 PX OF THE ACT ARE UNPAINTED, x 15936..16383. The act is 8 x 2048 = 16384 px; Emerald Hill 10976 + tunnel 384 + Chemical Plant 4576 = 15936. With the 832-px tunnel the clip filled the act exactly; the tunnel became 384 px (owner, 2026-09-25) and Chemical Plant's width was kept, so past x 15936 there is no art and no collision, and a player who ran off the end of Chemical Plant's clip would fall. On plane A none does: the wall at Chemical Plant x 3591 (act x 14951) stops every measured drive (see the note). Until S2CLIP-CPZ-LONGER, Chemical Plant was 2048 px and x 13856..14335 was an unpainted 480-px void. Kept as a two-sided declaration: clip_reachability.py refuses if the painted world ends anywhere else; this object also carries the unbounded_fall and floorless_columns declarations below.",
     "unbounded_fall": {
       "columns": 1944,
