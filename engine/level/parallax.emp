@@ -1287,24 +1287,32 @@ pub proc Parallax_CheckBoundary () clobbers(d0-d4/a0-a3) {
 
         // -- THE BG SNAP (WOVEN-TALL-ENTRY, 2026-09-27): does this crossing change the
         //    effective background LAYOUT? Each side's is its row's rg_bg_layout, or the act
-        //    default for 0 (and for a null previous row: nothing resolved yet), the same
-        //    ladder BG_Stream_Update's wipe arm uses. A different layout means BG_Stream_Update
-        //    will repaint the whole plane (after the tile overwrite, if the tiles differ too),
-        //    so Step 5 may store the scroll's target outright this frame: see Parallax_BG_Snap
-        //    there. Read BEFORE Region_Current is overwritten, since the old row is the other
-        //    side. Only SET here; Step 5 clears it every frame. --
+        //    default for 0, the same ladder BG_Stream_Update's wipe arm uses. A different layout
+        //    means BG_Stream_Update will repaint the whole plane (after the tile overwrite, if
+        //    the tiles differ too), so Step 5 may store the scroll's target outright this frame:
+        //    see Parallax_BG_Snap there. Read BEFORE Region_Current is overwritten, since the
+        //    old row is the other side. Only SET here; Step 5 clears it every frame.
+        //
+        //    A NULL PREVIOUS ROW NEVER SNAPS, and that is the predicate being exact rather than a
+        //    shortcut. Region_Current is null only before the first resolve (the boot ladder) and
+        //    after the DEBUG warp clears it to force this crossing (Debug_Warp_Consume); both
+        //    paths have just primed Plane B SYNCHRONOUSLY through Section_RedrawPlanes, which
+        //    sets BG_Plane_Layout to this row's layout, so no wipe follows and the window it
+        //    primed is the one the UNSNAPPED scroll selects. Snapping there would leave that
+        //    window behind the scroll by the whole jump (measured on the first cut: a warp inside
+        //    DEBUG OJZ's tall region jumped 366 px in one store over a window primed for the old
+        //    value). That is BG-RATE-PRIME-EXEMPTION, still open, and not this. --
+        movea.l Region_Current, a1                  // (Region_Current).w — the row being left
+        cmpa.w  #0, a1
+        beq     .snap_same                          // a synchronous prime path: see above
         movea.l Current_Act_Ptr, a2                 // (Current_Act_Ptr).w
         move.l  Act.act_bg_layout(a2), d1           // the act default
         move.l  Region.rg_bg_layout(a0), d0         // the new row's layout
         bne     .snap_new_ok
         move.l  d1, d0
     .snap_new_ok:
-        movea.l Region_Current, a1                  // (Region_Current).w — the row being left
-        cmpa.w  #0, a1
-        beq     .snap_old_dflt
-        move.l  Region.rg_bg_layout(a1), d4
+        move.l  Region.rg_bg_layout(a1), d4         // the old row's layout
         bne     .snap_old_ok
-    .snap_old_dflt:
         move.l  d1, d4
     .snap_old_ok:
         cmp.l   d4, d0

@@ -327,22 +327,38 @@ def step5_shape_check(text: str | None = None) -> None:
             r"tst\.w\s+d2\s+bge\s+\.v_clamp_hi\s+moveq\s+#0,\s*d2",
         "the high clamp against the derived ceiling":
             r"cmp\.w\s+d3,\s*d2\s+ble\s+\.v_rate\s+move\.w\s+d3,\s*d2",
-        "the one-plane arm (rate_applies), ahead of the rate clamp":
+        "the one-plane arm (rate_applies), then the layout-change snap (snapped_pair), ahead "
+        "of the rate clamp":
             r"cmpi\.w\s+#BG_TALL_MAP_MIN_SPAN\s*-\s*SCREEN_HEIGHT,\s*d3\s+blt\s+\.v_store\s+"
+            r"tst\.b\s+Parallax_BG_Snap\s+bne\s+\.v_store\s+"
             r"move\.w\s+Parallax_Current_Vscroll_BG,\s*d0",
         "the rate clamp, on the STEP":
             r"move\.w\s+Parallax_Current_Vscroll_BG,\s*d0\s+sub\.w\s+d0,\s*d2\s+"
             r"cmp\.w\s+#BG_VSCROLL_MAX_STEP,\s*d2",
         "the rate clamp's low arm":
             r"cmp\.w\s+#-BG_VSCROLL_MAX_STEP,\s*d2\s+bge",
-        "the re-add and the store":
-            r"add\.w\s+d0,\s*d2\s+\.v_store:\s+move\.w\s+d2,\s*Parallax_Current_Vscroll_BG",
+        "the re-add, the snap flag's per-frame clear and the store":
+            r"add\.w\s+d0,\s*d2\s+\.v_store:\s+clr\.b\s+Parallax_BG_Snap\s+"
+            r"move\.w\s+d2,\s*Parallax_Current_Vscroll_BG",
     }
     for what, rx in want.items():
         if not re.search(rx, body):
             raise SetupError(f"Parallax_Step5_Vscroll no longer matches {what} as clamp_model() "
                              f"transcribes it (missing /{rx}/). Re-read the proc and update "
                              "clamp_model() before trusting any verdict here")
+    # WHO SETS THE SNAP FLAG, and on what: snapped_pair() transcribes "the crossing changed the
+    # effective background layout", which is Parallax_CheckBoundary's compare of the new row's
+    # layout (d0) with the old row's (d4), each defaulted to Act.act_bg_layout.
+    m = re.search(r"proc Parallax_CheckBoundary\s*\(\)[^{]*\{(.*?)^\}", txt, re.M | re.S)
+    cb = re.sub(r"//[^\n]*", "", m.group(1)) if m else ""
+    rx = (r"movea\.l\s+Region_Current,\s*a1\s+cmpa\.w\s+#0,\s*a1\s+beq\s+\.snap_same\s+"
+          r".*?move\.l\s+Act\.act_bg_layout\(a2\),\s*d1\s+move\.l\s+Region\.rg_bg_layout\(a0\),"
+          r"\s*d0.*?move\.l\s+Region\.rg_bg_layout\(a1\),\s*d4.*?cmp\.l\s+d4,\s*d0\s+beq\s+"
+          r"\.snap_same\s+st\s+Parallax_BG_Snap\s+\.snap_same:\s+move\.l\s+a0,\s*Region_Current")
+    if not re.search(rx, cb, re.S):
+        raise SetupError("Parallax_CheckBoundary no longer sets Parallax_BG_Snap on exactly a "
+                         "crossing whose effective layout differs, as snapped_pair() transcribes "
+                         f"it (missing /{rx}/). Re-read it and update snapped_pair()")
 
 
 # ---- the model ----------------------------------------------------------------------------
@@ -455,6 +471,26 @@ def rate_applies(span: int, K: dict) -> bool:
     return span >= K["BG_TALL_MAP_MIN_SPAN"]
 
 
+def snapped_pair(prev: dict | None, src: dict) -> bool:
+    """Did the Parallax_Update that produced `src`'s store run on a crossing that changed the
+    effective background LAYOUT (WOVEN-TALL-ENTRY, 2026-09-27)? Parallax_CheckBoundary then sets
+    Parallax_BG_Snap and Step 5 skips the rate clamp for that one store, because BG_Stream_Update
+    repaints the whole plane at the new scroll. `prev` is the sample whose Region_Current the
+    crossing replaced. Each sample's `layout` is its row's rg_bg_layout defaulted to the act's,
+    read out of the ROM. A sample without `layout` (a hand-built fixture) is never snapped, nor is
+    one whose previous row is null (the engine's own rule: a null row means a synchronous prime).
+
+    NOT MODELLED, and it fails LOUD rather than green: a DEBUG warp nulls Region_Current before
+    its crossing, so the engine never snaps on a warp, while this reads the two SAMPLED rows. A
+    sampled warp between two layouts would show up as an A3 mismatch. No leg samples one today
+    (leg W warps inside its one tall row; its first, cross-row warp is in the unsampled settle)."""
+    if prev is None or prev.get("layout") is None or src.get("layout") is None:
+        return False
+    if not prev["region"]:
+        return False
+    return prev["region"] != src["region"] and prev["layout"] != src["layout"]
+
+
 def clamp_model(target: int, prev: int, ceiling: int, max_step: int, rated: bool = True) -> int:
     """The step-4 clamp, in order: position first (low then high), then the RATE on the step —
     the rate only where `rated` (a map taller than the plane, `rate_applies`)."""
@@ -541,6 +577,7 @@ class Rig:
                 "v": s16(await rd(b, sym["Parallax_Current_Vscroll_BG"], 2)),
                 "region": region, "row": self.index.get(region),
                 "span": span,
+                "layout": row["eff_layout"] if row else self.K["ACT_BG_LAYOUT"],
                 "tall": rate_applies(span, self.K),
                 "ceiling": ceiling_for(span, self.K["SCREEN_HEIGHT"], self.K["VSCROLL_BG_MAX"]),
                 "trans": frames,
@@ -816,6 +853,7 @@ def check_leg(fails: list[str], K: dict, name: str, samples: list[dict],
                 "one step is precisely how a working clamp looks broken.")
     steps, worst, binds, bound_at = [], 0, 0, []
     unrated_steps, worst_unrated = 0, 0
+    snapped_steps, worst_snapped = 0, 0
     blocking: list[dict] = []
     for i in range(1, len(samples)):
         d = samples[i]["v"] - samples[i - 1]["v"]
@@ -827,6 +865,11 @@ def check_leg(fails: list[str], K: dict, name: str, samples: list[dict],
         # the author's transition, and A1 and the bind accounting have nothing to say about it —
         # A3 still models it exactly (the snap or the lerp, no rate arm).
         src_r = samples[i] if granularity == "tick" else samples[i - 1]
+        prev_r = samples[i - 1] if granularity == "tick" else (samples[i - 2] if i >= 2 else None)
+        if _rated(src_r, K) and snapped_pair(prev_r, src_r):
+            snapped_steps += 1
+            worst_snapped = max(worst_snapped, abs(d))
+            continue
         if not _rated(src_r, K):
             unrated_steps += 1
             worst_unrated = max(worst_unrated, abs(d))
@@ -889,8 +932,9 @@ def check_leg(fails: list[str], K: dict, name: str, samples: list[dict],
                              f"bob (pcfg_bob = {src['cfg']['bob']:#04x}); target_scroll() does "
                              "not model the sine term. Teach it before trusting any verdict here")
         modelled += 1
+        prev_src = a if granularity == "tick" else (samples[i - 2] if i >= 2 else None)
         want = clamp_model(target_scroll(src["cam_y"], src["cfg"]), a["v"], src["ceiling"],
-                           step_max, _rated(src, K))
+                           step_max, _rated(src, K) and not snapped_pair(prev_src, src))
         if want != s["v"]:
             mismatched += 1
             if mismatched <= 3:
@@ -908,6 +952,7 @@ def check_leg(fails: list[str], K: dict, name: str, samples: list[dict],
                                    "contradiction", "unmodelled")},
             "ticks": len(samples) - 1, "v_first": samples[0]["v"],
             "unrated_steps": unrated_steps, "worst_unrated_step": worst_unrated,
+            "snapped_steps": snapped_steps, "worst_snapped_step": worst_snapped,
             "v_last": samples[-1]["v"], "v_min": min(s["v"] for s in samples),
             "v_max": max(s["v"] for s in samples), "worst_step": worst,
             "ticks_at_the_bound": binds, "modelled_ticks": modelled,
@@ -960,11 +1005,16 @@ async def run(args) -> int:
     rom = Path(args.rom).read_bytes()
     try:
         rows = region_table.read_regions(rom, sym["OJZ_Act1_Descriptor"])
+        aoff, _ = region_table.struct_layout("Act")
+        K["ACT_BG_LAYOUT"] = region_table._u(rom, sym["OJZ_Act1_Descriptor"]
+                                             + aoff["act_bg_layout"], 4)
     except region_table.LayoutError as e:
         raise SetupError(str(e)) from e
+    for r in rows:              # the effective layout, the ladder snapped_pair() compares
+        r["eff_layout"] = r["bg_layout"] or K["ACT_BG_LAYOUT"]
 
     report: dict = {"constants": {k: v for k, v in K.items() if isinstance(v, int)},
-                    "rows": [{k: (hex(v) if k in ("addr", "effects", "parallax", "bg_layout")
+                    "rows": [{k: (hex(v) if k in ("addr", "effects", "parallax", "bg_layout", "eff_layout")
                                   else v) for k, v in r.items()} for r in rows]}
     fails: list[str] = []
     findings: list[str] = []
