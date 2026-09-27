@@ -50,6 +50,9 @@ SYMS = ["Hscroll_Buffer", "Camera_X", "Camera_Y", "Debug_Scene_Freeze",
         "Parallax_Deform_Phase_BG"]
 HSCROLL_BYTES = CBS.SCREEN_LINES * 4
 SETTLE_MAX = 900
+# Parallax_Drift_Acc: one 16.16 long per band, MAX_PARALLAX_BANDS (engine/structs.emp: 16) of
+# them, [pixels:i16][fraction:u16] (engine/level/parallax.emp's drift banner).
+DRIFT_BANDS = 16
 STABLE_FRAMES = 30
 
 
@@ -97,9 +100,12 @@ async def _probe(b, sym, camx, camy):
     else:
         return None
     rd = {}
-    for name, ln in (("Hscroll_Buffer", HSCROLL_BYTES), ("Camera_X", 4), ("Camera_Y", 4),
-                     ("Parallax_Current_Config", 4), ("Parallax_Current_Vscroll_BG", 2),
-                     ("Parallax_Deform_Phase_BG", 2)):
+    reads = [("Hscroll_Buffer", HSCROLL_BYTES), ("Camera_X", 4), ("Camera_Y", 4),
+             ("Parallax_Current_Config", 4), ("Parallax_Current_Vscroll_BG", 2),
+             ("Parallax_Deform_Phase_BG", 2)]
+    if "Parallax_Drift_Acc" in sym:
+        reads.append(("Parallax_Drift_Acc", 4 * DRIFT_BANDS))
+    for name, ln in reads:
         r = await b.call("emulator/read_memory", {"addr": hex(sym[name]), "len": ln})
         rd[name] = bytes.fromhex(r["bytes"])
     return rd, n + 1
@@ -117,14 +123,18 @@ def main():
     sym = parse_lst(lst)
     act = CM.load(str(REPO / "games" / "sonic4" / "data" / "clips" / a.clip / "clips.json"))
     zones = {c.zone_key: c for c in act.clips}
-    need = SYMS + [CBS.PARALLAX_LABEL.format(key=k) for k in zones]
+    specs = {k: CBS.derive(c.donor, c.zone, c.dst[1] - c.src[1]) for k, c in zones.items()}
+    # A drifting band (WFZ's clouds) moves with Parallax_Drift_Acc, not the camera: without
+    # the accumulator the model cannot be compared, so it is REQUIRED when any spec drifts.
+    need = SYMS + [CBS.PARALLAX_LABEL.format(key=k) for k in zones] + (
+        ["Parallax_Drift_Acc"] if any(b.get("drift") for sp in specs.values()
+                                      for b in sp["bands"]) else [])
     missing = [s for s in need if s not in sym]
     if missing:
         print(f"COULD NOT RUN: symbols missing from {a.lst}: {', '.join(missing)}")
         return 2
     with open(CBS.s2_asm_path(zones[min(zones)].donor), errors="replace") as fh:
         text = fh.read()
-    specs = {k: CBS.derive(c.donor, c.zone, c.dst[1] - c.src[1]) for k, c in zones.items()}
     cfg_of = {sym[CBS.PARALLAX_LABEL.format(key=k)] & 0xFFFFFF: k for k in zones}
     plan = probes(act)
     results = []
@@ -162,7 +172,11 @@ def main():
         buf = rd["Hscroll_Buffer"]
         fg = [CBS._sx(int.from_bytes(buf[i * 4:i * 4 + 2], "big"), 16) for i in range(224)]
         bg = [CBS._sx(int.from_bytes(buf[i * 4 + 2:i * 4 + 4], "big"), 16) for i in range(224)]
-        line = f"{zone} cam ({camx},{camy}) settled {frames}f vscroll {vs} phase {ph}"
+        acc = rd.get("Parallax_Drift_Acc", b"")
+        dpx = [CBS._sx(int.from_bytes(acc[i * 4:i * 4 + 2], "big"), 16)
+               for i in range(len(acc) // 4)]
+        line = (f"{zone} cam ({camx},{camy}) settled {frames}f vscroll {vs} phase {ph}"
+                + (f" drift px {[d for d in dpx if d]}" if any(dpx) else ""))
         if (camx, camy) != (x, y):
             print(f"COULD NOT MEASURE {line}: the camera did not stay at ({x},{y})")
             unmeasured += 1
@@ -174,7 +188,7 @@ def main():
             continue
         spec = specs[key]
         want_vs = CBS.engine_vscroll(spec, camy)
-        model = CBS.engine_bg_words(spec, camx, vscroll=vs, phase_bg=ph)
+        model = CBS.engine_bg_words(spec, camx, vscroll=vs, phase_bg=ph, drift_px=dpx)
         miss = [i for i in range(224) if model[i] != bg[i]]
         fg_miss = [i for i in range(224) if fg[i] != CBS._sx(-camx, 16)]
         ok = not miss and not fg_miss and vs == want_vs

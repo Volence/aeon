@@ -1530,14 +1530,20 @@ def engine_vscroll(spec, camy, ceiling=PLANE_LINES - SCREEN_LINES):
     return min(max(v, 0), ceiling)
 
 
-def engine_bg_words(spec, camx, table=None, vscroll=None, phase_bg=0):
+def engine_bg_words(spec, camx, table=None, vscroll=None, phase_bg=0, drift_px=None):
     """The BG HScroll word the engine's fill writes on each screen line at steady state
     (Parallax_Fill_PerLine's flat, sampled and curve loops). `vscroll` is the BG plane's
     vertical scroll (a locked scene's v_offset when None); `phase_bg` is
     Parallax_Deform_Phase_BG. Bands are keyed by PLANE line: a screen line L shows plane row
     (vscroll + L) mod 512 and takes the band whose top is the last at or above that row. A
-    curve is modelled only on a locked plane (the one place this parcel authors one)."""
+    curve is modelled only on a locked plane (the one place this parcel authors one).
+
+    `drift_px` is Parallax_Drift_Acc's PIXEL word per CONFIG BAND INDEX (scene_text emits one
+    layer per spec band, in order, so config band k is spec band k). Parallax_Update adds it
+    to every band's plane-B target (`add.w (a4), d2`, CAP_BAND_DRIFT), so it is added here to
+    every band; only a band with a drift rate ever has a non-zero accumulator. None = all 0."""
     bands = spec["bands"]
+    dpx = list(drift_px or []) + [0] * (len(bands) - len(drift_px or []))
     if vscroll is None:
         if spec["v_factor"] != LOCKED:
             raise ClipScrollError("an unlocked scene needs the live vscroll")
@@ -1549,8 +1555,9 @@ def engine_bg_words(spec, camx, table=None, vscroll=None, phase_bg=0):
             raise ClipScrollError("a curve on a scrolling plane is not modelled here")
         for line in range(SCREEN_LINES):
             row = (vscroll + line) % PLANE_LINES
-            b = [x for x in bands if x["plane_top"] <= row][-1]
-            v = -engine_factor_scroll(b["factor"], camx)
+            k = [i for i, x in enumerate(bands) if x["plane_top"] <= row][-1]
+            b = bands[k]
+            v = -engine_factor_scroll(b["factor"], camx) + dpx[k]
             if b["kind"] == "ripple":
                 v += tab[(phase_bg + b["phase"] + vscroll + line) & 0xFF]
             out[line] = _sx(v, 16)
@@ -1558,7 +1565,7 @@ def engine_bg_words(spec, camx, table=None, vscroll=None, phase_bg=0):
     for k, b in enumerate(bands):
         top = b["plane_top"]
         end = bands[k + 1]["plane_top"] if k + 1 < len(bands) else SCREEN_LINES
-        base = _sx(-engine_factor_scroll(b["factor"], camx), 16)
+        base = _sx(-engine_factor_scroll(b["factor"], camx) + dpx[k], 16)
         if b["kind"] == "ramp":
             far = _sx(-engine_factor_scroll(b["to_factor"], camx), 16)
             spread = _sx(far - base, 16)

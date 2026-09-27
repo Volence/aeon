@@ -489,3 +489,25 @@ def test_data_block_emits_one_table_per_direction(s2asm, ehz):
                                      txt, re.S).group(1).replace("\n", "").split(",")]
     assert all(rev[k] == fwd[(-k) % 256] for k in range(256))
     assert f"deform_bg: SceneDeform.Shared({CBS.TABLE_LABEL}_Rev, 0)" in txt
+
+
+def test_the_model_adds_each_bands_drift_accumulator_to_that_band_only(s2asm):
+    """clip_bg_scroll_witness compares the ROM's Hscroll_Buffer with engine_bg_words. For WFZ's
+    clouds that needs Parallax_Drift_Acc: the engine adds the accumulator's pixel word to the
+    band's plane-B target (`add.w (a4), d2`). Band k's lines must move by exactly its own
+    accumulator and no other band's lines may move. Which band a line shows is read here from
+    plane_top directly, not through the model's own lookup."""
+    spec = CBS.derive("s2disasm", "WFZ", -256)
+    vs = CBS.engine_vscroll(spec, 700)
+    base = CBS.engine_bg_words(spec, 1234, vscroll=vs)
+    drifting = [k for k, b in enumerate(spec["bands"]) if b.get("drift")]
+    assert drifting, "WFZ's spec has no drifting band: nothing below is checked"
+    for k in drifting:
+        dpx = [0] * len(spec["bands"])
+        dpx[k] = 37
+        got = CBS.engine_bg_words(spec, 1234, vscroll=vs, drift_px=dpx)
+        for line in range(CBS.SCREEN_LINES):
+            row = (vs + line) % CBS.PLANE_LINES
+            tops = [b["plane_top"] for b in spec["bands"]]
+            band = max(i for i, t in enumerate(tops) if t <= row)
+            assert got[line] - base[line] == (37 if band == k else 0), (k, line)
