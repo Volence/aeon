@@ -15,6 +15,11 @@
       "what": "Level bake learns 2-D layouts: stacked regions, shafts, cloud band",
       "where": "branch parcel/woven-bake-2d",
       "agent": true
+    },
+    {
+      "what": "Design for freeing video memory for objects, sized against the woven act",
+      "where": "branch design/regions-p2-step8",
+      "agent": true
     }
   ],
   "blockedOnOwner": [
@@ -210,5 +215,5 @@
   ],
   "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-09-27T08:51:09Z"
+  "updatedAt": "2026-09-27T08:51:55Z"
 }
