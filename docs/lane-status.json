@@ -1,6 +1,12 @@
 {
-  "focus": "Landed the Chemical Plant crossing wall fix. Next small fix: the background slide after a debug warp into Hidden Palace.",
-  "inFlight": [],
+  "focus": "Fixing the background slide you see for up to 0.7 s after a debug warp into Hidden Palace.",
+  "inFlight": [
+    {
+      "what": "Hidden Palace warp background slide fix (research then fix)",
+      "where": "branch fix/warp-vscroll-prime",
+      "agent": true
+    }
+  ],
   "blockedOnOwner": [
     {
       "id": "SP6-MODULATION-DIVERGENCE",
@@ -23,7 +29,7 @@
       "since": "2026-09-28"
     }
   ],
-  "nextBoundary": "At a boundary, clearable (about 275k context used). Next row WARP-VSCROLL-PRIME, hub go given; it has no booking under that id, likely DEFERRED_WORK 'BG-RATE-PRIME-EXEMPTION' (line ~111) and lane-log 9cf89517.",
+  "nextBoundary": "When the warp-slide fix returns, is reviewed and landed.",
   "queue": [
     {
       "id": "WOVEN-EDITABLE-IN-AURORA",
@@ -43,6 +49,14 @@
     {
       "id": "WARP-VSCROLL-PRIME",
       "title": "After a debug warp into Hidden Palace, the background slides into place for up to 0.7 s; set it directly on a warp",
+      "state": "doing",
+      "size": "S",
+      "blockedBy": null,
+      "project": "REGIONS"
+    },
+    {
+      "id": "PARALLAX-STEP5-SNAP-DEAD",
+      "title": "A background snap test that can never fire (only matters when a crossing and a warp share a frame); about three instructions",
       "state": "next",
       "size": "S",
       "blockedBy": null,
@@ -226,7 +240,7 @@
       "project": "REGIONS"
     }
   ],
-  "awaiting": "A clear: I'm at a clean stop with about 275k context used and nothing unbanked. The next session takes the Hidden Palace warp fix.",
-  "atBoundary": true,
-  "updatedAt": "2026-09-28T04:09:00Z"
+  "awaiting": null,
+  "atBoundary": false,
+  "updatedAt": "2026-09-28T04:10:45Z"
 }
