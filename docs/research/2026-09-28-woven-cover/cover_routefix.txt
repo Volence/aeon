@@ -1,0 +1,22 @@
+constants: HALF_W 160 HALF_H 112 X_STEP 16 Y_STEP 16 SNAP_FRAMES 1 wipe 3 frames; blob bytes {(0, 1, 4): 9984, (2, 3): 10048, (5,): 3744}
+connector            ax  len  a..b          c     need(b/a)  core/side  margin(b/a)  slack(b/a)  full-cover travel  mean cover  opaque at mouth (before/after)
+ehz_to_mtz           x   608   2560..3168   2864  304/304    176        128/128        0/0        296 px of 608       86.0%      100% / 45%
+mtz_to_cpz           x   416   4192..4608   4400  208/208    176         32/32         0/0        104 px of 416       79.6%      25% / 19%
+cpz_to_mtz           x   416   6784..7200   6992  208/208    176         32/32         0/0        104 px of 416       79.2%      14% / 35%
+hpz_to_ooz           x   560   4544..5104   4848  304/256    176        128/80         0/0        248 px of 560       86.7%      39% / 22%
+wfz_to_ehz           y   448   1408..1856   1632  160/160    128         32/32        64/64       232 px of 448       87.5%      0% / 0%
+wfz_to_mtz           y  1152   1408..2560   1984  256/256    128        128/128      320/320      936 px of 1152       95.4%      8% / 38%
+wfz_to_cpz           y   832   1408..2240   1824  256/256    128        128/128      160/160      616 px of 832       93.3%      100% / 0%
+ehz_to_hpz           y   944   2880..3824   3344  160/160    128         32/32       304/320      728 px of 944       94.1%      30% / 0%
+cpz_to_ooz           y   464   4160..4624   4416  256/208    128        128/80         0/0        248 px of 464       88.7%      0% / 15%
+hpz_to_mtz           y   512   4608..5120   4864  256/256    128        128/128        0/0        296 px of 512       89.7%      19% / 8%
+whole act: 412676 reachable centres; mean screen share that is cover 11.2%; screens with >= 25% cover 18.1%, 100% cover 3.5%
+zone centres only (camera outside every connector): 391692; mean cover share 7.0%; >= 25% cover 13.7%; >= 50% 3.7%
+   wfz_deck           centres 111792  mean cover  3.5%  >=25%  7.5%  e.g. camera centre (1540, 116) shows 50% fill
+   ehz_double_loop    centres  34520  mean cover  6.2%  >=25% 12.9%  e.g. camera centre (164, 1860) shows 50% fill
+   mtz_west           centres  29540  mean cover  9.4%  >=25% 19.6%  e.g. camera centre (3956, 2564) shows 50% fill
+   cpz_loop_cluster   centres  46860  mean cover  6.7%  >=25% 14.1%  e.g. camera centre (5748, 2244) shows 50% fill
+   mtz_east           centres  26020  mean cover  7.4%  >=25% 15.5%  e.g. camera centre (7268, 2612) shows 50% fill
+   hpz_west           centres  58396  mean cover  3.4%  >=25%  7.0%  e.g. camera centre (164, 3828) shows 50% fill
+   hpz_east           centres   3688  mean cover 22.4%  >=25% 47.1%  e.g. camera centre (3108, 5124) shows 50% fill
+   ooz_east           centres  69400  mean cover  4.9%  >=25% 10.3%  e.g. camera centre (5268, 4628) shows 50% fill
