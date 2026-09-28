@@ -15,6 +15,11 @@
       "what": "Fix the overnight eviction test drive, which refused to run after code moved under it",
       "where": "branch fix/evict-witness-site",
       "agent": true
+    },
+    {
+      "what": "Why the loop test drive's player no longer lands at the start (this morning's nightly); bisecting against tonight's parallax landing",
+      "where": "branch fix/loop-step-over-landing",
+      "agent": true
     }
   ],
   "blockedOnOwner": [
@@ -49,19 +54,18 @@
       "blockedBy": null
     },
     {
+      "id": "LOOP-STEP-OVER-LANDING",
+      "title": "This morning's nightly: the loop test drive's player never lands at its start spot (3 rows red); bisecting, may be tonight's parallax landing",
+      "state": "doing",
+      "size": "S",
+      "blockedBy": null
+    },
+    {
       "id": "WOVEN-EDITABLE-IN-AURORA",
       "title": "Make the woven act editable in aurora: sized (ours medium, aurora's large to very large); your call on freezing it",
       "state": "blocked",
       "size": "M",
       "blockedBy": "decision card WOVEN-EDITABLE"
-    },
-    {
-      "id": "WOVEN-NIGHTLY-ROM-NAME",
-      "title": "Read this morning's nightly: woven act and Hidden Palace test drives (the run is still going, slowed by tonight's builds)",
-      "state": "next",
-      "size": "S",
-      "blockedBy": null,
-      "project": "REGIONS"
     },
     {
       "id": "S2CLIP-MTZ-SONG-BANK",
@@ -109,7 +113,7 @@
     {
       "id": "GATE-PREDICATE-VS-PROMISE",
       "title": "Checks guarding something near their subject: 14 fixed (3 tonight); the rest need a design call, another lane, or are unmeasured doubts",
-      "state": "open",
+      "state": "next",
       "size": "M",
       "blockedBy": null
     },
@@ -160,5 +164,5 @@
   ],
   "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-09-28T09:43:03Z"
+  "updatedAt": "2026-09-28T09:52:34Z"
 }
