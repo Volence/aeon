@@ -10,11 +10,6 @@
       "what": "Second song bank so Metropolis's song fits (assembler rebuilt, resumed)",
       "where": "branch parcel/song-bank-2",
       "agent": true
-    },
-    {
-      "what": "Landing the check that Sonic's sensors really read the loop layer he is on",
-      "where": "branch fix/gpp-layer-sensors",
-      "agent": false
     }
   ],
   "blockedOnOwner": [
@@ -101,8 +96,8 @@
     },
     {
       "id": "GATE-PREDICATE-VS-PROMISE",
-      "title": "Checks guarding something near their subject: 13 fixed (collision tables and insta-shield tonight); the rest need a design call or another lane",
-      "state": "doing",
+      "title": "Checks guarding something near their subject: 14 fixed (3 tonight); the rest need a design call, another lane, or are unmeasured doubts",
+      "state": "open",
       "size": "M",
       "blockedBy": null
     },
@@ -153,5 +148,5 @@
   ],
   "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-09-28T09:19:02Z"
+  "updatedAt": "2026-09-28T09:30:59Z"
 }
