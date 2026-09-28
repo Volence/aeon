@@ -543,6 +543,18 @@ pub vars upper_ram {
     Parallax_Shadow_Bands:       [u8; (BAND_ENTRY_LEN + BAND_EXT_BYTES + BAND_CURVE_BYTES + BAND_DRIFT_BYTES + BAND_REMAP_BYTES) * MAX_PARALLAX_BANDS],
     Parallax_Shadow_Scroll_A:    [u16; MAX_PARALLAX_BANDS],
     Parallax_Shadow_Scroll_B:    [u16; MAX_PARALLAX_BANDS],
+    // Step 4a's FRAME-COHERENCE KEY (PERF-PARALLAX-PERBAND, 2026-09-28). The shadow band
+    // records above are a pure function of (the config's ROM bytes, Vscroll_BG & 511), so
+    // Step 4a rebuilds them only when that pair changes; the per-frame scroll words are
+    // re-rotated every frame regardless. Key_Config is the config the view was built from,
+    // and 0 means "no valid view": Parallax_Init's clear, Step 4b's split (it rewrites the
+    // view) and a RAM-resident config (the scratch, a probe's fixture: its bytes can change
+    // under the same pointer) all leave it 0. engine/level/parallax.emp's Step 4a banner has
+    // the whole argument. INSIDE the span so the per-act clear resets it; AFTER the
+    // Shadow_Bands/Scroll pins, which are adjacent-symbol differences it must not split.
+    Parallax_Shadow_Key_Config:  u32,   // ROM parallax_config* the shadow view is valid for; 0 = none
+    Parallax_Shadow_Key_VS:      u16,   // the plane line (Vscroll_BG & PLANE_B_SPAN-1) it was rotated at
+    Parallax_Shadow_Key_K:       u16,   // the rotation's start band k at that line
     mark Parallax_State_End,
 
     // EFFECTS-W1 item 10b — the plane-role swap flag. 0 = normal roles (FG on Plane A,
