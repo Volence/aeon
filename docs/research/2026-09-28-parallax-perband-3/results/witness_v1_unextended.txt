@@ -1,0 +1,7 @@
+anchored region 5 x 4096..5119 y 2048..4095, world anchor 2272
+  spawn down    samples   60  hit   60  vs-moved    0  split    0  DIFFER 0
+  anchor right  samples   60  hit   60  vs-moved    0  split    0  DIFFER 0
+  anchor down   samples   60  hit   60  vs-moved   50  split    0  DIFFER 0
+  total         samples  180  hit  180  vs-moved   50  split    0  DIFFER 0
+COULD NOT RUN: coverage class(es) split at 0 — the legs never reached the state that class exists to test, so a green would be vacuous
+finished=1

@@ -1,0 +1,13 @@
+diff --git a/engine/ram.emp b/engine/ram.emp
+index 1f4c1a07..234de2b4 100644
+--- a/engine/ram.emp
++++ b/engine/ram.emp
+@@ -126,7 +126,7 @@ const BAND_SEL_LONGS        = if (GAME_SCANLINE_CAPS & $0004) != 0 { 1 } else {
+ // 2026-09-28): one long, whose first word is the shadow slot of the split entry, present only
+ // under CAP_ANCHORS, the capability whose overlay is the one writer. parallax.emp's
+ // SPLIT_KEEP_N is pinned against CAP_ANCHORS, and its reservation guard checks this.
+-const SHADOW_SPLIT_LONGS    = if (GAME_SCANLINE_CAPS & $0008) != 0 { 1 } else { 0 }                    // CAP_ANCHORS
++const SHADOW_SPLIT_LONGS    = if (GAME_SCANLINE_CAPS & $0008) != 0 { 0 } else { 0 }                    // CAP_ANCHORS
+ // WATERLINE_ART_BYTES — the row remap's ART half (EFFECTS-W1 item 9d): the staging buffer
+ // Waterline_Art_Update row-gathers into before its single DMA. A SIXTH mirror for the same
+ // reason as the five above — it sizes an array here and is DERIVED there, and the two must

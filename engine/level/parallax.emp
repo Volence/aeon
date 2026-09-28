@@ -255,10 +255,9 @@ pub const CURVE_FLAG_ACTIVE_BIT = 1   // 1 = this band is a curve layer (authore
 // SET AT RUNTIME BY STEP 4b, ON THE SPLIT ENTRY ONLY, and never present in ROM. It is what
 // tells the fill "seed this band's accumulator from the previous band's parked carry
 // instead of from the base scroll" — i.e. do not re-parametrise the ramp at the split.
-// The view Step 4b receives is always a pure rotation of ROM, where the bit is never
-// authored: rebuilt this tick, or a cached one Step 4a's key vouches for, and a split drops
-// that key (2026-09-28; until then the view was re-copied every frame). So the bit cannot
-// go stale.
+// Step 4b sets it only on a view with no split in it, a pure rotation of ROM where the bit is
+// never authored; a split it keeps under Step 4a's key (PPB-4) is re-used whole, never
+// re-applied, and is kept only for a view with no curve layer. So the bit cannot go stale.
 pub const CURVE_FLAG_CONT_BIT   = 2
 pub struct band_curve (size: 10) {
     bc_to_s1:  u8,   // far-end factor shift1 (15 = whole-factor zero, "ramp to locked")
@@ -301,8 +300,8 @@ pub const BAND_CURVE_N = if (GAME_SCANLINE_CAPS & $0040) != 0 { 1 } else { 0 }  
 // independent reasons, both properties of the shadow view this record also lives in:
 //
 //   (a) THE SHADOW VIEW IS DESTROYED AND REBUILT FROM ROM. Every frame when this was written;
-//       since 2026-09-28 whenever (config, Vscroll_BG & 511) changes or a split drops Step 4a's
-//       key, which is no better for an accumulator. Step 4a walks every band and calls
+//       since 2026-09-28 whenever (config, Vscroll_BG & 511) changes or a split that is not
+//       kept drops Step 4a's key: no better for an accumulator. Step 4a walks every band and calls
 //       copy_band_entry_fwd(), which copies the WHOLE record, tails included. An accumulator in
 //       a shadow tail is overwritten with its ROM image (zero) at each rebuild. band_curve's two derived words survive only because they are RE-DERIVED
 //       after the copy by `.cap_factor_curve_hoist`; a value that must ACCUMULATE has no such
@@ -516,6 +515,14 @@ pub const BAND_SEL_N = if (GAME_SCANLINE_CAPS & $0004) != 0 { 1 } else { 0 }   /
 ensure(BAND_SEL_N == ((Game.SCANLINE_CAPS & CAP_DEFORM) / CAP_DEFORM),
        "BAND_SEL_N is {BAND_SEL_N} but this game's Game.SCANLINE_CAPS & CAP_DEFORM is {Game.SCANLINE_CAPS & CAP_DEFORM}: the fill's cached loop selection no longer follows the capability that gates its code, so the gated pass would write past a zero-length Parallax_Band_Sel, or a game would reserve bytes nothing reads. BAND_SEL_N must stay the fold of GAME_SCANLINE_CAPS, never a literal")
 
+// SPLIT_KEEP_N — 1 in a game whose SCANLINE_CAPS include CAP_ANCHORS, else 0: Step 4b's kept
+// split (Parallax_Shadow_Split, PPB-4, 2026-09-28) exists only where there is a split to keep.
+// Folded from GAME_SCANLINE_CAPS for BAND_SEL_N's reason; engine/ram.emp's SHADOW_SPLIT_LONGS
+// mirrors the same bit.
+pub const SPLIT_KEEP_N = if (GAME_SCANLINE_CAPS & $0008) != 0 { 1 } else { 0 }   // CAP_ANCHORS
+ensure(SPLIT_KEEP_N == ((Game.SCANLINE_CAPS & CAP_ANCHORS) / CAP_ANCHORS),
+       "SPLIT_KEEP_N is {SPLIT_KEEP_N} but this game's Game.SCANLINE_CAPS & CAP_ANCHORS is {Game.SCANLINE_CAPS & CAP_ANCHORS}: the kept anchored split no longer follows the capability that gates its code, so the gated overlay would store its split slot past a zero-length Parallax_Shadow_Split, or a game would reserve a long nothing reads. SPLIT_KEEP_N must stay the fold of GAME_SCANLINE_CAPS, never a literal")
+
 // THE SHADOW RESERVATION IS HELD TO THE RECORD. engine/ram.emp derives its tail sizes from the
 // same define with its own copies of the four masks (the contract-blind RAM harvest cannot
 // import this module's counts). It reserves BAND_ENTRY_LEN plus those tails per band; this
@@ -620,9 +627,14 @@ ensure(((sizeof(band_ext) * BAND_EXT_N + sizeof(band_curve) * BAND_CURVE_N + siz
 // the key at the tail of the region.
 // `+ BAND_SEL_N * (MAX_PARALLAX_BANDS / 4 + 1)` is the fill's cached loop selection (PPB-3,
 // 2026-09-28): a byte per shadow slot plus the validity long, under CAP_DEFORM only.
-const PARALLAX_STATE_LONGS = (112 + 18 * MAX_PARALLAX_BANDS) / 4 + ((sizeof(band_ext) * BAND_EXT_N + sizeof(band_curve) * BAND_CURVE_N + sizeof(band_drift) * BAND_DRIFT_N + sizeof(band_remap) * BAND_REMAP_N) * MAX_PARALLAX_BANDS) / 4 + 2 * BAND_CURVE_N + BAND_DRIFT_N * MAX_PARALLAX_BANDS + 2 * BAND_REMAP_N + BAND_SEL_N * (MAX_PARALLAX_BANDS / 4 + 1)
+// `+ SPLIT_KEEP_N` is Parallax_Shadow_Split (PPB-4, 2026-09-28): the slot of the split Step
+// 4b keeps under the key, one long (its first word) after the key, under CAP_ANCHORS only.
+const PARALLAX_STATE_LONGS = (112 + 18 * MAX_PARALLAX_BANDS) / 4 + ((sizeof(band_ext) * BAND_EXT_N + sizeof(band_curve) * BAND_CURVE_N + sizeof(band_drift) * BAND_DRIFT_N + sizeof(band_remap) * BAND_REMAP_N) * MAX_PARALLAX_BANDS) / 4 + 2 * BAND_CURVE_N + BAND_DRIFT_N * MAX_PARALLAX_BANDS + 2 * BAND_REMAP_N + BAND_SEL_N * (MAX_PARALLAX_BANDS / 4 + 1) + SPLIT_KEEP_N
 ensure(MAX_PARALLAX_BANDS % 4 == 0,
        "MAX_PARALLAX_BANDS is {MAX_PARALLAX_BANDS}, not a multiple of 4: Parallax_Band_Sel (a byte per slot) would leave Parallax_State a non-whole number of longs, which Parallax_Init's long-counted clear under-clears")
+// The kept split's own reservation, the adjacent-symbol twin of the pins around it.
+ensure(extern("Parallax_Band_Sel") - extern("Parallax_Shadow_Split") == 4 * SPLIT_KEEP_N,
+       "the kept anchored split reserves {extern(\"Parallax_Band_Sel\") - extern(\"Parallax_Shadow_Split\")} bytes, not the {4 * SPLIT_KEEP_N} this capability needs (the split slot word and its pad) — set SHADOW_SPLIT_LONGS in engine/ram.emp. A short reservation makes Step 4b's split store its slot over the fill's cached selection")
 // The cached selection's own reservation, the adjacent-symbol twin of the pins above.
 ensure(extern("Parallax_Curve_Walk") - extern("Parallax_Band_Sel") == BAND_SEL_N * (MAX_PARALLAX_BANDS + 4),
        "the fill's cached loop selection reserves {extern(\"Parallax_Curve_Walk\") - extern(\"Parallax_Band_Sel\")} bytes, not the {BAND_SEL_N * (MAX_PARALLAX_BANDS + 4)} this capability needs (a byte per shadow slot, then the validity long) — set BAND_SEL_BYTES / BAND_SEL_LONGS in engine/ram.emp. A short reservation makes the selection pass write a slot's byte over the validity flag or the curve walk")
@@ -656,6 +668,7 @@ ensure((extern("Parallax_State_End") - extern("Parallax_State"))/4 == PARALLAX_S
 // one whole record away, extension included.
 const band_top_line      = offsetof(band_entry, band_top_plane)
 const band_top_line_next = offsetof(band_entry, band_top_plane) + sizeof(band_record)
+const band_top_line_prev = offsetof(band_entry, band_top_plane) - sizeof(band_record)
 
 // The extension's two table words, as displacements FROM THE RECORD BASE (P3 Task 9).
 // Named consts for the same reason band_top_line_next is one: the .field-in-disp sugar
@@ -2319,8 +2332,14 @@ proc Parallax_Step4_Fill () clobbers(d0-d7/a0-a6) {
         //       (ROM is below $400000, work RAM above), not a flag someone must remember.
         //   (2) NOTHING ELSE WRITES THE VIEW, except two writers that are accounted for.
         //       Step 4b's anchored split REWRITES it (a shifted-down run, the split entry,
-        //       the overridden shifts, CURVE_FLAG_CONT_BIT) and clears the key the moment it
-        //       starts, so the next tick rebuilds from ROM. The curve hoist rewrites
+        //       the overridden shifts, CURVE_FLAG_CONT_BIT). Since PPB-4 (2026-09-28) the key
+        //       then vouches for "this rotation, split at Parallax_Shadow_Split": a split of a
+        //       keyed view with no curve layer records its slot there and keeps the key, and
+        //       the rebuild below clears the slot. Step 4b re-checks a kept split against this
+        //       tick's anchor line before it uses it, and when the line has left the split
+        //       band (or left the screen) it drops the key and comes back here for a rebuild
+        //       (`.anchor_restart`). A split it cannot keep drops the key the moment it starts,
+        //       as before, so the next tick rebuilds from ROM. The curve hoist rewrites
         //       bc_step/bc_frac on every tick for every band it reads them for; a band it
         //       skips (span <= 0) keeps the ROM zero it was built with, and no reader takes
         //       those words for a band with no lines. Grep-verified: no other store names
@@ -2350,6 +2369,7 @@ proc Parallax_Step4_Fill () clobbers(d0-d7/a0-a6) {
         // 64, 128). A fast path selected by a comptime predicate NO shipped scene satisfies
         // is a specialisation with no subject. The search is at most 7 word compares once
         // per frame; see docs/benchmarks/scanline-p3/REGLUE.md.
+    .step4a:                                        // Step 4b's `.anchor_restart` re-enters here
         move.w  Parallax_Current_Vscroll_BG, d0     // (Parallax_Current_Vscroll_BG).w
         and.w   #PLANE_B_SPAN-1, d0         // d0 = vs, the plane LINE at the screen top
         // -- the frame-coherence test: is the view already this (config, vs)'s? --
@@ -2366,6 +2386,12 @@ proc Parallax_Step4_Fill () clobbers(d0-d7/a0-a6) {
     .cap_deform_sel_rebuild_begin:
         clr.b   Parallax_Band_Sel_Valid             // (Parallax_Band_Sel_Valid).w
     .cap_deform_sel_rebuild_end:
+    }
+        // ...and so did any split Step 4b kept on it (PPB-4): the rebuilt view is unsplit.
+    if (Game.SCANLINE_CAPS & CAP_ANCHORS) != 0 {
+    .cap_anchors_split_rebuild_begin:
+        clr.w   Parallax_Shadow_Split               // (Parallax_Shadow_Split).w
+    .cap_anchors_split_rebuild_end:
     }
         // -- find k = the band containing plane line vs --
         // (last band whose top <= vs; tops ascend and band 0 top is 0)
@@ -2441,8 +2467,10 @@ proc Parallax_Step4_Fill () clobbers(d0-d7/a0-a6) {
         // Why here and not in the hoist: the hoist cannot tell a hit from a rebuild without a
         // flag carried across `.reorder_scroll`, and this block runs on every rebuild,
         // including a RAM config's (never keyed), before either path reaches the hoist.
-        // Why it can never describe a SPLIT view: Step 4b splits AFTER the hoist, and drops the
-        // key when it does, so the next tick rebuilds and re-derives this.
+        // Why it can never describe a SPLIT view: Step 4b splits AFTER the hoist, and keeps the
+        // key across a split only when this range is EMPTY (PPB-4), so a hoist that walks
+        // anything walks an unsplit view; a view with a curve layer drops the key when it
+        // splits, and the next tick rebuilds and re-derives this.
         // In: d7 = n. Clobbers d2-d4/d6/a4 only; d0 (vs) and d1 (k) are live to the key publish.
     if (Game.SCANLINE_CAPS & CAP_FACTOR_CURVE) != 0 {
     .cap_factor_curve_walk_begin:
@@ -2821,7 +2849,7 @@ proc Parallax_Step4_Fill () clobbers(d0-d7/a0-a6) {
         cmp.w   d2, d0
         ble     .anchor_hi_ok
         movea.l (sp)+, a0                           // config back — this path leaves here
-        jbra    .bands_ready
+        jbra    .anchor_no_split
     .anchor_hi_ok:
         // Below band_lo the record IS still emitted, clamped up to the floor, because the
         // frame-top ship covers the rows above it. Asymmetric on purpose: clamping UP hides
@@ -2843,7 +2871,7 @@ proc Parallax_Step4_Fill () clobbers(d0-d7/a0-a6) {
         moveq   #0, d0
     .anchor_nonneg:
         cmpi.w  #224, d0
-        bge     .bands_ready                        // entirely below the screen: nothing to do.
+        bge     .anchor_no_split                    // entirely below the screen: nothing to do.
                                                     // NOT dead, and no longer the water channel's
                                                     // route: the band test above owns that now.
                                                     // This is the NO-BAND-DECLARED path's only
@@ -2853,6 +2881,64 @@ proc Parallax_Step4_Fill () clobbers(d0-d7/a0-a6) {
                                                     // unclamped), so the screen edge is all there
                                                     // is to test against.
 
+        // --- A SPLIT THE VIEW ALREADY CARRIES (PPB-4, 2026-09-28) ---
+        // A non-zero Parallax_Shadow_Split says the view under Step 4a's key is last tick's
+        // split, not the pure rotation (every rebuild clears it, so it can only be non-zero on
+        // a key hit, and a key hit is the same config and the same vs). The split records, the
+        // overridden shifts and CURVE_FLAG_CONT_BIT are then all still in place, and they
+        // depend on nothing but the view and the config. What this tick can change is the
+        // anchor line L, so the kept split is used only if L is still inside the band it
+        // split: the one `.anchor_find_k` would find in the unsplit view, the last band whose
+        // top <= L. In the split view that band is the parent, one slot above the split
+        // entry, and its unsplit successor is the slot BELOW the split entry (or the screen
+        // bottom, if the parent was the last band). Tops never decrease, so "parent top <= L
+        // < successor top" is exactly find_k's answer, equal tops included. Otherwise the
+        // view is split in the wrong place, and `.anchor_restart` drops the key and re-enters
+        // Step 4a for a rebuild, after which the split below starts fresh.
+        move.w  Parallax_Shadow_Split, d1           // (Parallax_Shadow_Split).w — s = k+1
+        beq     .anchor_fresh                       // 0: the view is the pure rotation
+        move.w  d1, d2
+        mul_const.w d2, #sizeof(band_record), d4    // d2 = s x entry size; d4 trashed
+        lea     Parallax_Shadow_Bands, a5           // (Parallax_Shadow_Bands).w
+        adda.w  d2, a5                              // a5 = &band[s], the split entry
+        cmp.w   band_top_line_prev(a5), d0          // L against the parent's top
+        blo     .anchor_restart                     // above it: an earlier band holds L
+        cmp.w   d7, d1
+        beq     .anchor_kept                        // s = n: the parent ran to the screen bottom
+        cmp.w   band_top_line_next(a5), d0          // L against the successor's top
+        bhs     .anchor_restart                     // at or below it: a later band holds L
+    .anchor_kept:
+        // The fill's selection bytes are the split's $FF run, still valid: `.anchor_have_k`.
+        subq.w  #1, d1                              // d1 = k, what the scroll tail takes
+        jbra    .anchor_scroll
+    .anchor_no_split:
+        // NO SPLIT THIS TICK (the line is below the screen, or past the channel's raster
+        // band). A view still carrying a kept split is then not this tick's view either.
+        tst.w   Parallax_Shadow_Split               // (Parallax_Shadow_Split).w
+        beq     .bands_ready
+    .anchor_restart:
+        // The kept split does not describe this tick. Drop the key and re-enter Step 4a: it
+        // rebuilds the pure rotation (clearing Parallax_Shadow_Split), the hoist runs again
+        // on it, and this overlay starts over with no kept split, so it cannot come back
+        // here. a0 (the config) and d7 (the config's band count) are what Step 4a reads, and
+        // both are as it left them: nothing above has pushed, and d7 grows only in the tail.
+        // Costs a second Step 4a on the one tick the line crosses a band edge under an
+        // unchanged key, and the key-hit ticks between pay nothing for it.
+        // THE SLOT IS CLEARED HERE TOO, not only by the rebuild, because this is a loop: a
+        // rebuild that ever stopped clearing it would bring every anchored tick back here
+        // forever, a hung game rather than a wrong picture (measured: a build without the
+        // rebuild's clear froze the canonical run at 0 logic ticks). Clearing it on the way
+        // out makes the second pass through this overlay a fresh split by construction.
+        clr.l   Parallax_Shadow_Key_Config          // (Parallax_Shadow_Key_Config).w
+        clr.w   Parallax_Shadow_Split               // (Parallax_Shadow_Split).w
+        jbra    .step4a
+    .anchor_drop:
+        // A split that cannot be kept (`.anchor_have_k`, below): drop the key, and the next
+        // tick rebuilds from ROM, as every split did before PPB-4. Out of line so the kept
+        // case, the common one, falls straight through.
+        clr.l   Parallax_Shadow_Key_Config          // (Parallax_Shadow_Key_Config).w
+        jbra    .anchor_split_records
+    .anchor_fresh:
         // --- find k = the last shadow band whose top <= L (the band being split) ---
         lea     Parallax_Shadow_Bands, a4
         moveq   #0, d1                              // d1 = k
@@ -2871,28 +2957,55 @@ proc Parallax_Step4_Fill () clobbers(d0-d7/a0-a6) {
         blo     .anchor_find_k
     .anchor_have_k:
         // FROM HERE THE SHADOW VIEW IS REWRITTEN (the shift-down, the split entry, the shift
-        // override, CURVE_FLAG_CONT_BIT), so it is no longer the pure rotation Step 4a's key
-        // vouches for: drop the key and the next tick rebuilds from ROM (clause 2 of the
-        // Step 4a banner). Every path below mutates; none returns the view to the key's.
-        clr.l   Parallax_Shadow_Key_Config          // (Parallax_Shadow_Key_Config).w
-        // ...and the fill's cached loop selection with it: the split adds a slot and overrides
-        // the deform shifts below the line, which is exactly what the selection reads (PPB-3).
+        // override, CURVE_FLAG_CONT_BIT), so it is no longer the pure rotation.
+        //
+        // THE FILL'S CACHED LOOP SELECTION goes first, on every split: the split adds a slot
+        // and overrides the deform shifts below the line, which is exactly what the selection
+        // reads (PPB-3). It is NOT re-derived here: every byte is marked "the fill's inline
+        // tests decide" ($FF) and the flag is left set, so the selection pass is skipped. A
+        // non-zero byte is always correct, because it claims nothing: the fill then makes
+        // every decision itself, as it did before the cache. The run is one constant run of
+        // longs, and a KEPT split keeps it with the flag, so its kept ticks skip the pass too.
+        //   WHY NOT DERIVE THE SPLIT VIEW'S OWN BYTES (measured, PPB-4, 2026-09-28): the pass
+        //   costs ~150 cycles a slot, and a split made on this tick is usually made again on
+        //   the next, because an anchored region scrolling vertically moves vs, so Step 4a
+        //   rebuilds and this path runs again. Deriving here measured +465 cycles a tick on
+        //   the anchored down leg. Deriving once, on a kept split's first kept tick, bought
+        //   94 a tick on the anchored right leg (12,127 -> 12,033), and cost a marker for
+        //   the provisional bytes plus a split view whose cache no forced rebuild reproduces
+        //   (a fresh split marks $FF), which the shadow-key witness then cannot compare.
     if (Game.SCANLINE_CAPS & CAP_DEFORM) != 0 {
     .cap_deform_sel_split_begin:
-        // The split does NOT re-derive the selection: it marks every slot "the fill's inline
-        // tests decide" ($FF) and leaves the flag set, so the selection pass is skipped. A
-        // non-zero byte is always correct, because it claims nothing: the fill then makes
-        // every decision itself, as it did before the cache. Re-deriving would cost the
-        // selection pass (~150 cycles a slot) on every tick an anchored split is on screen,
-        // where Step 4a rebuilds every tick anyway (the split drops its key), to save ~84
-        // on the few flat slots such a view has; this costs one constant run of longs.
-        // The next tick's rebuild clears the flag and the pass re-derives exact bytes.
         lea     Parallax_Band_Sel, a5               // (Parallax_Band_Sel).w
         moveq   #-1, d3
         fill_band_sel_longs(a5, d3)
         st      Parallax_Band_Sel_Valid             // (Parallax_Band_Sel_Valid).w
     .cap_deform_sel_split_end:
     }
+        // THE KEY: KEEP IT OR DROP IT (clause 2 of the Step 4a banner).
+        //   KEEP (PPB-4, 2026-09-28): the key is live, so this is a ROM config's view, and the
+        //     view has no curve layer. Record the split's slot in Parallax_Shadow_Split and
+        //     keep the key: the next tick with the same key and L still in this band only
+        //     retops the split entry and re-shifts the scroll words (`.anchor_kept`, above).
+        //     Until then an anchored region rebuilt the view AND re-marked the selection every
+        //     tick, paying both caches' upkeep and reusing neither (PERF-PARALLAX-PERBAND-2).
+        //     The curve condition is the hoist's: it runs before this split and walks
+        //     Parallax_Curve_Walk's slots, which describe the unsplit view, so it must never
+        //     meet a kept split. An empty walk skips the hoist outright.
+        //   DROP: a RAM config (never keyed, so there is nothing to keep) or a view with a
+        //     curve layer. Clear the key, and the next tick rebuilds from ROM, as before PPB-4.
+        tst.l   Parallax_Shadow_Key_Config          // (Parallax_Shadow_Key_Config).w
+        beq     .anchor_split_records               // a RAM config: never keyed, nothing to drop
+    if (Game.SCANLINE_CAPS & CAP_FACTOR_CURVE) != 0 {
+    .cap_factor_curve_split_keep_begin:
+        tst.w   Parallax_Curve_Walk+2               // (Parallax_Curve_Walk+2).w — curve slots
+        bne     .anchor_drop                        // the hoist walks this view: never keep it
+    .cap_factor_curve_split_keep_end:
+    }
+        move.w  d1, d2
+        addq.w  #1, d2
+        move.w  d2, Parallax_Shadow_Split           // (Parallax_Shadow_Split).w — s = k+1
+    .anchor_split_records:
 
         // --- shift entries (k+1 .. n-1) down one slot, from the END backwards ---
         // The shadow view has room for exactly one more entry; hdr()'s
@@ -2916,24 +3029,9 @@ proc Parallax_Step4_Fill () clobbers(d0-d7/a0-a6) {
         // derived from the struct. Same widths, same order, one authority.
         copy_band_entry_back(a5)
         dbf     d3, .anchor_shift_band
-
-        // the matching scroll words: (k+1 .. n-1) -> (k+2 .. n), same backward walk
-        move.w  d7, d3
-        sub.w   d1, d3
-        subq.w  #2, d3                              // dbf count (>= 0 here)
-        move.w  d7, d2
-        add.w   d2, d2                              // word index of slot n
-        lea     Parallax_Shadow_Scroll_A, a5
-        adda.w  d2, a5
-        lea     Parallax_Shadow_Scroll_B, a6
-        adda.w  d2, a6
-    .anchor_shift_scroll:
-        move.w  -(a5), 2(a5)
-        move.w  -(a6), 2(a6)
-        dbf     d3, .anchor_shift_scroll
     .anchor_no_shift:
 
-        // --- write the split entry at k+1: a copy of band k, retopped to L ---
+        // --- write the split entry at k+1: a copy of band k (retopped to L in the tail) ---
         // It INHERITS its parent's scroll factors and scroll words. That inheritance is the
         // mechanism: the surface changes where the wave starts, not how the layer scrolls.
         move.w  d1, d2
@@ -2943,41 +3041,21 @@ proc Parallax_Step4_Fill () clobbers(d0-d7/a0-a6) {
         lea     sizeof(band_record)(a5), a6          // a6 = &band[k+1]
         // GENERATED SINCE P3 TASK 8 (Step 3) — the forward twin of the shift-down walk
         // above, off the same run widths. Was L+L+W typed out by hand.
-        copy_band_entry_fwd(a5, a6)
-        move.w  d1, d2
-        add.w   d2, d2                              // word index of slot k
-        lea     Parallax_Shadow_Scroll_A, a5
-        adda.w  d2, a5
-        move.w  (a5), 2(a5)                         // A[k+1] = A[k]
-        lea     Parallax_Shadow_Scroll_B, a5
-        adda.w  d2, a5
-        move.w  (a5), 2(a5)                         // B[k+1] = B[k]
-
-        addq.w  #1, d7                              // the shadow view is one band longer
+        copy_band_entry_fwd(a5, a6)                 // ...and a5 has advanced to &band[k+1]
 
         // --- from the split entry down, override BOTH deform shifts ---
-        move.w  d1, d2
-        addq.w  #1, d2                              // first overridden index = k+1
+        // Slots k+1 .. n of the (n+1)-slot view: n-k of them.
         move.w  d7, d3
-        sub.w   d2, d3
+        sub.w   d1, d3
         subq.w  #1, d3                              // dbf count over (k+1 .. n)
-        mul_const.w d2, #sizeof(band_record), d4
-        lea     Parallax_Shadow_Bands, a5
-        adda.w  d2, a5                              // a5 = &band[k+1]
+        movea.l a5, a6                              // a6 walks; a5 stays on the split entry
         move.b  parallax_config.pcfg_anchor_dsa(a0), d4
         move.b  parallax_config.pcfg_anchor_dsb(a0), d5
     .anchor_shift_write:
-        move.b  d4, band_entry.band_deform_shift_a(a5)
-        move.b  d5, band_entry.band_deform_shift_b(a5)
-        adda.w  #sizeof(band_record), a5
+        move.b  d4, band_entry.band_deform_shift_a(a6)
+        move.b  d5, band_entry.band_deform_shift_b(a6)
+        lea     sizeof(band_record)(a6), a6
         dbf     d3, .anchor_shift_write
-        // retop the split entry AFTER the override walk (which does not touch the top)
-        move.w  d1, d2
-        addq.w  #1, d2
-        mul_const.w d2, #sizeof(band_record), d4
-        lea     Parallax_Shadow_Bands, a5
-        adda.w  d2, a5
-        move.w  d0, band_top_line(a5)               // the split lands exactly on L
         // THE SPLIT CONTINUES ITS PARENT'S CURVE (P3 Task 10; design section 2's ruling).
         // a5 is &band[k+1], the entry this overlay just manufactured as a copy of band k.
         // If band k was a curve layer, its ramp must run THROUGH the boundary: the split
@@ -2990,14 +3068,52 @@ proc Parallax_Step4_Fill () clobbers(d0-d7/a0-a6) {
         // UNCONDITIONAL, AND CORRECT FOR A NON-CURVE PARENT TOO: the fill reads this bit
         // only after the band's ACTIVE bit says it is a curve at all, so setting it on a
         // flat split is inert. Testing the parent first would cost a branch to save nothing.
-        // It cannot go stale either: the view this overlay receives is a pure ROM rotation,
-        // where the bit is never authored, because the `clr.l` at `.anchor_have_k` above
-        // drops Step 4a's key on every split and the next tick rebuilds from ROM.
+        // It cannot go stale either: this path runs only on a view with no split in it
+        // (`.anchor_fresh`), which is a pure ROM rotation where the bit is never authored. A
+        // split kept under the key (PPB-4) keeps the bit on its own split entry, which is
+        // exactly where this would set it again.
     if (Game.SCANLINE_CAPS & CAP_FACTOR_CURVE) != 0 {
     .cap_factor_curve_split_begin:
         bset    #CURVE_FLAG_CONT_BIT, band_curve_flags(a5)
     .cap_factor_curve_split_end:
     }
+
+    .anchor_scroll:
+        // --- THE PER-TICK HALF OF A SPLIT, which a kept split (`.anchor_kept`) also runs ---
+        // In: d0 = L, d1 = k, d7 = n (the config's count). The scroll words are re-rotated
+        // unsplit every tick by Step 4a, so they are re-split every tick here, and L moves.
+        // The matching scroll words: (k+1 .. n-1) -> (k+2 .. n), a backward walk.
+        move.w  d7, d3
+        sub.w   d1, d3
+        subq.w  #2, d3                              // dbf count; -1 when k is the last band
+        bmi     .anchor_no_scroll_shift
+        move.w  d7, d2
+        add.w   d2, d2                              // word index of slot n
+        lea     Parallax_Shadow_Scroll_A, a5
+        adda.w  d2, a5
+        lea     Parallax_Shadow_Scroll_B, a6
+        adda.w  d2, a6
+    .anchor_shift_scroll:
+        move.w  -(a5), 2(a5)
+        move.w  -(a6), 2(a6)
+        dbf     d3, .anchor_shift_scroll
+    .anchor_no_scroll_shift:
+        move.w  d1, d2
+        add.w   d2, d2                              // word index of slot k
+        lea     Parallax_Shadow_Scroll_A, a5
+        adda.w  d2, a5
+        move.w  (a5), 2(a5)                         // A[k+1] = A[k]
+        lea     Parallax_Shadow_Scroll_B, a5
+        adda.w  d2, a5
+        move.w  (a5), 2(a5)                         // B[k+1] = B[k]
+        // retop the split entry: it lands exactly on L
+        move.w  d1, d2
+        addq.w  #1, d2
+        mul_const.w d2, #sizeof(band_record), d4
+        lea     Parallax_Shadow_Bands, a5
+        adda.w  d2, a5
+        move.w  d0, band_top_line(a5)
+        addq.w  #1, d7                              // the shadow view is one band longer
     .cap_anchors_overlay_end:
     }
     .bands_ready:
@@ -3018,9 +3134,11 @@ proc Parallax_Step4_Fill () clobbers(d0-d7/a0-a6) {
         // the view and the config pointer, and the config is half of Step 4a's key, so on a key
         // hit the bytes still describe the view. The one other writer of the view is Step 4b's
         // split, and it sets every byte to $FF ("the inline tests decide", true of any view)
-        // and the flag with it, so this pass is skipped on a split tick; the split drops the
-        // key, so the next tick rebuilds and comes back here. A RAM config is never keyed, so
-        // it re-selects every tick, as it rebuilds every tick.
+        // and the flag with it, so this pass is skipped on a split tick. A split Step 4b
+        // DROPS the key for is rebuilt on the next tick, which comes back here; a split it
+        // KEEPS (PPB-4) keeps the $FF run with it, so its kept ticks skip this pass too (why
+        // it does not derive the split view's own bytes: `.anchor_have_k`). A RAM config is
+        // never keyed, so it re-selects every tick, as it rebuilds every tick.
         //
         // THE BYTE FOR SLOT i IS STORED AT INDEX n-1-i, the fill's own down-counter after its
         // `subq.w #1, d7`, so the fill reads it with the register it already has. d6 here is

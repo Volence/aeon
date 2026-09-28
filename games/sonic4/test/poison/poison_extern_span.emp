@@ -16,15 +16,17 @@
 //     engine/effects/raster.emp:417   Effects_Screen_L    - Effects_World_Y
 //     engine/effects/raster.emp:419   Effects_Target      - Effects_Motion  (x2)
 //     engine/level/bg_anim.emp:403    Waterline_Art_State_End - Waterline_Art_Buffer
-//     engine/level/parallax.emp:488   Parallax_Shadow_Scroll_A - Parallax_Shadow_Bands
-//     engine/level/parallax.emp:580   Parallax_Shadow_Bands    - Parallax_Curve_Carry
-//     engine/level/parallax.emp:589   Parallax_Curve_Carry     - Parallax_Drift_Acc
-//     engine/level/parallax.emp:598   Parallax_Drift_Acc       - Parallax_Remap_State
-//     engine/level/parallax.emp:600   Parallax_State_End       - Parallax_State
+//     engine/level/parallax.emp       Parallax_Shadow_Scroll_A - Parallax_Shadow_Bands
+//     engine/level/parallax.emp       Parallax_Shadow_Bands    - Parallax_Curve_Carry
+//     engine/level/parallax.emp       Parallax_Curve_Carry     - Parallax_Drift_Acc
+//     engine/level/parallax.emp       Parallax_Drift_Acc       - Parallax_Remap_State
+//     engine/level/parallax.emp       Parallax_State_End       - Parallax_State
+//     (cited by the symbol pair each `ensure` subtracts; line numbers here went stale
+//     three times, CODING_CONVENTIONS.md 'CITE BY NAME')
 //     engine/objects/core.emp:43/63   Effect_Slots / Object_RAM_End - Object_RAM
 //
 // Each of those refuses a reservation that is too short for the geometry that has to live
-// in it. This poison uses the same pair as parallax.emp:600.
+// in it. This poison uses the same pair as parallax.emp's `PARALLAX_STATE_LONGS` drift ensure.
 //
 // WHAT THE FRAGMENT PINS, AND WHAT IT DELIBERATELY DOES NOT. It pins the poison's own
 // claim (1 byte, read out of this file by `emp_const`, so the fixture and the fragment
@@ -33,12 +35,12 @@
 // owns it, `PARALLAX_STATE_LONGS`, is a `comptime` expression over four `sizeof`s and
 // MAX_PARALLAX_BANDS, and re-deriving it here would be a second mirror to maintain for no
 // gain. The row's assertion is that the two-label-difference road is live and reported —
-// not that the reservation is any particular size, which parallax.emp:600 itself asserts
+// not that the reservation is any particular size, which that drift ensure itself asserts
 // on every build.
 //
 // WHY 1 BYTE IS IMPOSSIBLE, STRUCTURALLY. Parallax_State/_End bracket a `mark`ed region
 // that Parallax_Init clears in LONGS, so the span is a nonzero multiple of 4 by
-// construction and its own guard (parallax.emp:600) says so. A 1-byte span cannot be
+// construction and its own guard (the `PARALLAX_STATE_LONGS` drift ensure) says so. A 1-byte span cannot be
 // reached by any edit that leaves the tree buildable; if it somehow were, this poison
 // would build CLEAN and the row would fail on a count of 0 rather than pass quietly.
 //

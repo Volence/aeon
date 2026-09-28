@@ -3,8 +3,11 @@
 
 WHAT IT GUARDS (PERF-PARALLAX-PERBAND, 2026-09-28). `Parallax_Step4_Fill` no longer rebuilds
 the rotated shadow band view every tick: it keeps it while (config, Vscroll_BG & 511) equals
-`Parallax_Shadow_Key_Config` / `_VS`, and Step 4b's anchored split drops the key because it
-rewrites the view (engine/level/parallax.emp, Step 4a's banner: four clauses). A key that
+`Parallax_Shadow_Key_Config` / `_VS` (engine/level/parallax.emp, Step 4a's banner: four
+clauses). Since PPB-4 (2026-09-28, perf/parallax-ppb4) Step 4b's anchored split KEEPS the key
+when it can (a ROM config, no curve layer in the view) and records itself in
+`Parallax_Shadow_Split`; the next tick re-checks the anchor line against that split before it
+reuses it, and restarts Step 4a when the line has left the band. A key that
 vouches for a view it does not describe paints stale band tops or a doubled split, and
 nothing else in the tree would see it: `parallax_hscroll_identity.py` installs RAM fixtures,
 and a RAM config is never keyed, so it only ever exercises the rebuild path.
@@ -13,12 +16,14 @@ HOW, WITHOUT A MODEL. The question "is the cached view the view a rebuild would 
 asked of the machine itself, differentially, at every sampled tick:
 
     checkpoint -> run one frame (the ROM's own choice: hit or rebuild) -> capture A
-    restore    -> poke Parallax_Shadow_Key_Config = 0 (forces the rebuild) and
-                  Parallax_Band_Sel_Valid = 0 (forces the fill's selection pass)
+    restore    -> poke Parallax_Shadow_Key_Config = 0 (forces the rebuild),
+                  Parallax_Band_Sel_Valid = 0 (forces the fill's selection pass) and
+                  Parallax_Shadow_Split = 0 (no kept split: B's split, if any, is fresh)
                -> run one frame -> capture B
     A must equal B: Hscroll_Buffer, the VSRAM column buffer, Vscroll_Factor, the whole
-    shadow band array and both shadow scroll arrays, the fill's cached loop selection
-    (Parallax_Band_Sel) and the curve hoist's walk (Parallax_Curve_Walk).
+    shadow band array and both shadow scroll arrays, the kept split's slot
+    (Parallax_Shadow_Split), the fill's cached loop selection (Parallax_Band_Sel) and the
+    curve hoist's walk (Parallax_Curve_Walk).
 
 Zero is never a config pointer, so the poke selects the rebuild path and nothing else; both
 runs start from one restored state, so any difference IS the cache. No expectation is typed:
@@ -38,18 +43,28 @@ WHAT MAKES A GREEN MEAN SOMETHING — the coverage witnesses, printed every run 
              (or could have been); a leg with none tests nothing;
   * vs-moved samples where the key was live and Vscroll_BG & 511 changed in the frame: the
              state a key that ignored vs would get wrong;
-  * split    samples on a ROM config where Step 4b split the view (the key read 0 after the
-             frame): the state a split that kept the key would get wrong.
+  * split    samples on a ROM config where Step 4b split the view (after the frame the key
+             read 0, a dropped split, or Parallax_Shadow_Split was non-zero, a kept one);
+  * kept     samples whose pre-frame key was live with a kept split on it and vs unchanged:
+             the tick reused (or re-checked) last tick's split instead of splitting afresh,
+             the state a kept split that went stale would get wrong (PPB-4);
+  * resplit  kept samples whose split slot changed in the frame: the anchor line left the
+             band the kept split was made in, and Step 4b had to restart. The state a
+             kept-split check that trusted the old split would get wrong.
 Any class at 0 is COULD NOT RUN, never green.
 
 LEGS (DEBUG free flight, which the shape boots in): from spawn, fly down (vs moves); then,
 through the DEBUG warp mailbox, into the act's anchored region (derived from the ROM's
 region table: a region whose resolved config consumes an anchor channel and whose preset
-seeds a world anchor on it), fly right and then down with the anchor line on screen.
+seeds a world anchor on it), fly right and then down with the anchor line on screen; then
+hold still there while the channel's own sweep walks the line across a band edge (the leg
+that reaches `resplit`; its comment in drive() has the derivation of where it stands).
 
 Exit 0 GREEN, 1 RED (a sample differed), 2 COULD NOT RUN (missing symbols, no anchored
 region, a coverage class at 0). The last line is finished=1 on every path that gets that
-far. Red-first: the two mutants in docs/research/2026-09-28-parallax-perband/build_mutant.sh.
+far. Red-first: the two mutants in docs/research/2026-09-28-parallax-perband/build_mutant.sh,
+mutant K in ../2026-09-28-parallax-perband-2/build_mutant2.sh, and the PPB-4 mutants in
+docs/research/2026-09-28-parallax-perband-3/build_mutant3.sh.
 """
 import argparse
 import asyncio
@@ -75,8 +90,8 @@ CAPTURE = [("Hscroll_Buffer", 896), ("Parallax_Vscroll_Column_Buf", 80), ("Vscro
 # which over-read 32 bytes past Scroll_B's end and so took in the key by accident; the capture
 # is exact now and the key is named.)
 CACHES = [("Parallax_Shadow_Key_Config", "Parallax_State_End")]
-TAIL_FIELDS = ["Parallax_Shadow_Key_Config", "Parallax_Band_Sel", "Parallax_Band_Sel_Valid",
-               "Parallax_Curve_Walk"]
+TAIL_FIELDS = ["Parallax_Shadow_Key_Config", "Parallax_Shadow_Split", "Parallax_Band_Sel",
+               "Parallax_Band_Sel_Valid", "Parallax_Curve_Walk"]
 
 
 class CouldNotRun(Exception):
@@ -157,6 +172,7 @@ async def sample(b, s, shadow_len, stats, leg):
     """One tick, twice: as the ROM chooses, then with the key forced to 0. Compare."""
     key0 = int.from_bytes(await rd(b, s["Parallax_Shadow_Key_Config"], 8), "big")
     kcfg, kvs = key0 >> 32, (key0 >> 16) & 0xFFFF
+    split0 = int.from_bytes(await rd(b, s["Parallax_Shadow_Split"], 2), "big")
     cp = (await b.call("emulator/checkpoint", {}))["id"]
     try:
         await b.call("emulator/run_frames", {"frames": 1})
@@ -164,9 +180,11 @@ async def sample(b, s, shadow_len, stats, leg):
         cfg = int.from_bytes(await rd(b, s["Parallax_Current_Config"], 4), "big") & 0xFFFFFF
         vs = int.from_bytes(await rd(b, s["Parallax_Current_Vscroll_BG"], 2), "big") & 0x1FF
         key1 = int.from_bytes(await rd(b, s["Parallax_Shadow_Key_Config"], 4), "big")
+        split1 = int.from_bytes(await rd(b, s["Parallax_Shadow_Split"], 2), "big")
         await b.call("emulator/restore", {"id": cp})
         await write_bytes(b, s["Parallax_Shadow_Key_Config"], "00000000")
         await write_bytes(b, s["Parallax_Band_Sel_Valid"], "00")
+        await write_bytes(b, s["Parallax_Shadow_Split"], "0000")
         await b.call("emulator/run_frames", {"frames": 1})
         bb = await snap(b, s, shadow_len)
         # leave the machine on the ROM's own path (A), not the forced one, for the next tick
@@ -179,8 +197,12 @@ async def sample(b, s, shadow_len, stats, leg):
         stats["hit"] += 1
         if vs != kvs:
             stats["vs_moved"] += 1
-    if key1 == 0 and cfg < ROM_TOP:
+    if cfg < ROM_TOP and (key1 == 0 or split1):
         stats["split"] += 1
+    if kcfg and split0 and vs == kvs:
+        stats["kept"] += 1
+        if split1 != split0:
+            stats["resplit"] += 1
     if a != bb:
         stats["differ"] += 1
         if len(stats["first"]) < 5:
@@ -213,9 +235,21 @@ async def drive(sock, s, equs, rom, legs_frames):
         raise CouldNotRun(f"the act at ${act:06X} has no region pairing an anchor channel with a "
                           f"world anchor, so the split class cannot be reached")
     out = {}
-    for leg, dirs, warp in (("spawn down", ["down"], None),
-                            ("anchor right", ["right"], (reg["x0"] + 104, wy - 22)),
-                            ("anchor down", ["down"], (reg["x0"] + 104, wy - 372))):
+    # THE STILL LEG (PPB-4) is the one that reaches `resplit`: a kept split re-checked on a
+    # tick where the key held (same config, same Vscroll_BG & 511) but the anchor line left
+    # the band it split. A camera that moves at all moves vs here (DEBUG flight steps 16 px,
+    # vs is camera / 8), so the line has to move by ITSELF: the region's channel sweeps
+    # (`anchor_sweep(4, 1)`, +/-16 px over 512 ticks, measured 98..130 at this camera). The
+    # warp puts the camera at Y ~ wy - 114, where the sweep's centre sits on the edge between
+    # the view's first two bands (the plane-320 top, rebased: measured 115), so the line
+    # crosses that edge twice a period, once each way (L leaving through the successor's top,
+    # then back through the parent's). Each sample advances the machine one frame, so 600
+    # samples always contain both crossings, whatever the sweep's phase; the leg stops early
+    # once it has seen two.
+    for leg, dirs, warp, cap in (("spawn down", ["down"], None, legs_frames),
+                                 ("anchor right", ["right"], (reg["x0"] + 104, wy - 22), legs_frames),
+                                 ("anchor down", ["down"], (reg["x0"] + 104, wy - 372), legs_frames),
+                                 ("anchor still", [], (reg["x0"] + 104, wy - 2), 600)):
         if warp:
             wx, wyy = warp
             await write_bytes(b, s["Warp_Req_X"], f"{wx:04X}")
@@ -228,11 +262,16 @@ async def drive(sock, s, equs, rom, legs_frames):
             else:
                 raise CouldNotRun("the DEBUG warp mailbox never acknowledged")
             await b.call("emulator/run_frames", {"frames": 30})
-        await b.call("emulator/hold", {"buttons": dirs, "down": True})
-        st = {"samples": 0, "hit": 0, "vs_moved": 0, "split": 0, "differ": 0, "first": []}
-        for _ in range(legs_frames):
+        st = {"samples": 0, "hit": 0, "vs_moved": 0, "split": 0, "kept": 0, "resplit": 0,
+              "differ": 0, "first": []}
+        if dirs:
+            await b.call("emulator/hold", {"buttons": dirs, "down": True})
+        for _ in range(cap):
             await sample(b, s, shadow_len, st, leg)
-        await b.call("emulator/hold", {"buttons": dirs, "down": False})
+            if not dirs and st["resplit"] >= 2:
+                break
+        if dirs:
+            await b.call("emulator/hold", {"buttons": dirs, "down": False})
         out[leg] = st
     await b.close()
     return reg, wy, out
@@ -251,7 +290,8 @@ def main(argv=None):
         need = [nm for nm, _ in CAPTURE] + [
             "Parallax_Shadow_Bands", "Parallax_Shadow_Scroll_A", "Parallax_Shadow_Scroll_B",
             "Parallax_Shadow_Key_Config", "Parallax_Current_Config", "Parallax_Current_Vscroll_BG",
-            "Parallax_Band_Sel", "Parallax_Band_Sel_Valid", "Parallax_Curve_Walk", "Parallax_State_End",
+            "Parallax_Shadow_Split", "Parallax_Band_Sel", "Parallax_Band_Sel_Valid",
+            "Parallax_Curve_Walk", "Parallax_State_End",
             "Current_Act_Ptr", "Warp_Req_X", "Warp_Req_Y", "Warp_Req_Flag"]
         miss = [n for n in need if n not in s]
         if miss:
@@ -269,12 +309,12 @@ def main(argv=None):
         return 2
     print(f"anchored region {reg['index']} x {reg['x0']}..{reg['x1']} y {reg['y0']}..{reg['y1']}, "
           f"world anchor {wy}")
-    tot = {k: sum(v[k] for v in out.values()) for k in ("samples", "hit", "vs_moved", "split", "differ")}
-    for leg, st in out.items():
+    tot = {k: sum(v[k] for v in out.values())
+           for k in ("samples", "hit", "vs_moved", "split", "kept", "resplit", "differ")}
+    for leg, st in list(out.items()) + [("total", tot)]:
         print(f"  {leg:13s} samples {st['samples']:4d}  hit {st['hit']:4d}  vs-moved {st['vs_moved']:4d}  "
-              f"split {st['split']:4d}  DIFFER {st['differ']}")
-    print(f"  {'total':13s} samples {tot['samples']:4d}  hit {tot['hit']:4d}  vs-moved {tot['vs_moved']:4d}  "
-          f"split {tot['split']:4d}  DIFFER {tot['differ']}")
+              f"split {st['split']:4d}  kept {st['kept']:4d}  resplit {st['resplit']:4d}  "
+              f"DIFFER {st['differ']}")
     for st in out.values():
         for f in st["first"]:
             print(f"  {f}")
@@ -282,7 +322,7 @@ def main(argv=None):
         print("VERDICT: RED — the cached shadow view is not the view a rebuild makes")
         print("finished=1")
         return 1
-    empty = [k for k in ("hit", "vs_moved", "split") if tot[k] == 0]
+    empty = [k for k in ("hit", "vs_moved", "split", "kept", "resplit") if tot[k] == 0]
     if empty:
         print(f"COULD NOT RUN: coverage class(es) {', '.join(empty)} at 0 — the legs never reached "
               f"the state that class exists to test, so a green would be vacuous")

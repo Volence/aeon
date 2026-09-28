@@ -1,0 +1,13 @@
+3836 passed, 3 skipped, 36 deselected, 12 warnings, 156 subtests passed in 235.47s (0:03:55)
+12 passed, 24 skipped, 3839 deselected, 40 subtests passed in 6.86s
+layer sensor arm: plane select Collision_GetType; carriers (d3 passed through): Collision_ProbeDown, Collision_ProbeLeft, Collision_ProbeRight, Collision_ProbeUp; through a register: Player_SensorPair (a2)
+20 passed, 16 skipped, 3839 deselected in 19.27s
+layer sensor arm: plane select Collision_GetType; carriers (d3 passed through): Collision_ProbeDown, Collision_ProbeLeft, Collision_ProbeRight, Collision_ProbeUp; through a register: Player_SensorPair (a2)
+2 passed, 34 skipped, 3839 deselected in 0.60s
+    (a deferral caused ONLY by these is EXEMPTED and named below, never passed;
+35 passed, 1 skipped, 3839 deselected, 40 subtests passed in 29.26s
+  EXEMPTED  tools.test_deb2_appendix::test_deb2_appendix_is_in_the_rom_and_carries_the_marks[demo.bin]  — deferred only on demo.bin, demo.lst, written only by a shape this caller does not build
+OK — all 35 marked test(s) this caller's shapes can reach ran and passed; 1 EXEMPTED above.
+  EXEMPTED is not passed: those cases need a shape this caller does not build,
+finished=0
+LANDDONE=0

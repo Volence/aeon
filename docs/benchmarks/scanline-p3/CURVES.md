@@ -324,8 +324,10 @@ instead of re-copying it every frame. Nothing here moved, for three reasons:
 - **A band the hoist skips (span <= 0) keeps the ROM zero it was built with.** Its span is a
   function of the key, so it stays skipped for as long as the view is kept, and no reader takes
   those words for a band with no lines.
-- **`CURVE_FLAG_CONT_BIT` still reaches the fill only on the tick of a split.** The split drops
-  the key, so the next tick rebuilds.
+- **`CURVE_FLAG_CONT_BIT` still reaches the fill only on the tick of a split.** A split of a
+  view with a curve layer drops the key, so the next tick rebuilds. (Since PPB-4, §3.11, a split
+  of a view WITHOUT one may keep the key; the bit it sets there is inert, because no slot of such
+  a view is a curve.)
 
 The curve's own cost is unchanged: the line loop at 21.25 cycles a line and the two divides.
 EHZ's 80-line curve is vertically locked, so its divisor is constant under the key. The divide
@@ -342,7 +344,9 @@ Evidence: `docs/research/2026-09-28-parallax-perband.md`.
   curve layer to its last, and the hoist walks only that range. The range is a function of the
   view, so a key hit keeps it.
 - **It never describes a split view.** The hoist still runs before Step 4b (§3.1's reason: the
-  divisor is the layer's span), and a split drops the key, so the next tick re-derives it.
+  divisor is the layer's span). A split of a view that has a curve layer drops the key, so the
+  next tick re-derives the walk; a split that keeps the key (§3.11) does so only when the walk
+  is empty.
 - **Inside the range, a non-curve slot is still skipped by its own `btst`**, so the loop body,
   both divides and the values it writes are unchanged.
 
@@ -361,6 +365,28 @@ Two neighbours also moved in the same parcel:
 
 Evidence: `docs/research/2026-09-28-parallax-perband-2.md`.
 
+### 3.11 A kept anchored split never meets the hoist (2026-09-28, PERF-PARALLAX-PPB4)
+
+Step 4b's split now keeps Step 4a's key when it can, and records its slot in
+`Parallax_Shadow_Split`. The next tick with the same key reuses the split view instead of
+rebuilding it. The curve is the reason for the one condition on that:
+
+- **A split keeps the key only if the view has no curve layer** (`Parallax_Curve_Walk`'s count
+  is 0). The hoist runs between Step 4a and Step 4b and walks slots that describe the UNSPLIT
+  view (§3.1: the divisor must be the layer's span, not a half's). On a kept split view those
+  slots would be wrong, and the parent's span would be the half above the line. An empty walk
+  skips the hoist outright, so a kept split never meets it.
+- **A view with a curve layer keeps the old behaviour.** Its split drops the key, and the next
+  tick rebuilds, re-derives the walk and re-hoists, exactly as in §3.9 and §3.10.
+- **Untested in the shipped content.** No shipped config pairs an anchor channel with a curve
+  layer: EHZ's curve config has none. A build that ignores the condition (mutant Q,
+  `docs/research/2026-09-28-parallax-perband-3/build_mutant3.sh`) is green on every leg and on
+  the shadow-key witness. The condition is argued here and at the code, and the test that would
+  measure it is DEFERRED_WORK rider PPB-11.
+
+The curve's own cost is unchanged.
+Evidence: `docs/research/2026-09-28-parallax-perband-3.md`.
+
 ## 4. The interaction: an anchor split inside a curve CONTINUES it
 
 Design §2: *"an anchor split inside a curve layer **continues** the curve (the per-line delta
@@ -376,7 +402,10 @@ Two halves make that true, and neither is free:
    ACTIVE bit says the band is a curve at all, so it is inert on a flat split — and it cannot
    go stale, because the view the overlay receives is always a pure ROM rotation: Step 4a
    re-copied it every frame until 2026-09-28, and since then either rebuilds it or keeps one its
-   frame-coherence key vouches for, a key every split drops (§3.9).
+   frame-coherence key vouches for, a key every split of a curve-bearing view drops (§3.9). A
+   split that keeps the key (§3.11) is re-used whole on later ticks rather than re-applied, so
+   the bit is never set twice; and it is kept only for a view with no curve layer, where the
+   bit is inert.
 
 The seed is also parked BEFORE the empty-entry early-out, which is not defensive: Step 4a can
 clamp a layer to zero on-screen lines (two shadow tops both at 224), and a split below a

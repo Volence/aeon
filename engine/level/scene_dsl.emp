@@ -1060,7 +1060,7 @@ pub comptime fn layer(world_y: int, fa: int, fb: int, dsa: int = 15, dsb: int = 
     ensure(remap_none == 1 || scene_remap_plane_y(rowRemap) >= 0,
            "layer(): rowRemap surface plane line {scene_remap_plane_y(rowRemap)} is negative. IT IS A PLANE-B LINE (0..511), not a world Y and not a screen line: the runtime computes the background's image of the surface as `plane_y - Vscroll_BG`, so this is where the BG ART paints it, which is a different number from the layer's own world_y")
     // THE CEILING. Until 2026-09-04 the guard above was the ONLY one and its "(0..511)" was
-    // PROSE: `brm_plane_y` is a u16 (engine/level/parallax.emp:407), so 512..65535 packed
+    // PROSE: `brm_plane_y` is a u16 (engine/level/parallax.emp `band_remap`), so 512..65535 packed
     // cleanly and the runtime read `plane_y - Vscroll_BG` against a plane 512 lines tall —
     // representable, emitted, and silently the wrong window, with nothing anywhere refusing
     // it. 512 is inlined per the pin block at the top of this file (PLANE_B_SPAN), which is

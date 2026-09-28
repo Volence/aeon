@@ -1,0 +1,8 @@
+cdebug_anchor_right: cdebug.bin crc=24b22fa8 bytes=858024 motion lag 0/60 ticks 60  (inclusive/self cycles per tick)
+  whole ticks=60: Parallax_Update=14428/13378  Decode_Factor_A=371/371  Decode_Factor_B=379/379  Parallax_Set_Roles_Swapped=249/166  Parallax_CheckBoundary=196/149
+cdebug_anchor_down: cdebug.bin crc=24b22fa8 bytes=858024 motion lag 0/60 ticks 60  (inclusive/self cycles per tick)
+  whole ticks=60: Parallax_Update=14933/13898  Decode_Factor_A=378/378  Decode_Factor_B=385/385  Parallax_Set_Roles_Swapped=254/169  Parallax_CheckBoundary=190/144
+debug_run: debug.bin crc=7d250025 bytes=957442 motion lag 6/1207 ticks 1201  (inclusive/self cycles per tick)
+  whole ticks=1201: Parallax_Update=11176/9540  Decode_Factor_A=669/669  Decode_Factor_B=710/710  Parallax_Set_Roles_Swapped=257/171  Parallax_CheckBoundary=137/137
+cdebug_run: cdebug.bin crc=24b22fa8 bytes=858024 motion lag 0/1800 ticks 1800  (inclusive/self cycles per tick)
+  whole ticks=1800: Parallax_Update=7434/6082  Decode_Factor_A=474/474  Decode_Factor_B=502/502  Parallax_Set_Roles_Swapped=255/170  Parallax_CheckBoundary=136/136

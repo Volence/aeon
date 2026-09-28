@@ -1,0 +1,13 @@
+diff --git a/engine/level/parallax.emp b/engine/level/parallax.emp
+index af9f1c71..35535313 100644
+--- a/engine/level/parallax.emp
++++ b/engine/level/parallax.emp
+@@ -2916,7 +2916,7 @@ proc Parallax_Step4_Fill () clobbers(d0-d7/a0-a6) {
+         // NO SPLIT THIS TICK (the line is below the screen, or past the channel's raster
+         // band). A view still carrying a kept split is then not this tick's view either.
+         tst.w   Parallax_Shadow_Split               // (Parallax_Shadow_Split).w
+-        beq     .bands_ready
++        jbra    .bands_ready
+     .anchor_restart:
+         // The kept split does not describe this tick. Drop the key and re-enter Step 4a: it
+         // rebuilds the pure rotation (clearing Parallax_Shadow_Split), the hoist runs again

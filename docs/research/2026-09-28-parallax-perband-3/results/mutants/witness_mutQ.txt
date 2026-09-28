@@ -1,0 +1,9 @@
+anchored region 5 x 4096..5119 y 2048..4095, world anchor 2272
+  spawn down    samples   60  hit   60  vs-moved    0  split    0  kept    0  resplit    0  DIFFER 0
+  anchor right  samples   60  hit   60  vs-moved    0  split   58  kept   59  resplit    1  DIFFER 0
+  anchor down   samples   60  hit   60  vs-moved   50  split   41  kept    0  resplit    0  DIFFER 0
+  anchor still  samples  401  hit  401  vs-moved    0  split  401  kept  401  resplit    2  DIFFER 0
+  total         samples  581  hit  581  vs-moved   50  split  500  kept  460  resplit    3  DIFFER 0
+VERDICT: GREEN
+finished=1
+exit=0

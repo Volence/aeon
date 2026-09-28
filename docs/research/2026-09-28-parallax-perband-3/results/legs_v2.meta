@@ -1,0 +1,5 @@
+cdebug_diag rc=0 load=7.89->7.98
+cdebug_run rc=0 load=7.98->7.52
+cdebug_anchor_right rc=0 load=7.52->7.52
+cdebug_anchor_down rc=0 load=7.52->7.52
+finished=4

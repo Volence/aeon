@@ -108,7 +108,17 @@ to 0, and the comparison takes in the key and the two caches kept under it (PPB-
 bytes, PPB-5's curve walk). Canonical DEBUG FAST crc c426c836: exit 0, 180 samples, hit 81 /
 vs-moved 10 / split 99, 0 differ. RED-FIRST: mutant K (Step 4a's rebuild keeps the selection,
 docs/research/2026-09-28-parallax-perband-2/build_mutant2.sh) exit 1, 81 of 180 differ at
-Parallax_Band_Sel; the unextended witness on the same ROM was exit 0."""
+Parallax_Band_Sel; the unextended witness on the same ROM was exit 0.
+EXTENDED 2026-09-28 (perf/parallax-ppb4, PPB-4): Step 4b's split now KEEPS the key when it can
+and records its slot in Parallax_Shadow_Split, so the witness captures and pokes the slot, counts
+kept splits in `split`, and requires two new classes: kept (a kept split re-checked under an
+unchanged key) and resplit (the line left the kept split's band, so Step 4b restarted). A new
+`anchor still` leg lets the channel's own sweep carry the line across a band edge; up to 600
+samples. Canonical DEBUG FAST crc 63b70f76: exit 0, 581 samples, hit 581 / vs-moved 50 /
+split 500 / kept 460 / resplit 3, 0 differ, ~7 s. The unextended witness on the first cut was
+COULD NOT RUN (split 0). RED-FIRST (docs/research/2026-09-28-parallax-perband-3/build_mutant3.sh):
+L exit 1 (200 differ), M exit 1 (266), P exit 1 (652), R exit 1 (60); N and Q green (N is a
+derivation mutant the identity legs catch; Q is the untested curve clause, rider PPB-11)."""
 
 # ---- positional rom/lst ---------------------------------------------------------------
 

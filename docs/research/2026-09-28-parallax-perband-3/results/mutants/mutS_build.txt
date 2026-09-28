@@ -1,0 +1,4 @@
+rc cdebug=1 finished=1
+error: native build (sonic4 debug): declared-chain drift guard FIRED: 2 error(s):
+  ./engine/level/parallax.emp:637:1: [Error] the kept anchored split reserves 0 bytes, not the 4 this capability needs (the split slot word and its pad) — set SHADOW_SPLIT_LONGS in engine/ram.emp. A short reservation makes Step 4b's split store its slot over the fill's cached selection
+  ./engine/level/parallax.emp:666:1: [Error] Parallax_State clear span drifted from engine/ram.emp's Parallax_State .. Parallax_State_End span: expected 214 longs
