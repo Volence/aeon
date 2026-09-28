@@ -169,13 +169,16 @@ _S2_NOTE_EXTRAS: dict[str, int] = {
 # fTone (step 2): each points at Sonic 2's OWN zPSG_EnvNN body, imported by
 # tools/gen_sound_tables.py (_S2_PSG_ENV_SRC) as engine id $40+NN. Never the S3K
 # id NN: those bodies differ (and fTone_02, which matches S3K's levels, differs in
-# its terminator: S2 holds, S3K rests). Only the five EHZ/CPZ use are imported.
+# its terminator: S2 holds, S3K rests). Only the envelopes the shipped songs use are
+# imported: the five EHZ/CPZ use, and fTone_0C for Oil Ocean (song bank 2, 2026-09-28;
+# OOZ also uses fTone_01, already here). MTZ uses fTone_03, WFZ none.
 S2_FTONE_MAP: dict[int, int] = {
     0x01: 0x41,   # fTone_01 -> S2 zPSG_Env1   (EHZ)
     0x02: 0x42,   # fTone_02 -> S2 zPSG_Env2   (EHZ, CPZ)
     0x03: 0x43,   # fTone_03 -> S2 zPSG_Env3   (EHZ)
     0x08: 0x48,   # fTone_08 -> S2 zPSG_Env8   (EHZ)
     0x0B: 0x4B,   # fTone_0B -> S2 zPSG_Env11  (EHZ)
+    0x0C: 0x4C,   # fTone_0C -> S2 zPSG_Env12  (OOZ; song bank 2, 2026-09-28)
 }
 # DAC (step 3): the owner's ruling S2CLIP-MUSIC-DRUMS = s3k-drums
 # (docs/decisions.jsonl, 2026-09-25): Sonic 2's drum notes play the Sonic 3 drums
@@ -201,6 +204,16 @@ S2_DAC_MAP: dict[str, int] = {
     "dLowTom":   9,   # -> s3k_lowtom   (MTZ; the tom of the same name)
     "dClap":     6,   # -> s3k_snare    (MTZ; the nearest carried noise transient)
     "dScratch":  6,   # -> s3k_snare    (MTZ; the nearest carried noise transient)
+    # WFZ (song bank 2, 2026-09-28): two more READINGS of the same ruling (docs/decisions.jsonl
+    # S2CLIP-MUSIC-DRUMS-WFZ records them). Wing Fortress's whole DAC part is two timpani.
+    # Sonic 2 plays every timpani note on ONE sample (SndDAC_Timpani) at five rates
+    # (s2.sounddriver.asm zDACMasterPlaylist: dHiTimpani x1.30, dMidTimpani x1.20, dTimpani
+    # x1.00, dLowTimpani x0.97, dVLowTimpani x0.95). The engine carries no timpani; the pitched
+    # low drums it carries are the four S3K toms, so "the nearest carried drum" is a tom, and
+    # each timpani keeps its place in the pitch order: the mid timpani on the mid tom, the very
+    # low (the lowest rate Sonic 2 has) on the floor tom, the lowest tom carried.
+    "dMidTimpani":  8,   # -> s3k_midtom   (WFZ; timpani x1.20, the higher of the two)
+    "dVLowTimpani": 10,  # -> s3k_floortom (WFZ; timpani x0.95, the lowest)
 }
 
 
@@ -454,6 +467,10 @@ _FLAG_MNEMONICS = frozenset((
     # _dispatch_flag.
     "smpsAlterVol", "smpsPSGAlterVol", "smpsSetNote", "smpsChangeTransposition",
     "smpsAlterPitch",
+    # _smps2asm_inc.asm:516: `smpsAlterVol` in a SourceDriver 2 song, `smpsPSGAlterVol`
+    # otherwise (OOZ, HPZ; song bank 2, 2026-09-28: it was warn-skipped, dropping a PSG
+    # volume change).
+    "smpsPSGAlterVolS2",
     # Structural control flow (Task 2.3): intercepted by the convert_channel
     # walker BEFORE _dispatch_flag (call-inline / loop-unroll / jump-loopback /
     # return).
@@ -898,6 +915,17 @@ def _dispatch_flag(kind, mnem, args, st, out, cfg):
     elif mnem == "smpsPSGAlterVol":
         # cfChangePSGVolume ($EC): add signed delta to the running PSG attn.
         _alter_vol(kind, "PSG", _signed8(resolve_const(args[0])), st, out)
+    elif mnem == "smpsPSGAlterVolS2":
+        # _smps2asm_inc.asm:516-522: "Sonic 2's driver allows the FM command to be used on
+        # PSG channels" -- in a SourceDriver 2 song this IS smpsAlterVol, in any other it is
+        # smpsPSGAlterVol. S2's cfChangeFMVolume ADDS the delta to zTrack.Volume on EVERY
+        # channel and only then returns early for a PSG track (zSetChanVol `bit 7 ... ret
+        # nz`, s2.sounddriver.asm:3173-3176, 3437-3439), which on PSG is exactly
+        # cfChangePSGVolume (:3241-3244: add, store, no write). So on a PSG channel both
+        # spellings fold into the PSG running volume; on FM (S2 only) it is smpsAlterVol.
+        # The DAC has no volume in either driver: a no-op there, as _alter_vol's mismatch.
+        want = "FM" if (_source_of(cfg) == SOURCE_S2 and kind == "FM") else "PSG"
+        _alter_vol(kind, want, _signed8(resolve_const(args[0])), st, out)
     elif mnem in ("smpsDetune", "smpsAlterNote"):
         # cfDetune ($E1): a fine FREQUENCY detune (signed), NOT a transpose. Emit it
         # as a per-channel sc_detune (the engine folds it into the note-on fnum/divisor,

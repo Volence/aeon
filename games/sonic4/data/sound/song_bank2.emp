@@ -4,7 +4,8 @@
 // ===========================================================================
 // Bank 1 (the `sound_bank` window: the engine-table head, the Moving-Trucks bank's songs,
 // the SFX block) was full in the DEBUG shape: 2,533 B free, and Sonic 2's Metropolis is
-// 2,875 + 192 B. This bank holds songs that do not fit there, one $8000 window of its own.
+// 2,875 + 192 B. This bank holds songs that do not fit there, one $8000 window of its own:
+// Metropolis, Wing Fortress and Oil Ocean.
 //
 // HOW A SONG HERE PLAYS (docs/ENGINE_ARCHITECTURE.md, "Song banks"). Sound_PlayMusic derives
 // the bank and window pointers from the song's own ROM address (SongTable, sfx_bank_blob.emp),
@@ -37,6 +38,10 @@ use games.sonic4.soundbankhead.{SOUND_BANK_HEAD_IMAGE, _sound_tables, _pitchtab,
 
 const S2MtzBlob      = embed("games/sonic4/data/sound/song_s2_mtz.bin")      // 2875 B
 const S2MtzPatchBlob = embed("games/sonic4/data/sound/s2_mtz_patches.bin")   // 192 B
+const S2WfzBlob      = embed("games/sonic4/data/sound/song_s2_wfz.bin")      // 1501 B
+const S2WfzPatchBlob = embed("games/sonic4/data/sound/s2_wfz_patches.bin")   // 128 B
+const S2OozBlob      = embed("games/sonic4/data/sound/song_s2_ooz.bin")      // 2876 B
+const S2OozPatchBlob = embed("games/sonic4/data/sound/s2_ooz_patches.bin")   // 192 B
 
 section song_bank2 (cpu: m68000, bank: $8000) {
     // The engine-table head replica, at window offset 0.
@@ -47,4 +52,13 @@ section song_bank2 (cpu: m68000, bank: $8000) {
     pub data Song_S2_MTZ   = S2MtzBlob
     data _s2_mtz_align     = if S2MtzBlob.len % 2 == 1 { byte(0) } else { Data.empty }
     pub data S2_MTZ_Patches = S2MtzPatchBlob
+
+    // Sonic 2 Wing Fortress (SONG_S2_WFZ) and Oil Ocean (SONG_S2_OOZ), the same shape
+    // (S2CLIP-MTZ-SONG-BANK, 2026-09-28): each song, its pad, then its own patch bank.
+    pub data Song_S2_WFZ   = S2WfzBlob
+    data _s2_wfz_align     = if S2WfzBlob.len % 2 == 1 { byte(0) } else { Data.empty }
+    pub data S2_WFZ_Patches = S2WfzPatchBlob
+    pub data Song_S2_OOZ   = S2OozBlob
+    data _s2_ooz_align     = if S2OozBlob.len % 2 == 1 { byte(0) } else { Data.empty }
+    pub data S2_OOZ_Patches = S2OozPatchBlob
 }

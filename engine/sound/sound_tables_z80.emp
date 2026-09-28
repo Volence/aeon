@@ -76,10 +76,10 @@ section sound_tables_z80 (cpu: z80, vma: $8000) {
         dc.b    $08, $08, $08, $08, $0C, $0E, $0E, $0F
     }
     proc PsgVolEnv_Ids () clobbers() {
-        dc.b    $01, $02, $03, $08, $0A, $0C, $0D, $0E, $0F, $11, $1D, $41, $42, $43, $48, $4B
+        dc.b    $01, $02, $03, $08, $0A, $0C, $0D, $0E, $0F, $11, $1D, $41, $42, $43, $48, $4B, $4C
     }
     proc PsgVolEnv_Ptrs () clobbers() {
-        dc.w    PsgVolEnv_01, PsgVolEnv_02, PsgVolEnv_03, PsgVolEnv_08, PsgVolEnv_0A, PsgVolEnv_0C, PsgVolEnv_0D, PsgVolEnv_0E, PsgVolEnv_0F, PsgVolEnv_11, PsgVolEnv_1D, PsgVolEnv_41, PsgVolEnv_42, PsgVolEnv_43, PsgVolEnv_48, PsgVolEnv_4B
+        dc.w    PsgVolEnv_01, PsgVolEnv_02, PsgVolEnv_03, PsgVolEnv_08, PsgVolEnv_0A, PsgVolEnv_0C, PsgVolEnv_0D, PsgVolEnv_0E, PsgVolEnv_0F, PsgVolEnv_11, PsgVolEnv_1D, PsgVolEnv_41, PsgVolEnv_42, PsgVolEnv_43, PsgVolEnv_48, PsgVolEnv_4B, PsgVolEnv_4C
     }
     proc PsgVolEnv_01 () clobbers() {   // sTone_01
         dc.b    $02, PsgVolEnvCtl_Rest
@@ -128,6 +128,9 @@ section sound_tables_z80 (cpu: z80, vma: $8000) {
     }
     proc PsgVolEnv_4B () clobbers() {   // fTone_0B
         dc.b    $04, $04, $04, $03, $03, $03, $02, $02, $02, $01, $01, $01, $01, $01, $01, $01, $02, $02, $02, $02, $02, $03, $03, $03, $03, $03, $04, PsgVolEnvCtl_Sustain
+    }
+    proc PsgVolEnv_4C () clobbers() {   // fTone_0C
+        dc.b    $04, $04, $03, $03, $02, $02, $01, $01, $01, $01, $01, $01, $01, $01, $01, $01, $01, $01, $01, $01, $01, $01, $01, $01, $01, $01, $02, $02, $02, $02, $02, $02, $02, $02, $02, $02, $02, $02, $02, $02, $02, $02, $02, $02, $02, $02, $03, $03, $03, $03, $03, $03, $03, $03, $03, $03, $03, $03, $03, $03, $03, $03, $03, $03, $03, $03, $04, $04, $04, $04, $04, $04, $04, $04, $04, $04, $04, $04, $04, $04, $04, $04, $04, $04, $04, $04, $05, $05, $05, $05, $05, $05, $05, $05, $05, $05, $05, $05, $05, $05, $05, $05, $05, $05, $05, $05, $06, $06, $06, $06, $06, $06, $06, $06, $06, $06, $06, $06, $06, $06, $06, $06, $06, $06, $06, $06, $07, PsgVolEnvCtl_Sustain
     }
     proc FmVolEnv_Ids () clobbers() {
         dc.b    $01, $02, $03
