@@ -9,9 +9,10 @@
 # builds of this clip only; map.toml is untouched.
 # Rule (map.toml BANK PLACEMENT RULE, tools/bganim_room.py rule_anchor):
 #   dac_banks = align_up(packed_end + reserve + grace, 0x8000), max over the
-#   clip's shapes; sound_bank = dac_banks + 0x10000.
-# measured: shape=s4.s2clip packed_end=0x99FE0 rule=0xB0000 rom_crc=48a54b89 rom_size=862535
-# measured: shape=s4.s2clip.debug packed_end=0x9AA96 rule=0xB0000 rom_crc=93aba78e rom_size=889273
+#   clip's shapes; sound_bank = dac_banks + 0x10000;
+#   song_bank_2 = dac_banks + 0x18000 (the second song bank).
+# measured: shape=s4.s2clip packed_end=0x99F62 rule=0xB0000 rom_crc=bdae8628 rom_size=877563
+# measured: shape=s4.s2clip.debug packed_end=0x9AA1A rule=0xB0000 rom_crc=ee51e796 rom_size=897696
 # binding shape: s4.s2clip, s4.s2clip.debug
 
 [[anchor]]

@@ -4272,7 +4272,9 @@ sequencer frame. Two rules make a song bank other than the SFX bank safe:
 **The second bank** is `SongBank2_Head` (`games/sonic4/data/sound/song_bank2.emp`): the head
 replica, then Sonic 2's Metropolis. Sigil's walk rounds it to the window after bank 1; the map's
 `song_bank_2` anchor (`sound_bank + 0x8000`) only declares that island, so bank 1 must end more
-than 0x400 below it (the map.toml comment carries the measured margin). See
+than 0x400 below it (the map.toml comment carries the measured margin). A clip with its own
+anchor overlay carries the same row at its own `sound_bank + 0x8000`
+(`tools/clip_anchors.py --derive`). See
 `docs/DEFERRED_WORK.md` `## S2CLIP-MTZ-SONG-BANK` for what is open (clip overlays, WFZ/OOZ).
 
 ### 6.5 Distance-Based Sound Attenuation (NOVEL) — DEFERRED, DEMOTED (2026-07-03)
