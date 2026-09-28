@@ -1,0 +1,69 @@
+--- docs/research/2026-09-27-mega-act-woven/build_woven_act.py	2026-09-28 10:08:44.034172168 -0400
++++ docs/research/2026-09-28-woven-touchups/route_fix_builder.py	2026-09-28 11:04:26.311146315 -0400
+@@ -75,6 +75,10 @@
+     return {"x": x, "y": y, "w": w, "h": h}
+ 
+ 
++MTW_W = int(os.environ.get("MTW_W", "1520"))
++OOZ_DX = int(os.environ.get("OOZ_DX", "0"))
++
++
+ def build(mutant=False):
+     c = clip_camera.constants()
+     fr, blob_bytes = frames()
+@@ -93,7 +97,8 @@
+     # west edge (x 0) 256, 384, 672. 672 is Metropolis's own start floor (Sonic 2 starts the
+     # player at (96, 652) on it), so the tunnel delivers him where Sonic 2 would; with it,
+     # EHZ 960 is the one row that keeps every other seam short (see the note).
+-    EHZ_FLOOR, MTZ_WEST_FLOOR = 576, 256
++    EHZ_FLOOR = int(os.environ.get("EHZ_FLOOR", "576"))
++    MTZ_WEST_FLOOR = int(os.environ.get("MTZ_WEST_FLOOR", "256"))
+     # C11: Hidden Palace's east piece ends at donor x 8336 (its edge column 8335 is flush on
+     # the lake bridge at y 1376; 16 px before the W3 pit at 8352), Oil Ocean's west edge
+     # (8192) is flush at 576, the ground its piece starts on.
+@@ -103,7 +108,7 @@
+     # cut, is solid rock art end to end). Top 1296 puts C10 at exactly its length.
+     HPZ_EAST_Y0, HPZ_EAST_Y1 = 1296, 1600
+     MTZ_EAST_H = 1600           # Metropolis east's bottom 448 px trimmed: C8 and C9 both 464
+-    OOZ_X = 5104                # under Chemical Plant, as the report; its top span donor
++    OOZ_X = 5104 - (1520 - MTW_W) + OOZ_DX                # under Chemical Plant, as the report; its top span donor
+     #                             10752..11007 then meets Metropolis east's open bottom (C9)
+     # ARTLESS ROWS TRIMMED (304 px). They were trimmed so the act fit 3 sections, when a
+     # clip act could not be taller than OJZ's region document; CLIP-ACT-TALLER-THAN-DOCUMENT
+@@ -117,14 +122,14 @@
+     # ---- positions -----------------------------------------------------------------------
+     wfz = dict(id="wfz_deck", zone="WFZ", src=(1024, WFZ_Y0, 6144, 1792 - WFZ_Y0), dst=(1536, 0))
+     wfz_bot = 1792 - WFZ_Y0
+-    cpz_top = wfz_bot + L["AM_y"]                                 # C3 exact
++    cpz_top = wfz_bot + L["AM_y"] + int(os.environ.get("DROP_D", "0"))                                 # C3 exact
+     cpz_y = cpz_top - CPZ_Y0                                      # where CPZ's donor y 0 sits
+     mtz_y = cpz_y + MTZ_DY
+     ehz_y = mtz_y + MTZ_WEST_FLOOR - EHZ_FLOOR                    # C5's floor
+     ehz = dict(id="ehz_double_loop", zone="EHZ", src=(6144, 0, 2560, 1024), dst=(0, ehz_y))
+     mtw_x = 2560 + L["AM_x"]
+-    mtw = dict(id="mtz_west", zone="MTZ", src=(0, 0, MTZ_SPLIT, 2048), dst=(mtw_x, mtz_y))
+-    cpz_x = mtw_x + MTZ_SPLIT + L["same_x"]
++    mtw = dict(id="mtz_west", zone="MTZ", src=(0, 0, MTW_W, 2048), dst=(mtw_x, mtz_y))
++    cpz_x = mtw_x + MTW_W + L["same_x"]
+     cpz = dict(id="cpz_loop_cluster", zone="CPZ",
+                src=(CPZ_SRC_X, CPZ_Y0, 9216 - CPZ_SRC_X, 2048 - CPZ_Y0),
+                dst=(cpz_x, cpz_top), music="SONG_S2_CPZ")
+@@ -168,7 +173,8 @@
+             "C5": L["AM_x"], "C6": L["same_x"], "C7": L["same_x"], "C8": L["MO_y"],
+             "C9": L["MO_y"], "C10": L["AM_y"], "C11": L["AO_x"]}
+     for k, v in lens.items():
+-        assert mutant or v >= mins[k], (k, v, mins[k])
++        if not (mutant or v >= mins[k]):
++            print("SCRATCH below Z2 min", k, v, mins[k])
+ 
+     # ---- connectors ------------------------------------------------------------------------
+     tunnel_art = {"donor": S2, "zone": "CPZ", "wall_src": rect(768, 784, 32, 32),
+@@ -225,6 +231,8 @@
+         shaft("hpz_to_mtz", mtw_x + 32, 256, bottom(mtw), hpe["dst"][1], ledges=LEDGES),
+     ]
+ 
++    if os.environ.get("DROP_C9") == "1":
++        shafts = [s for s in shafts if s["id"] != "mtz_to_ooz"]
+     W = max(right(k) for k in clips)
+     H = max(bottom(k) for k in clips)
+     gw, gh = -(-W // 2048), -(-(H + FLOOR_BELOW) // 2048)
