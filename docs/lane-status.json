@@ -1,12 +1,6 @@
 {
-  "focus": "Sonic 2 build fix is done and being re-checked on top of the songs; your listening ROM comes out of the same run.",
-  "inFlight": [
-    {
-      "what": "Final check of the Sonic 2 build fix on the merged tree, plus building the listening ROM",
-      "where": "landing tree .aeon-land-bganim (merge 0ee80dd0)",
-      "agent": false
-    }
-  ],
+  "focus": "Both landed: the new Sonic 2 songs and the build fix. A listening ROM is ready for you.",
+  "inFlight": [],
   "blockedOnOwner": [
     {
       "id": "SP6-MODULATION-DIVERGENCE",
@@ -29,15 +23,8 @@
       "since": "2026-09-28"
     }
   ],
-  "nextBoundary": "When that check passes: push the fix, hand you the listening ROM.",
+  "nextBoundary": "Now: nothing in flight. Next owner-free item is the streaming-art capacity question.",
   "queue": [
-    {
-      "id": "CLIP-BUILD-BGANIM-ROOM",
-      "title": "Sonic 2 test-level builds: fix done (0 ROM bytes moved), final check on the merged tree running",
-      "state": "doing",
-      "size": "S",
-      "blockedBy": null
-    },
     {
       "id": "WOVEN-TOUCHUPS",
       "title": "Woven act: you can't reach most of it from the start; a clip-list route fix is measured and ready (no freeze needed), your pick",
@@ -47,7 +34,7 @@
     },
     {
       "id": "S2CLIP-MTZ-SONG-BANK",
-      "title": "Sonic 2 zone songs: Wing Fortress and Oil Ocean landed beside Metropolis (your listen once the test build is fixed). Hidden Palace still refuses",
+      "title": "Sonic 2 zone songs: Wing Fortress and Oil Ocean landed; listening ROM s4.s2clip.bin (crc ca99b1dc) ready. Hidden Palace still refuses",
       "state": "open",
       "size": "M",
       "blockedBy": null,
@@ -154,7 +141,7 @@
       "blockedBy": null
     }
   ],
-  "awaiting": null,
-  "atBoundary": false,
-  "updatedAt": "2026-09-28T19:13:01Z"
+  "awaiting": "your listen to Wing Fortress and Oil Ocean (s4.s2clip.bin, crc ca99b1dc); your WOVEN-TOUCHUPS pick and which covering you meant",
+  "atBoundary": true,
+  "updatedAt": "2026-09-28T19:18:55Z"
 }
