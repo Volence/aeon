@@ -43315,7 +43315,9 @@ These equal the FAST builds every measurement used (the step-2 row of the resear
   band, ~0.5k a tick on EHZ. **DONE 2026-09-28 by PERF-PARALLAX-PERBAND-2** (below): measured
   -349 on the EHZ run, -275 on OJZ; +266 on the anchored legs, where every tick splits.
 - **PPB-4: keep the view across an anchored split.** Today an anchored region rebuilds every tick
-  (1.4k). The alternative is a pristine copy, +528 B of RAM at MAX 16.
+  (1.4k). The alternative is a pristine copy, +528 B of RAM at MAX 16. **DONE 2026-09-28 by
+  PERF-PARALLAX-PPB4** (below), without the copy: the split view itself is kept under the key
+  (+4 B): anchored right 14,428 -> 12,127.
 - **PPB-5: the curve hoist's walk over non-curve bands.** About 0.3k a tick on EHZ. **DONE
   2026-09-28 by PERF-PARALLAX-PERBAND-2**: measured -246 on the EHZ run, -296 on OJZ.
 - **PPB-6: flat lines by `movem.l`.** About 0.5k a tick on EHZ, less the setup. The fill has few
@@ -43426,7 +43428,8 @@ table).
 - **PPB-4 is worth more now.** Keeping the view across an anchored split (+528 B at MAX 16) would
   also turn the curve walk and the selection into hits there. The anchored region is the one
   place this round cost cycles (+114 / +90). About 2k a tick on that region, estimated from the
-  decomposition, not measured.
+  decomposition, not measured. **DONE 2026-09-28 by PERF-PARALLAX-PPB4** (below): measured
+  -2,301 on the anchored right leg, for +4 B; the down leg, which moves vs every tick, +39.
 - **PPB-7b (owner's call): promote the walker model or replace its method.** The re-run is in
   `tools/effects_budget_model.toml` as `perband2_*`. It was NOT promoted into the primary rows,
   or into their comptime mirror `SB_WALK_*_X100` in `engine/level/scene_dsl.emp` (the axis-1
@@ -43445,7 +43448,9 @@ table).
   a config key. OJZ's diagonal and down legs gained without it, so it was not built.
 - **PPB-10: the selection byte's reason bits.** Carrying FG/BG/curve/remap as bits would let the
   inline path skip its tests on sampled bands (~20-40 each). But the split's `$FF` marking would
-  then be wrong, so this only makes sense together with PPB-4.
+  then be wrong, so this only makes sense together with PPB-4. **PRICED 2026-09-28 by
+  PERF-PARALLAX-PPB4, NOT BUILT** (below, rider PPB-10b): under 1% on any leg, against a second
+  decision path in the fill.
 - **PPB-8 again:** the DEBUG RAM layout moved another 24 B after `Parallax_State`, so the replay
   net's RAM-hash checkpoints have the GPL-A3-3 question again. Not measured here.
 - **Stale `parallax.emp:LINE` citations, found not fixed.** The landing's
@@ -43462,6 +43467,123 @@ table).
   - `tools/test_scene_span_labels.py` (:1305/:1429).
 
   Each should cite its symbol instead (CODING_CONVENTIONS "CITE BY NAME").
+
+## PERF-PARALLAX-PPB4: the anchored split keeps Step 4a's key (branch `perf/parallax-ppb4`, 2026-09-28)
+
+This round took rider PPB-4 of PERF-PARALLAX-PERBAND / -2, and priced PPB-10 beside it. Findings
+and every number are in `docs/research/2026-09-28-parallax-perband-3.md`, and tools and raw
+results are in the directory beside it. Base `origin/master` `0a368458`.
+
+**What landed.**
+
+1. **The split view is kept under the key, not a pristine copy beside it.**
+   - When Step 4b's split can be kept, it records its slot (k+1) in `Parallax_Shadow_Split`
+     (4 B, under `CAP_ANCHORS`) and keeps Step 4a's key. It can be kept when the key is live (a
+     ROM config) and the view has no curve layer.
+   - On the next tick with the same key, `.anchor_kept` checks that the anchor line is still in
+     the split band (`parent top <= L < successor top`, find_k's own answer). If it is, the tick
+     only re-shifts the scroll words and retops the split entry.
+   - A line that left the band, or a tick with no split, drops the key and the slot and re-enters
+     Step 4a (`.anchor_restart`). The rebuild and `Parallax_Init` clear the slot.
+   - A split that cannot be kept drops the key as before (`.anchor_drop`).
+2. **Every split view keeps the `$FF` selection**, kept or not. Re-deriving the split view's
+   bytes cost +465 a tick on the anchored down leg. Deriving them once per kept split bought 94
+   on the right leg, and cost the witness its determinism.
+3. **The restart clears its own slot as well as the rebuild.** A build without the rebuild's
+   clear hung the canonical run at 0 logic ticks (the restart looped). With the restart's own
+   clear, the same build ran.
+4. **`tools/parallax_shadow_key_witness.py` is extended.**
+   - It captures and pokes the slot.
+   - It adds two required classes: `kept`, and `resplit` (the line left a kept split's band).
+   - It adds an `anchor still` leg, where the channel's sweep carries the line across a band
+     edge under an unchanged key.
+   - On the first cut, the unextended witness was COULD NOT RUN (split 0): a kept split keeps
+     the key, so the key reading 0 never fired.
+
+**Measured** (FAST builds, `Parallax_Update` inclusive cycles a tick, base -> branch; lag / video
+frames over the same tick span):
+
+| leg | lag | parallax cyc/tick |
+|---|---|---|
+| canonical anchored region, right (DEBUG) | 0/60 -> 0/60 | **14,428 -> 12,127** |
+| canonical anchored region, down (DEBUG) | 0/60 -> 0/60 | 14,933 -> 14,972 |
+| clip run, release / DEBUG | 0 -> 0 / 6 -> 6 | 11,058 -> 11,058 / 11,176 -> 11,176 |
+| clip fly diagonal, EHZ band (DEBUG) | 16/72 -> 16/72 | 11,048 -> 11,048 |
+| canonical run, release / DEBUG | 0 -> 0 | 7,318 -> 7,339 / 7,434 -> 7,456 |
+| canonical fly diagonal / right / down (DEBUG) | 12 -> 12, 0, 0 | +4 / +4 / +5 |
+
+- **Output.** `Hscroll_Buffer`, the VSRAM column buffer and `Vscroll_Factor` are byte-identical
+  at every compared tick of all 14 legs.
+- **Fixture identity.** `parallax_hscroll_identity.py --ref <base>` reports OK.
+- **The witness is GREEN:** 581 samples, hit 581, vs-moved 50, split 500, kept 460, resplit 3,
+  0 differ.
+- **Why the down leg did not gain:** it moves vs on 50 of 60 ticks, so Step 4a rebuilds anyway.
+- **Canonical run +22:** its spawn config (`$01487E`) has an anchor channel whose line never
+  splits, so every tick takes `.anchor_no_split`'s new test. **The other canonical legs' +4/+5**
+  is the rebuild's `clr.w`.
+- **One path row differs on one leg:** clip DEBUG spindash, tick 606, player y 896 vs 897, with
+  605 and 607 agreeing. The camera and the parallax output agree at every tick. The base re-run
+  against itself shows 0 differences.
+- **Red-first** (`build_mutant3.sh`):
+  - L and M (the kept check drops its successor test / its parent test): witness RED, 200 and
+    266 samples differ; the legs are green.
+  - N (the retop is deleted): the legs are RED (anchored right 56/60); the witness is green,
+    because both of its runs take the same broken tail.
+  - P (the rebuild keeps the slot) and R (the no-split exit ignores a kept split): RED on both.
+  - Q (the keep ignores the curve condition): green on both. **That is a coverage gap**, see
+    PPB-11.
+  - S (the reservation is 0): the build is refused by the new pin.
+
+**RAM** (from the listings; headroom is `SYSTEM_STACK` `$FFFFFF00` - `Game_RAM_End`):
+
+| shape | before | after |
+|---|---|---|
+| release | 15,870 B | 15,870 B |
+| DEBUG | 3,536 B | 3,536 B |
+
+`Parallax_State` grew 852 -> 856 B. The alignment pad before `Player_Pos_Ring` absorbed the 4 B,
+so `Game_RAM_End` did not move.
+
+**Files another lane reads.**
+- `engine/ram.emp`:
+  - `Parallax_Shadow_Split: [u32; SHADOW_SPLIT_LONGS]` sits after `Parallax_Shadow_Key_K`,
+    before `Parallax_Band_Sel`.
+  - Everything from `Parallax_Band_Sel` to the pad before `Player_Pos_Ring` moves +4 B in the
+    sonic4 shapes.
+  - `PARALLAX_STATE_LONGS` gained `+ SPLIT_KEEP_N`.
+- **New cross-seam RAM name, for sigil's `*_port` lists:** `Parallax_Shadow_Split`.
+- **New `pub const`:** `SPLIT_KEEP_N` in `engine/level/parallax.emp`, pinned against
+  `CAP_ANCHORS`. There is also a new private const, `band_top_line_prev`.
+- The `Parallax_Update @ Decode_Factor_A/B` call sites that sigil's contract baseline pins are
+  untouched.
+- Unchanged: `engine/structs.emp`, `engine/effects/*`, the record and config formats. Demo
+  (`SCANLINE_CAPS` 0) emits none of the new code.
+
+**Landing evidence.** LANDING_EVIDENCE_PLACEHOLDER
+
+**Open riders.**
+- **PPB-10b (priced, not built): the selection byte's reason bits.**
+  - What it would buy: ~60 cycles per sampled band. That is an instruction count, not a
+    measurement: EHZ has 1 sampled band plus the curve, canonical spawn has 1.
+  - The split views hold `$FF`, so they would gain nothing unless they were made exact. Exact
+    split-view bytes are worth 94 a tick on the anchored right leg (measured), at the cost of
+    witness determinism.
+  - What blocks it: skipping the inline remap/curve tests under `CAP_DEFORM` needs either an
+    inverted capability gate, which the span model forbids, or a second, bit-driven decision
+    path beside the inline one.
+- **PPB-11: the keep's curve clause is untested.**
+  - Mutant Q is green everywhere. No shipped config and no leg pairs an anchored split with a
+    curve layer, and RAM fixtures are never kept.
+  - What would test it: a fixture that installs a ROM config with both.
+- **PPB-12: +22 a tick on an anchored config whose line does not split** (the canonical spawn
+  config, on every tick). It is `.anchor_no_split`'s test for a kept split to undo, and nothing
+  that path already reads could carry the slot for free.
+- **PPB-13: a vertically scrolling anchored region still rebuilds every tick** (the down leg,
+  14,972). The levers are PPB-9's per-config selection and a rebuild that re-rotates rather
+  than re-copies.
+- **PPB-8 again:** the DEBUG RAM layout moved 4 B from `Parallax_Band_Sel` on. Not measured here.
+- **Decomposition not measured:** round 1's `decomp.py` was not re-validated against the new
+  Step 4b labels.
 
 ## OSCILLATION-THRASH: a swinging camera re-decodes the same blocks (branch `perf/oscillation-thrash`, 2026-09-28)
 

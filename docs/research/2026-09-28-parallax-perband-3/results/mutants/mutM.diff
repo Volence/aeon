@@ -1,0 +1,12 @@
+diff --git a/engine/level/parallax.emp b/engine/level/parallax.emp
+index af9f1c71..60ba2024 100644
+--- a/engine/level/parallax.emp
++++ b/engine/level/parallax.emp
+@@ -2903,7 +2903,6 @@ proc Parallax_Step4_Fill () clobbers(d0-d7/a0-a6) {
+         lea     Parallax_Shadow_Bands, a5           // (Parallax_Shadow_Bands).w
+         adda.w  d2, a5                              // a5 = &band[s], the split entry
+         cmp.w   band_top_line_prev(a5), d0          // L against the parent's top
+-        blo     .anchor_restart                     // above it: an earlier band holds L
+         cmp.w   d7, d1
+         beq     .anchor_kept                        // s = n: the parent ran to the screen bottom
+         cmp.w   band_top_line_next(a5), d0          // L against the successor's top

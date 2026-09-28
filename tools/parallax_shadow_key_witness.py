@@ -3,8 +3,11 @@
 
 WHAT IT GUARDS (PERF-PARALLAX-PERBAND, 2026-09-28). `Parallax_Step4_Fill` no longer rebuilds
 the rotated shadow band view every tick: it keeps it while (config, Vscroll_BG & 511) equals
-`Parallax_Shadow_Key_Config` / `_VS`, and Step 4b's anchored split drops the key because it
-rewrites the view (engine/level/parallax.emp, Step 4a's banner: four clauses). A key that
+`Parallax_Shadow_Key_Config` / `_VS` (engine/level/parallax.emp, Step 4a's banner: four
+clauses). Since PPB-4 (2026-09-28, perf/parallax-ppb4) Step 4b's anchored split KEEPS the key
+when it can (a ROM config, no curve layer in the view) and records itself in
+`Parallax_Shadow_Split`; the next tick re-checks the anchor line against that split before it
+reuses it, and restarts Step 4a when the line has left the band. A key that
 vouches for a view it does not describe paints stale band tops or a doubled split, and
 nothing else in the tree would see it: `parallax_hscroll_identity.py` installs RAM fixtures,
 and a RAM config is never keyed, so it only ever exercises the rebuild path.
@@ -13,12 +16,14 @@ HOW, WITHOUT A MODEL. The question "is the cached view the view a rebuild would 
 asked of the machine itself, differentially, at every sampled tick:
 
     checkpoint -> run one frame (the ROM's own choice: hit or rebuild) -> capture A
-    restore    -> poke Parallax_Shadow_Key_Config = 0 (forces the rebuild) and
-                  Parallax_Band_Sel_Valid = 0 (forces the fill's selection pass)
+    restore    -> poke Parallax_Shadow_Key_Config = 0 (forces the rebuild),
+                  Parallax_Band_Sel_Valid = 0 (forces the fill's selection pass) and
+                  Parallax_Shadow_Split = 0 (no kept split: B's split, if any, is fresh)
                -> run one frame -> capture B
     A must equal B: Hscroll_Buffer, the VSRAM column buffer, Vscroll_Factor, the whole
-    shadow band array and both shadow scroll arrays, the fill's cached loop selection
-    (Parallax_Band_Sel) and the curve hoist's walk (Parallax_Curve_Walk).
+    shadow band array and both shadow scroll arrays, the kept split's slot
+    (Parallax_Shadow_Split), the fill's cached loop selection (Parallax_Band_Sel) and the
+    curve hoist's walk (Parallax_Curve_Walk).
 
 Zero is never a config pointer, so the poke selects the rebuild path and nothing else; both
 runs start from one restored state, so any difference IS the cache. No expectation is typed:
@@ -38,18 +43,28 @@ WHAT MAKES A GREEN MEAN SOMETHING — the coverage witnesses, printed every run 
              (or could have been); a leg with none tests nothing;
   * vs-moved samples where the key was live and Vscroll_BG & 511 changed in the frame: the
              state a key that ignored vs would get wrong;
-  * split    samples on a ROM config where Step 4b split the view (the key read 0 after the
-             frame): the state a split that kept the key would get wrong.
+  * split    samples on a ROM config where Step 4b split the view (after the frame the key
+             read 0, a dropped split, or Parallax_Shadow_Split was non-zero, a kept one);
+  * kept     samples whose pre-frame key was live with a kept split on it and vs unchanged:
+             the tick reused (or re-checked) last tick's split instead of splitting afresh,
+             the state a kept split that went stale would get wrong (PPB-4);
+  * resplit  kept samples whose split slot changed in the frame: the anchor line left the
+             band the kept split was made in, and Step 4b had to restart. The state a
+             kept-split check that trusted the old split would get wrong.
 Any class at 0 is COULD NOT RUN, never green.
 
 LEGS (DEBUG free flight, which the shape boots in): from spawn, fly down (vs moves); then,
 through the DEBUG warp mailbox, into the act's anchored region (derived from the ROM's
 region table: a region whose resolved config consumes an anchor channel and whose preset
-seeds a world anchor on it), fly right and then down with the anchor line on screen.
+seeds a world anchor on it), fly right and then down with the anchor line on screen; then
+hold still there while the channel's own sweep walks the line across a band edge (the leg
+that reaches `resplit`; its comment in drive() has the derivation of where it stands).
 
 Exit 0 GREEN, 1 RED (a sample differed), 2 COULD NOT RUN (missing symbols, no anchored
 region, a coverage class at 0). The last line is finished=1 on every path that gets that
-far. Red-first: the two mutants in docs/research/2026-09-28-parallax-perband/build_mutant.sh.
+far. Red-first: the two mutants in docs/research/2026-09-28-parallax-perband/build_mutant.sh,
+mutant K in ../2026-09-28-parallax-perband-2/build_mutant2.sh, and the PPB-4 mutants in
+docs/research/2026-09-28-parallax-perband-3/build_mutant3.sh.
 """
 import argparse
 import asyncio

@@ -1,0 +1,3 @@
+FFFF8000 RAM_Start delta 0
+FFFF8BDC Parallax_Band_Sel delta 4
+FFFFBF00 Player_Pos_Ring delta 0

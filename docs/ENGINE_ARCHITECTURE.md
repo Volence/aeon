@@ -2821,12 +2821,13 @@ Each frame, after Step 4a's rotation, `L = Effects_World_Y[ch] − Camera_Y` is 
 
 - **What keeps it exact:**
   - Only a ROM config is keyed (the pointer test is `< $400000`). The DEBUG scratch and probe fixtures live in RAM and rebuild every tick, as before.
-  - Step 4b's anchored split rewrites the view, so it clears the key.
+  - Step 4b's anchored split rewrites the view. Until PPB-4 (below) it always cleared the key; now
+    a split it can keep records itself beside the key, and one it cannot keep clears it.
   - The curve hoist rewrites its derived words every tick.
   - `Parallax_Init`'s clear zeroes the key.
 - **Measured:** 2,617 -> 430 cycles a tick on the S2 clip's 7-band Emerald Hill record (vertically locked). With the per-band decisions that were really per-frame (the lerp test, the cursor steps, the role-swap pack), `Parallax_Update` is 14,461 -> 11,814 cycles a tick on the EHZ run, and 10,117 -> 8,270 on canonical OJZ.
 - **Checked:** the output is byte-identical on every measured leg. `tools/parallax_shadow_key_witness.py` asks the machine, tick by tick, whether the view it kept equals the one a forced rebuild makes. That witness is wired and was red-first on two mutants.
-- **Where it does not help:** an anchored region still rebuilds every tick, because the split rewrites the view.
+- **Where it did not help, until PPB-4 (below):** an anchored region rebuilt every tick, because the split rewrote the view.
 - **Blocked:** inlining `Decode_Factor_A/_B` into the band loop, about 0.5k on EHZ. Sigil's frozen closure baseline pins the two call sites (`docs/DEFERRED_WORK.md` PERF-PARALLAX-PERBAND, rider PPB-1).
 - **Evidence:** `docs/research/2026-09-28-parallax-perband.md`.
 
@@ -2841,10 +2842,25 @@ Each frame, after Step 4a's rotation, `L = Effects_World_Y[ch] − Camera_Y` is 
 - **Measured** (`Parallax_Update` inclusive, cycles a tick, round-1 tip -> this):
   - EHZ run: 11,814 -> 11,176.
   - Canonical OJZ run: 8,270 -> 7,434.
-  - Anchored region: 14,314 -> 14,428 (+114). It rebuilds and splits every tick, so it pays both caches' upkeep and reuses neither. PPB-4 would fix that.
+  - Anchored region: 14,314 -> 14,428 (+114). It rebuilds and splits every tick, so it pays both caches' upkeep and reuses neither. PPB-4 fixed that for a camera that holds its height (below).
   - The output is byte-identical on every leg. `tools/parallax_shadow_key_witness.py` now also re-derives and compares the two caches.
   - Lag did not move on any leg.
 - **Evidence:** `docs/research/2026-09-28-parallax-perband-2.md`.
+
+**The anchored split is kept under the key (PERF-PARALLAX-PPB4, 2026-09-28).** What a split does to the view (the records shifted down, the split entry copied, the deform shifts overridden, `CURVE_FLAG_CONT_BIT`) depends only on the view and the config, so under an unchanged key it comes out the same again. Only the anchor line L and the scroll words change from tick to tick. So the SPLIT view is kept, not a pristine copy beside it.
+
+- **Keep.** A split of a keyed (ROM) view with no curve layer records its slot, k+1, in `Parallax_Shadow_Split` (4 B under `CAP_ANCHORS`) and keeps the key. A RAM config, or a view with a curve layer, drops the key as before. The curve hoist runs between Step 4a and Step 4b over slots that describe the unsplit view, so it must never meet a kept split.
+- **Reuse.** On a key hit with a kept split, Step 4b checks that L is still inside the split band: `parent top <= L < successor top`, which is `.anchor_find_k`'s answer in the unsplit view. If it is, the tick re-shifts the scroll words and retops the split entry, and nothing else.
+- **Restart.** If L has left the band, or there is no split this tick, Step 4b clears the key and the slot and re-enters Step 4a for a rebuild (`.anchor_restart`). The restart clears the slot itself, because it is a loop: a build whose rebuild did not clear it hung.
+- **The selection bytes stay `$FF` on every split view.** Deriving them on each fresh split cost +465 on a vertically scrolling anchored region. Deriving them once per kept split bought only 94, and made the cache something a forced rebuild does not reproduce.
+- **Measured** (`Parallax_Update` inclusive, cycles a tick):
+  - Anchored region, camera holding its height: 14,428 -> 12,127.
+  - Scrolling down: 14,933 -> 14,972. vs moves there, so Step 4a rebuilds anyway.
+  - EHZ: unchanged.
+  - Canonical OJZ: +4 to +22. The spawn config has an anchor channel that never splits, and pays the no-split exit's test.
+  - The output is byte-identical on all 14 legs.
+  - `Game_RAM_End` did not move in either shape: an alignment pad absorbed the 4 B.
+- **Evidence:** `docs/research/2026-09-28-parallax-perband-3.md`.
 
 **Band ceiling — `MAX_PARALLAX_BANDS = 16` since 2026-08-27 (was 8).** A scene may carry sixteen parallax layers. What the raise cost, measured rather than estimated:
 
@@ -3077,7 +3093,7 @@ capability bit.
 
 **Layer enable mask.** `pcfg_layer_mask` is a **u16** (one bit per band at `MAX_PARALLAX_BANDS = 16`) and disables individual bands; a disabled band's **BG** scroll inherits the previous band's value (or zero if first band, = locked). The **FG** word of a disabled band stays hard-locked to -Camera_X — the inheritance seed is -camX, never zero — because the FG streaming engine draws a camera-anchored 64-col window and any FG scroll offset drags the plane-wrap seam into view (bug found 2026-06-11: zero-seeded FG froze Plane A's top 32 lines under LockedClouds). `LAYER_MASK = $1E` locks the cloud band while mountains/hills/ground continue scrolling.
 
-**RAM footprint:** (⚠ MEASURED 2026-09-28 off the sonic4 `s4.debug.lst`: `Parallax_State` $FFFF88A0 .. `Parallax_State_End` $FFFF8BF4 = **852 B** at MAX 16, 828 before PPB-3 / PPB-5 added 24. The 552 and the table below predate the drift, remap and key tails and were not re-derived here; `PARALLAX_STATE_LONGS` and its `ensure` are the authority.) `Parallax_State` is **552 B** in `$FF000000`-range RAM at `MAX_PARALLAX_BANDS = 16` — `104 + 28 x MAX`, cross-checked against `PARALLAX_STATE_LONGS` (138 longs), which `engine/level/parallax.emp`'s drift `ensure` holds to the resolved span on every build. (It was 328 B at MAX 8, and this list read "≈ 126 B" until 2026-08-27; that figure predated the shadow view and the curve tail and had drifted by 202 B.)
+**RAM footprint:** (⚠ MEASURED 2026-09-28 off the sonic4 `s4.debug.lst`: `Parallax_State` $FFFF88A0 .. `Parallax_State_End` $FFFF8BF8 = **856 B** at MAX 16; 852 before PPB-4 added 4, 828 before PPB-3 / PPB-5 added 24. The 552 and the table below predate the drift, remap and key tails and were not re-derived here; `PARALLAX_STATE_LONGS` and its `ensure` are the authority.) `Parallax_State` is **552 B** in `$FF000000`-range RAM at `MAX_PARALLAX_BANDS = 16` — `104 + 28 x MAX`, cross-checked against `PARALLAX_STATE_LONGS` (138 longs), which `engine/level/parallax.emp`'s drift `ensure` holds to the resolved span on every build. (It was 328 B at MAX 8, and this list read "≈ 126 B" until 2026-08-27; that figure predated the shadow view and the curve tail and had drifted by 202 B.)
 
 | Field | Bytes | Sized by the band ceiling? |
 |---|---|---|
@@ -3093,6 +3109,7 @@ capability bit.
 | `Parallax_Shadow_Bands[sizeof(band_record) × MAX]` | 160 | **yes** (20 × MAX) |
 | `Parallax_Shadow_Scroll_A/B[MAX]` | 32 | **yes** (2 × 2 × MAX) |
 | `Parallax_Shadow_Key_Config / _VS / _K` (Step 4a's frame-coherence key, 2026-09-28) | 8 | no |
+| `Parallax_Shadow_Split` (the kept anchored split's slot + pad, PPB-4, 2026-09-28) | 0 (4 under `CAP_ANCHORS`) | no (capability) |
 | `Parallax_Band_Sel[MAX]` + `Parallax_Band_Sel_Valid` (the fill's cached selection, PPB-3, 2026-09-28) | 0 (20 under `CAP_DEFORM`) | **yes** (MAX + 4, capability) |
 | `Parallax_Curve_Walk` (the curve hoist's range, PPB-5, 2026-09-28) | 0 (4 under `CAP_FACTOR_CURVE`) | no (capability) |
 | **total** | **328** | |

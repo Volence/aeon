@@ -1,0 +1,14 @@
+anchored region 5 x 4096..5119 y 2048..4095, world anchor 2272
+  spawn down    samples   60  hit   60  vs-moved    0  split    0  kept    0  resplit    0  DIFFER 0
+  anchor right  samples   60  hit   60  vs-moved    0  split   58  kept   59  resplit    1  DIFFER 0
+  anchor down   samples   60  hit   60  vs-moved   50  split   41  kept    0  resplit    0  DIFFER 0
+  anchor still  samples  600  hit  600  vs-moved    0  split  600  kept  600  resplit    1  DIFFER 200
+  total         samples  780  hit  780  vs-moved   50  split  699  kept  659  resplit    2  DIFFER 200
+  anchor still: sample 401 (pre-key cfg $013596 vs 205, now vs 205) first difference at shadow band byte 40
+  anchor still: sample 402 (pre-key cfg $013596 vs 205, now vs 205) first difference at shadow band byte 40
+  anchor still: sample 403 (pre-key cfg $013596 vs 205, now vs 205) first difference at shadow band byte 40
+  anchor still: sample 404 (pre-key cfg $013596 vs 205, now vs 205) first difference at shadow band byte 40
+  anchor still: sample 405 (pre-key cfg $013596 vs 205, now vs 205) first difference at shadow band byte 40
+VERDICT: RED — the cached shadow view is not the view a rebuild makes
+finished=1
+exit=1
