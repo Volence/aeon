@@ -1132,6 +1132,24 @@ ensure(BLOCK_FILL_LEAD_COLS > 16 / 8 && BLOCK_FILL_LEAD_COLS < TILE_CACHE_MARGIN
 // comment fix, so the value is left alone here.)
 pub const VFILL_ROWS_PER_FRAME  = 2
 pub const H_PFX_HYST            = 16    // net opposite-motion px before the horizontal prefetch latch flips
+// THE ARMING RUN (perf/oscillation-thrash, 2026-09-28). The fill's speculative scans stage the
+// block one past the cache edge in the direction of motion. On a camera that swings back and
+// forth (a player bouncing in a dead end, jumping at a wall) each reversal re-aims them, the
+// blocks they staged on the far side are never reached, and every such claim evicts one of the
+// 16 round-robin staging slots (BLOCK_STAGE_SLOTS) the DEMAND fill was about to re-read at the
+// window edges. Measured: a 128-px free-flight oscillation decoded 518 blocks in 700 ticks, 93%
+// of them the same blocks again; the survey's OJZ bounce 757 in 1800, 91% again. So a scan now
+// STAGES only after the camera has moved one whole block in one direction since the last
+// reversal: H_PFX_ARM px with the horizontal latch, V_PFX_ARM rows one way vertically. It still
+// derives and publishes its target (the page tier aims by it). The first motion after
+// Tile_Cache_Init arms at once, so a start from rest speculates exactly as before. Result and
+// legs: docs/research/2026-09-28-oscillation-thrash.md; ARCH §9.7.
+pub const H_PFX_ARM             = BLOCK_TILE_SIZE * 8     // 128 px: one block of one-way motion
+pub const V_PFX_ARM             = BLOCK_TILE_SIZE         // 16 rows: one block of one-way motion
+ensure(H_PFX_ARM > 16 && H_PFX_ARM <= TILE_CACHE_MARGIN_H * 8,
+       "H_PFX_ARM ({H_PFX_ARM} px) must exceed one tick of the camera's horizontal step (camera.emp's CAM_MAX_X_STEP, 16 px), or a single tick of jitter arms it, and must not exceed the cache's horizontal margin (TILE_CACHE_MARGIN_H {TILE_CACHE_MARGIN_H} columns = {TILE_CACHE_MARGIN_H * 8} px): past that the demand fill reaches the block the scan would have staged before the scan is allowed to stage it, and the speculation is gone rather than delayed")
+ensure(V_PFX_ARM > CAM_MAX_Y_STEP / 8 && V_PFX_ARM <= TILE_CACHE_MARGIN_V,
+       "V_PFX_ARM ({V_PFX_ARM} rows) must exceed one tick of the camera's vertical step (CAM_MAX_Y_STEP / 8 = {CAM_MAX_Y_STEP / 8} rows), or a single tick of jitter arms it, and must not exceed TILE_CACHE_MARGIN_V ({TILE_CACHE_MARGIN_V} rows): past that the demand fill reaches the block the scan would have staged before the scan is allowed to stage it")
 pub const BLOCKS_PER_SECTION_AXIS = 16  // 16 blocks across, 16 down
 pub const BLOCKS_PER_SECTION_SHIFT = 4  // lsr #4 = / BLOCKS_PER_SECTION_AXIS
 // Blocks-per-section is a DIFFERENT quantity from tiles-per-block; they are both
