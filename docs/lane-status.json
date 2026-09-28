@@ -1,12 +1,6 @@
 {
-  "focus": "16 fixes landed since last night; Metropolis's song plays. Your woven-act wishes are sized and need no freeze.",
-  "inFlight": [
-    {
-      "what": "Measuring the last five checks nobody has tested yet, fixing any that can be fooled (tools only)",
-      "where": "branch fix/gpp-unmeasured",
-      "agent": true
-    }
-  ],
+  "focus": "18 fixes and Metropolis's song landed since last night. Waiting on your woven-act answers.",
+  "inFlight": [],
   "blockedOnOwner": [
     {
       "id": "SP6-MODULATION-DIVERGENCE",
@@ -83,8 +77,8 @@
     },
     {
       "id": "GATE-PREDICATE-VS-PROMISE",
-      "title": "Checks guarding something near their subject: 15 fixed; measuring the last five untested ones now",
-      "state": "doing",
+      "title": "Checks guarding something near their subject: 18 of 26 fixed; the rest need an engine edit, a sigil change or a design call (booked)",
+      "state": "open",
       "size": "M",
       "blockedBy": null
     },
@@ -141,6 +135,6 @@
     }
   ],
   "awaiting": "which covering you meant (A: Wing Fortress shaft blue at 4064,1800; B: tunnel walls at 2864,2450; C: grey stone at a zone edge, 164,1924), and whether you want the real background or the zone's foreground there; plus your pick on WOVEN-TOUCHUPS",
-  "atBoundary": false,
-  "updatedAt": "2026-09-28T15:35:30Z"
+  "atBoundary": true,
+  "updatedAt": "2026-09-28T16:29:34Z"
 }
