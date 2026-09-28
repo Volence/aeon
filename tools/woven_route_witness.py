@@ -38,8 +38,10 @@ VERDICT:
      (read off the ROM's own region table) and the CRAM lines 1-3 hold the right zone's
      palette by the end of the run;
   P1 the music requests, in order, equal the derived expectation; P2 none is made with the
-     camera centre inside a corridor, and each is made past the mouth of the zone it names;
-  K1 a key-on within KEYON_WINDOW frames of each request, none before the first.
+     camera centre inside a corridor, and each is made with the camera centre inside a zone
+     that names the song (the start zone included);
+  K1 a note start (an FM key-on or a DAC sample start) within KEYON_WINDOW frames of each
+     request; no FM key-on before the first (the driver's boot DAC-enable write is not one).
   LAG: Lag_Frame_Count's advance while the player is within 16 px of each corridor, and over
      each whole run, is PRINTED (a measurement, not a verdict).
   FAULT: the ROM reaching its error handler anywhere on the route is a FAIL (checked every
@@ -148,7 +150,7 @@ async def drive(sock, syms, equs, act, legs, ym=False):
     if tap:
         await tap.arm()
     cursor, dropped = None, 0
-    events, keyons, samples = [], {}, []
+    events, keyons, samples, dac_starts = [], {}, [], {}
     frame = 0
 
     async def poll():
@@ -174,10 +176,20 @@ async def drive(sock, syms, equs, act, legs, ym=False):
         await poll()
         if tap:
             await tap.poll()
-            n = sum(1 for _, _, part, reg, v in tap.events
-                    if v is not None and part == 0 and reg == 0x28 and (v & 0xF0))
-            if n:
-                keyons[frame] = n
+            # A NOTE START: an FM key-on ($28, key bits set) or a DAC sample start ($2B,
+            # DAC enable, which Snd_StartSample writes at every sample). The DAC counts
+            # because a song can open on drums alone: Sonic 2's Metropolis rests every FM
+            # channel for its first bars (s2disasm 85 - MTZ.asm: FM1/FM3 `nRst, $30` x4
+            # before a note), so an FM-only count saw 0 in 180 frames on a song that was
+            # playing (MEASURED 2026-09-28: 0 FM key-ons in 180 frames, 26 in 300, identical
+            # from bank 1 and from bank 2).
+            fm = sum(1 for _, _, part, reg, v in tap.events
+                     if v is not None and part == 0 and reg == 0x28 and (v & 0xF0))
+            dac = sum(1 for _, _, part, reg, v in tap.events
+                      if v is not None and part == 0 and reg == 0x2B and (v & 0x80))
+            if fm or dac:
+                keyons[frame] = fm + dac
+                dac_starts[frame] = dac
             del tap.events[:]
         rd = lambda n, w: bus.read(syms[n], w)                           # noqa: E731
         samples.append({
@@ -266,7 +278,8 @@ async def drive(sock, syms, equs, act, legs, ym=False):
     await b.close()
     if dropped:
         raise CouldNotRun(f"the music-slot watch dropped {dropped} hit(s)")
-    return {"events": events, "keyons": keyons, "samples": samples, "cram_end": cram_end,
+    return {"events": events, "keyons": keyons, "dac_starts": dac_starts, "samples": samples,
+            "cram_end": cram_end,
             "tap_dropped": tap.dropped if tap else 0}
 
 
@@ -385,25 +398,32 @@ def main():
                          or co.dst[1] <= cy < co.dst[1] + co.dst[3])):
                 fails.append(f"P2 song {v} requested at frame {f} with the camera centre INSIDE "
                              f"connector {co.id} ({c}, {cy})")
-        named = [(co, r) for co, _l, r in legs if r.music and ids[r.music] == v]
-        if named and not any((cy >= r.dst[1]) if getattr(co_, "axis", "x") == "y"
-                             else (c >= r.dst[0]) for co_, r in named):
-            fails.append(f"P2 song {v} requested at frame {f} (centre {c}) before the camera "
-                         f"reached the zone that names it")
+        # Made from INSIDE a zone that names this song: any clip whose `music` is it,
+        # the act's start zone included. (Until 2026-09-28 only each leg's right-hand zone
+        # was a candidate, which was the same thing while no start zone named a song;
+        # Metropolis west, the start of s2_mtz_cpz, names SONG_S2_MTZ since song bank 2.)
+        named = [cl for cl in act.clips if cl.music and ids[cl.music] == v]
+        if named and not any(cl.dst[0] <= c < cl.dst[0] + cl.dst[2]
+                             and cl.dst[1] <= cy < cl.dst[1] + cl.dst[3] for cl in named):
+            fails.append(f"P2 song {v} requested at frame {f} (centre {c}, {cy}) outside every "
+                         f"zone that names it")
     if y["tap_dropped"]:
         print(f"  [the YM tap dropped {y['tap_dropped']} hit(s): key-on counts are LOWER BOUNDS]")
     k = y["keyons"]
     if requests:
-        before = sum(n for f, n in k.items() if f < requests[0][0])
-        print(f"K1 key-ons before the first request: {before}")
+        # FM key-ons only: the driver's own boot writes $2B (DAC enable) before any music,
+        # which is not a note (MEASURED 2026-09-28: one such write on s2_mtz_cpz DEBUG).
+        before = sum(n - y["dac_starts"].get(f, 0) for f, n in k.items() if f < requests[0][0])
+        print(f"K1 FM key-ons before the first request: {before}")
         if before:
-            fails.append(f"K1 {before} key-on(s) before any song was requested")
+            fails.append(f"K1 {before} FM key-on(s) before any song was requested")
     for f, v in requests:
         n = sum(c for g, c in k.items() if f <= g < f + KEYON_WINDOW)
-        print(f"K1 song {v} requested at frame {f}: {n} key-on(s) in the next {KEYON_WINDOW} "
-              f"frames")
+        nd = sum(c for g, c in y["dac_starts"].items() if f <= g < f + KEYON_WINDOW)
+        print(f"K1 song {v} requested at frame {f}: {n} note start(s) in the next "
+              f"{KEYON_WINDOW} frames ({n - nd} FM key-on(s), {nd} DAC sample start(s))")
         if not n:
-            fails.append(f"K1 no key-on within {KEYON_WINDOW} frames of the request at {f}")
+            fails.append(f"K1 no note start within {KEYON_WINDOW} frames of the request at {f}")
     for m in fails:
         print(f"FAIL: {m}")
     print("VERDICT:", "RED" if fails else "GREEN")
