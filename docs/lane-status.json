@@ -5,11 +5,6 @@
       "what": "Song bank 2 with Metropolis's song: finishing and checking it on every Sonic 2 test level",
       "where": "branch parcel/song-bank-2-step3",
       "agent": true
-    },
-    {
-      "what": "Landing parallax round 2 (5% to 10% fewer cycles, same picture)",
-      "where": "branch perf/parallax-perband-2",
-      "agent": false
     }
   ],
   "blockedOnOwner": [
@@ -36,13 +31,6 @@
   ],
   "nextBoundary": "When song-bank step 2 lands; step 1 then waits on one small assembler change (taken by that lane).",
   "queue": [
-    {
-      "id": "PERF-PARALLAX-PERBAND-2",
-      "title": "Parallax round 2: three more small savings (about 1.3k cycles a tick in Emerald Hill), same picture",
-      "state": "doing",
-      "size": "S",
-      "blockedBy": null
-    },
     {
       "id": "WOVEN-EDITABLE-IN-AURORA",
       "title": "Make the woven act editable in aurora: sized (ours medium, aurora's large to very large); your call on freezing it",
@@ -154,5 +142,5 @@
   ],
   "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-09-28T12:06:14Z"
+  "updatedAt": "2026-09-28T12:30:53Z"
 }
