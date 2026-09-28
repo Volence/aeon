@@ -39,40 +39,8 @@
       "blockedBy": "decision card WOVEN-EDITABLE"
     },
     {
-      "id": "WOVEN-CROSSING-PATH",
-      "title": "Wall at the Metropolis to Chemical Plant crossing: fixed; all 15 crossings agree on either layer",
-      "state": "open",
-      "size": "S",
-      "blockedBy": null,
-      "project": "REGIONS"
-    },
-    {
-      "id": "WARP-VSCROLL-PRIME",
-      "title": "Background slide after a debug warp into Hidden Palace: fixed, the right picture shows on the first frame",
-      "state": "open",
-      "size": "S",
-      "blockedBy": null,
-      "project": "REGIONS"
-    },
-    {
-      "id": "PARALLAX-STEP5-SNAP-DEAD",
-      "title": "Background check that could never fire: fixed; a warp into an area that fades its background now lands in place",
-      "state": "open",
-      "size": "S",
-      "blockedBy": null,
-      "project": "REGIONS"
-    },
-    {
-      "id": "BOOT-TALL-VSCROLL-RATCHET",
-      "title": "Background slide when a level starts in a tall area: real (Hidden Palace test level too), fixed",
-      "state": "open",
-      "size": "S",
-      "blockedBy": null,
-      "project": "REGIONS"
-    },
-    {
       "id": "WOVEN-NIGHTLY-ROM-NAME",
-      "title": "Woven nightly file name: not a bug, the nightly renames it; its first real run is tonight's 05:00 (read it after)",
+      "title": "Read tonight's first nightly run of the woven act's test drive (05:00 local); the file name is fine, the nightly renames it",
       "state": "open",
       "size": "S",
       "blockedBy": null,
@@ -90,14 +58,6 @@
       "id": "BG-BAND-PLANE-ANCHOR",
       "title": "Background layers in a very tall area may repeat every 512 pixels; check it is still live after the band-chain work, then fix",
       "state": "next",
-      "size": "M",
-      "blockedBy": null,
-      "project": "REGIONS"
-    },
-    {
-      "id": "SHORT-TUNNEL-VSCROLL-RATCHET",
-      "title": "Background slide at tunnels: fixed; Emerald Hill to Chemical Plant crosses clean, Metropolis stays at the longer tunnel",
-      "state": "open",
       "size": "M",
       "blockedBy": null,
       "project": "REGIONS"
@@ -125,67 +85,6 @@
       "blockedBy": "owner: try the fall and pick the camera speed"
     },
     {
-      "id": "OJZ-LOOP-DOUBLE-LAP",
-      "title": "Our loop: the double lap is fixed",
-      "state": "open",
-      "size": "S",
-      "blockedBy": null
-    },
-    {
-      "id": "EHZ-RUN-LAG",
-      "title": "Emerald Hill running lag: fixed (39 to 6 lag frames debug, 31 to 1 normal)",
-      "state": "open",
-      "size": "M",
-      "blockedBy": null,
-      "project": "REGIONS"
-    },
-    {
-      "id": "JUMP-SFX-LEVEL",
-      "title": "Jump sound: was 10 dB too quiet; fixed to match Sonic 2",
-      "state": "open",
-      "size": "S",
-      "blockedBy": null
-    },
-    {
-      "id": "S2CLIP-REGION-MUSIC",
-      "title": "Sonic 2 music: sounds right by your ear (volumes, hi-hat, drone all fixed)",
-      "state": "open",
-      "size": "M",
-      "blockedBy": null,
-      "project": "REGIONS"
-    },
-    {
-      "id": "PERF-SURVEY",
-      "title": "Speed fixes you okayed: both landed (debug stutter gone; diagonal flight 43 to 14 lag frames on our act)",
-      "state": "open",
-      "size": "M",
-      "blockedBy": null
-    },
-    {
-      "id": "S2CLIP-LOOPS-PLANES",
-      "title": "Loops: Sonic 2's lines landed; all four Emerald Hill loops work",
-      "state": "open",
-      "size": "M",
-      "blockedBy": null,
-      "project": "REGIONS"
-    },
-    {
-      "id": "SLOPE-COLLISION",
-      "title": "Slopes fixed; you kept Sonic 3's roll rules. Done.",
-      "state": "open",
-      "size": "M",
-      "blockedBy": null,
-      "project": "REGIONS"
-    },
-    {
-      "id": "S2CLIP-LAG",
-      "title": "Chemical Plant lag: fixed (flying down 35 to 14 lag frames)",
-      "state": "open",
-      "size": "M",
-      "blockedBy": null,
-      "project": "REGIONS"
-    },
-    {
       "id": "RAMP-ARM4-SPAN",
       "title": "A revived tool prints a span meaning what the RUN writes; the PICTURE changes 30 lines further down. Changing it changes what the instrument claims, so it is your call",
       "state": "open",
@@ -209,13 +108,6 @@
     {
       "id": "GATE-PREDICATE-VS-PROMISE",
       "title": "Checks guarding something near their subject: 26 landing checks audited, 11 fixed; 13 written up as GPP rows",
-      "state": "open",
-      "size": "M",
-      "blockedBy": null
-    },
-    {
-      "id": "PRINTED-NOT-GATED",
-      "title": "Checks that print a problem but carry on: all fixed and landed; two small new cases booked",
       "state": "open",
       "size": "M",
       "blockedBy": null
@@ -257,13 +149,6 @@
       "blockedBy": "parked by your word on 09-12 (\"revisit another time\"); nothing else blocks it"
     },
     {
-      "id": "LINES-EVERYWHERE",
-      "title": "Lines everywhere: landed, and the old path-swap object is deleted; the editor's line tool is aurora's",
-      "state": "open",
-      "size": "M",
-      "blockedBy": null
-    },
-    {
       "id": "CLIP-PLANEB-HOLE",
       "title": "Floor gap in the Sonic 2 level: it's a missing bridge; objects are your call",
       "state": "blocked",
@@ -274,5 +159,5 @@
   ],
   "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-09-28T05:24:58Z"
+  "updatedAt": "2026-09-28T05:47:29Z"
 }
