@@ -1,11 +1,6 @@
 {
-  "focus": "Metropolis's song plays now (listening ROM ready). 15 fixes landed since last night; another parallax saving in progress.",
+  "focus": "Metropolis's song plays (listening ROM ready). 16 fixes landed since last night; sizing your woven-act touch-ups now.",
   "inFlight": [
-    {
-      "what": "Parallax: keep the background view across a split region (RAM measured first)",
-      "where": "branch perf/parallax-ppb4",
-      "agent": true
-    },
     {
       "what": "Sizing your woven-act wishes: reaching the cut-off pieces, and swapping part of a tunnel for more real level",
       "where": "branch research/woven-touchups",
@@ -50,13 +45,6 @@
       "size": "M",
       "blockedBy": null,
       "project": "REGIONS"
-    },
-    {
-      "id": "PERF-PARALLAX-PPB4",
-      "title": "Parallax: keep the background view across a split region instead of rebuilding it every frame (about 2k cycles a frame there; costs some RAM, measured first)",
-      "state": "doing",
-      "size": "M",
-      "blockedBy": null
     },
     {
       "id": "OJZ-LOOP-COLLISION",
@@ -154,5 +142,5 @@
   ],
   "awaiting": "your listen to Metropolis's song (s4.s2_mtz_cpz.bin, crc ffcfd9c8) when you have a minute",
   "atBoundary": false,
-  "updatedAt": "2026-09-28T14:08:52Z"
+  "updatedAt": "2026-09-28T14:52:54Z"
 }
