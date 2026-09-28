@@ -74,7 +74,7 @@ equ PARAM_PATCHPTR_LO = SND_Z80_BASE + SND_MUSIC_PARAM_PATCHPTR
 equ PARAM_PATCHPTR_HI = PARAM_PATCHPTR_LO + 1
 
 // The two song tables (games/sonic4 sound data — native labels in
-// games.sonic4.mt_bank_blob) — read as link-time imm32 sources below.
+// games.sonic4.sfx_bank_blob, after the SFX block) — read as link-time imm32 sources below.
 equ SONG_TABLE       = extern("SongTable")
 equ SONG_PATCH_TABLE = extern("SongPatchTable")
 
