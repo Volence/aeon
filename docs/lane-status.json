@@ -1,15 +1,10 @@
 {
-  "focus": "Metropolis, Wing Fortress and Oil Ocean songs are all in the woven act. Building you fresh listening ROMs.",
+  "focus": "All three new Sonic 2 songs are in the woven act and fresh listening ROMs are ready for you.",
   "inFlight": [
     {
       "what": "Tidy the sound-bank file's declared name (zero bytes); asked sigil whether their tools key on it",
       "where": "branch fix/mt-bank-module-name",
       "agent": true
-    },
-    {
-      "what": "Building fresh listening ROMs with all four new songs",
-      "where": "landing tree .aeon-land-mtzsong",
-      "agent": false
     }
   ],
   "blockedOnOwner": [
@@ -41,7 +36,7 @@
       "title": "You heard broken music at the woven act's start; the ROM plays Emerald Hill correctly when recorded, so it may be the emulator. Waiting on your retest with the fresh ROM",
       "state": "blocked",
       "size": "S",
-      "blockedBy": "owner: retest aeon/s4.s2clip.debug.bin (crc 0b8c65d7) and say which emulator",
+      "blockedBy": "owner: retest on aeon/s4.s2clip.debug.bin (crc 0e086143) and say which emulator",
       "project": "REGIONS"
     },
     {
@@ -167,7 +162,7 @@
       "blockedBy": null
     }
   ],
-  "awaiting": "your retest of the woven act's start music on the fresh ROM (aeon/s4.s2clip.debug.bin, crc 0b8c65d7), and which emulator you heard it in",
+  "awaiting": "your listen: woven act with Metropolis, Wing Fortress and Oil Ocean songs (aeon/s4.s2clip.debug.bin crc 0e086143, plain s4.s2clip.bin 3be528b0), and which emulator gave you the broken start music",
   "atBoundary": false,
-  "updatedAt": "2026-09-28T20:21:38Z"
+  "updatedAt": "2026-09-28T20:24:28Z"
 }
