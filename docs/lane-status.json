@@ -154,7 +154,7 @@
     },
     {
       "id": "MT-BANK-MODULE-NAME",
-      "title": "Tidy: the sound-bank file's declared name doesn't match its path, so the assembler warns in every build (zero bytes)",
+      "title": "Sound-bank file name tidy: must land paired with sigil (their MT-BANK-RENAME-PAIR). On return: commit the measurement to DEFERRED_WORK on master and send sigil the SHA",
       "state": "doing",
       "size": "S",
       "blockedBy": null
@@ -169,5 +169,5 @@
   ],
   "awaiting": "your retest of the woven act's start music on the fresh ROM (aeon/s4.s2clip.debug.bin, crc 0b8c65d7), and which emulator you heard it in",
   "atBoundary": false,
-  "updatedAt": "2026-09-28T20:21:04Z"
+  "updatedAt": "2026-09-28T20:21:38Z"
 }
