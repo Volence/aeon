@@ -29,7 +29,7 @@
       "since": "2026-09-28"
     }
   ],
-  "nextBoundary": "When the Sonic 2 build fix lands; then a listening ROM for the two new songs.",
+  "nextBoundary": "When the Sonic 2 build fix lands; then a listening ROM for the two new songs. (Sigil's reference advance is done; no hold on sound or RAM moves.)",
   "queue": [
     {
       "id": "CLIP-BUILD-BGANIM-ROOM",
@@ -145,9 +145,16 @@
       "state": "next",
       "size": "M",
       "blockedBy": null
+    },
+    {
+      "id": "MT-BANK-MODULE-NAME",
+      "title": "Tidy: the sound-bank file's declared name doesn't match its path, so the assembler warns in every build (zero bytes)",
+      "state": "open",
+      "size": "S",
+      "blockedBy": null
     }
   ],
   "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-09-28T17:52:51Z"
+  "updatedAt": "2026-09-28T18:12:51Z"
 }
