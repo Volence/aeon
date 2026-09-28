@@ -26,6 +26,13 @@ ruling's reason). Run after `S2CLIP=s2_ehz_cpz DEBUG=1 ./build.sh`:
     python3 tools/clip_bg_scroll_witness.py --rom s4.s2clip.debug.bin --lst s4.s2clip.debug.lst
 Exit 0 all probes exact, 1 a mismatch, 2 could not measure (symbols missing, a probe that never
 settled, a config pointer that is not a clip parallax record).
+
+LEGS past the settled probes, each wired in tools/keepalive_manifest.toml (the nightly
+instrument keepalive): `--warp-entry` (the ENTRY leg, every frame after a warp into each tall
+layout, and the FLIGHT leg) and `--boot-entry` (the BOOT leg, BOOT-ENTRY-PICTURE 2026-09-28: the
+same per-frame grade on the first frames of a LEVEL START, through the DEBUG Boot_At override
+into each tall layout and at the act's authored start; `--require-authored-tall` makes an
+authored start outside every tall zone COULD NOT MEASURE). See _entry_leg and _boot_leg.
 """
 
 import argparse
@@ -232,12 +239,128 @@ def _coherent(acc, rates):
     return True
 
 
-#: frames graded after each warp of the ENTRY leg: the longest ratchet a tall map can need is
-#: its whole scroll range at BG_VSCROLL_MAX_STEP (16) a frame, 928 / 16 = 58 on Hidden Palace
+#: frames graded after each warp of the ENTRY leg (and each boot of the BOOT leg): the longest
+#: ratchet a tall map can need is its whole scroll range at BG_VSCROLL_MAX_STEP (16) a frame,
+#: 928 / 16 = 58 on Hidden Palace
 ENTRY_FRAMES = 90
 
 
-async def _entry_leg(b, sym, rom, act, chains, specs, plan, spec_at, blob_lab, rates_of):
+def _chain_ctx(rom, act, sym, key, ch, blob_lab):
+    """What every per-frame grade of tall zone `key` reads, derived once: its clip, Sonic 2's
+    KIND per BG row (`kind_of`), the ROM's own nametable blob at its listing address, the TILE
+    rows (8 lines each) whose 64 cells are all the transparent word (free, derive_tall's rule),
+    and the band that may scroll each Sonic 2 kind (`factor_of`, per layout index since drift is
+    per index). Shared by the ENTRY, BOOT and FLIGHT legs so they grade one expectation."""
+    clip = next(c for c in act.clips if c.zone_key == key)
+    _raw, kind_of = CBS._tall_source(clip.donor, clip.zone, 0, ch["v_hi"])
+    base = sym[blob_lab[key]] & 0xFFFFFF
+    blob = rom[base:base + ch["span"] // 8 * PLANE_ROW_BYTES]
+    wild = {t for t in range(ch["span"] // 8)
+            if not any(blob[t * PLANE_ROW_BYTES:(t + 1) * PLANE_ROW_BYTES])}
+    factor_of = {}
+    for sp in ch["specs"]:
+        for bd in sp["bands"]:
+            k = ("drift", bd["drift"]) if bd.get("drift") else \
+                ("flat", bd.get("s2_ratio", bd["ratio"]))
+            factor_of.setdefault(k, bd["factor"])
+    return {"clip": clip, "kind_of": kind_of, "blob": blob, "wild": wild, "factor_of": factor_of}
+
+
+def _layout_targets(plan, key, ch, spec_at):
+    """Per band layout i of tall zone `key`: the first probe of the plan inside it, or None."""
+    return [(i, next((p for p in plan if p[0] == key and spec_at(key, p[4])[0] == i), None))
+            for i in range(len(ch["specs"]))]
+
+
+async def _grade_frames(b, sym, key, ch, cx, spec_at, frames):
+    """Grade `frames` consecutive frames of tall zone `key`, the first one AS THE MACHINE STANDS
+    (the frame a warp or a boot hands the screen), then one run_frames each: every visible line
+    against Sonic 2's kind for the map row it shows, the plane rows against the ROM's blob, the
+    BG vscroll against its target (engine_vscroll). Returns (bad_frames, slide, slide_bad,
+    first, at0): frames AT their target with a wrong line or row, frames not at their target,
+    how many of those were torn as well, the first at-target bad frame's particulars, and the
+    first frame's (vscroll, target)."""
+    r0, blob, wild = ch["r0"], cx["blob"], cx["wild"]
+    kind_of, factor_of = cx["kind_of"], cx["factor_of"]
+    bad_frames, slide, slide_bad, first, at0 = 0, 0, 0, None, None
+    for f in range(frames):
+        rd = {}
+        for name, ln in (("Hscroll_Buffer", HSCROLL_BYTES), ("Camera_X", 4),
+                         ("Camera_Y", 4), ("Parallax_Current_Vscroll_BG", 2),
+                         ("Parallax_Drift_Acc", 4 * DRIFT_BANDS)):
+            if name in sym:
+                r = await b.call("emulator/read_memory", {"addr": hex(sym[name]), "len": ln})
+                rd[name] = bytes.fromhex(_hex(r))
+        pb = b""
+        for off in range(0, PLANE_BYTES, 4096):
+            r = await b.call("emulator/read_vram", {"addr": hex(VRAM_PLANE_B + off),
+                                                    "len": 4096})
+            pb += bytes.fromhex(_hex(r))
+        camy = int.from_bytes(rd["Camera_Y"][:2], "big")
+        vs = CBS._sx(int.from_bytes(rd["Parallax_Current_Vscroll_BG"], "big"), 16)
+        li, spec = spec_at(key, camy)
+        acc = rd.get("Parallax_Drift_Acc", b"")
+        dpx = [CBS._sx(int.from_bytes(acc[j * 4:j * 4 + 2], "big"), 16)
+               for j in range(len(acc) // 4)]
+        buf = rd["Hscroll_Buffer"]
+        # THE CAMERA X THE BUFFER WAS BUILT FOR, not Camera_X now: while the camera moves
+        # the buffer can be one Camera_Update behind the RAM word (MEASURED in free
+        # flight: every line off by exactly one frame's 16 px). Plane A is hard-locked
+        # to -camX (Parallax_Update's factor_a), so line 0's FG word names it.
+        camx = -CBS._sx(int.from_bytes(buf[0:2], "big"), 16)
+        wrong = []
+        for line in range(CBS.SCREEN_LINES):
+            m = vs + line
+            if not 0 <= m < ch["span"] or (m >> 3) in wild:
+                continue
+            kd = kind_of(r0 + m)
+            if kd is None or kd not in factor_of:
+                continue
+            want = -CBS.engine_factor_scroll(factor_of[kd], camx)
+            if kd[0] == "drift":
+                j = next(j for j, bd in enumerate(spec["bands"])
+                         if bd.get("drift") == kd[1])
+                want += dpx[j] if j < len(dpx) else 0
+            got = CBS._sx(int.from_bytes(buf[line * 4 + 2:line * 4 + 4], "big"), 16)
+            if CBS._sx(want, 16) != got:
+                wrong.append(line)
+        rows = [m for m in range(vs >> 3, min((vs + CBS.SCREEN_LINES - 1) >> 3,
+                                              ch["span"] // 8 - 1) + 1)
+                if pb[(m & 63) * PLANE_ROW_BYTES:((m & 63) + 1) * PLANE_ROW_BYTES]
+                != blob[m * PLANE_ROW_BYTES:(m + 1) * PLANE_ROW_BYTES]]
+        target = CBS.engine_vscroll(spec, camy)
+        sliding = vs != target
+        slide += sliding
+        if at0 is None:
+            at0 = (vs, target)
+        if wrong or rows:
+            if sliding:
+                slide_bad += 1
+            else:
+                bad_frames += 1
+                if first is None:
+                    first = (f, vs, target, li, len(wrong), wrong[:1] + wrong[-1:], rows[:4])
+        await b.call("emulator/run_frames", {"frames": 1})
+    return bad_frames, slide, slide_bad, first, at0
+
+
+def _entry_line(leg, what, graded, who, closed_by):
+    """One printable row of the ENTRY or BOOT leg: the same verdict, in the same words."""
+    bad_frames, slide, slide_bad, first = graded[:4]
+    return (
+        (f"FAIL {leg} {what}: {bad_frames} of {ENTRY_FRAMES} frames, the scroll AT its "
+         f"target, show a line Sonic 2 scrolls differently or a wrong plane row; first "
+         f"at frame {first[0]}: vscroll {first[1]}, layout {first[3]}, {first[4]} "
+         f"line(s) {first[5]}, rows {first[6]}" if bad_frames else
+         f"{'FAIL' if slide else 'OK  '} {leg} {what}: every frame with the scroll at its "
+         f"target exact")
+        + f"; the scroll slid to its target over {slide} frame(s)"
+        + (f" ({slide_bad} of them torn): BG-RATE-PRIME-EXEMPTION is back — {who} "
+           f"must store the BG scroll at its target and prime the plane from it, so "
+           f"no frame after it may slide ({closed_by})" if slide else ""))
+
+
+async def _entry_leg(b, sym, act, chains, plan, spec_at, ctxs, rates_of):
     """THE ENTRY LEG (`--warp-entry`, WOVEN-HPZ-BG-MISALIGNED 2026-09-27): what the screen shows
     on EVERY frame after a teleport INTO a tall zone, not only once it has settled.
 
@@ -247,7 +370,7 @@ async def _entry_leg(b, sym, rom, act, chains, specs, plan, spec_at, blob_lab, r
     row window_top + m, whose Sonic 2 KIND (ratio, or drift rate) names the one band of the
     chain that may scroll it; the HScroll word must be that band's (engine_factor_scroll at the
     live camera X, plus its drift accumulator). Rows whose 64 cells are all transparent are
-    free (derive_tall's rule). The nametable leg runs on every frame too.
+    free (derive_tall's rule). The nametable leg runs on every frame too (_grade_frames).
 
     GRADED, TWO WAYS. (1) Every frame whose vscroll is AT its target (engine_vscroll) must be
     exact: what this leg was written to catch is a frame with the scroll where Sonic 2 has it
@@ -263,26 +386,11 @@ async def _entry_leg(b, sym, rom, act, chains, specs, plan, spec_at, blob_lab, r
     Returns (fails, lines): the number of frames with a wrong line or row, and printable rows."""
     out, fails = [], 0
     for key, ch in chains.items():
-        r0 = ch["r0"]
-        clip = next(c for c in act.clips if c.zone_key == key)
-        raw, kind_of = CBS._tall_source(clip.donor, clip.zone, 0, ch["v_hi"])
-        base = sym[blob_lab[key]] & 0xFFFFFF
-        blob = rom[base:base + ch["span"] // 8 * PLANE_ROW_BYTES]
-        # TILE rows (8 lines each) whose 64 cells are all the transparent word
-        wild = {t for t in range(ch["span"] // 8)
-                if not any(blob[t * PLANE_ROW_BYTES:(t + 1) * PLANE_ROW_BYTES])}
-        # the band that may scroll a Sonic 2 kind, and its index per layout (drift is per index)
-        factor_of = {}
-        for sp in ch["specs"]:
-            for bd in sp["bands"]:
-                k = ("drift", bd["drift"]) if bd.get("drift") else \
-                    ("flat", bd.get("s2_ratio", bd["ratio"]))
-                factor_of.setdefault(k, bd["factor"])
+        clip = ctxs[key]["clip"]
         # another zone's probe; a one-zone act starts from its own first probe (another layout)
         origin = next((p for p in plan if p[0] != key), plan[0])
         targets = []
-        for i in range(len(ch["specs"])):
-            t = next((p for p in plan if p[0] == key and spec_at(key, p[4])[0] == i), None)
+        for i, t in _layout_targets(plan, key, ch, spec_at):
             if t is None:
                 out.append(f"COULD NOT MEASURE entry {clip.zone} layout {i}: no probe inside it")
                 fails += 1
@@ -297,79 +405,135 @@ async def _entry_leg(b, sym, rom, act, chains, specs, plan, spec_at, blob_lab, r
                 out.append(f"COULD NOT MEASURE entry {zone} layout {i}: the warp was not acked")
                 fails += 1
                 continue
-            bad_frames, slide, slide_bad, first = 0, 0, 0, None
-            for f in range(ENTRY_FRAMES):
-                rd = {}
-                for name, ln in (("Hscroll_Buffer", HSCROLL_BYTES), ("Camera_X", 4),
-                                 ("Camera_Y", 4), ("Parallax_Current_Vscroll_BG", 2),
-                                 ("Parallax_Drift_Acc", 4 * DRIFT_BANDS)):
-                    if name in sym:
-                        r = await b.call("emulator/read_memory", {"addr": hex(sym[name]),
-                                                                  "len": ln})
-                        rd[name] = bytes.fromhex(_hex(r))
-                pb = b""
-                for off in range(0, PLANE_BYTES, 4096):
-                    r = await b.call("emulator/read_vram", {"addr": hex(VRAM_PLANE_B + off),
-                                                            "len": 4096})
-                    pb += bytes.fromhex(_hex(r))
-                camx = int.from_bytes(rd["Camera_X"][:2], "big")
-                camy = int.from_bytes(rd["Camera_Y"][:2], "big")
-                vs = CBS._sx(int.from_bytes(rd["Parallax_Current_Vscroll_BG"], "big"), 16)
-                li, spec = spec_at(key, camy)
-                acc = rd.get("Parallax_Drift_Acc", b"")
-                dpx = [CBS._sx(int.from_bytes(acc[j * 4:j * 4 + 2], "big"), 16)
-                       for j in range(len(acc) // 4)]
-                buf = rd["Hscroll_Buffer"]
-                # THE CAMERA X THE BUFFER WAS BUILT FOR, not Camera_X now: while the camera moves
-                # the buffer can be one Camera_Update behind the RAM word (MEASURED in free
-                # flight: every line off by exactly one frame's 16 px). Plane A is hard-locked
-                # to -camX (Parallax_Update's factor_a), so line 0's FG word names it.
-                camx = -CBS._sx(int.from_bytes(buf[0:2], "big"), 16)
-                wrong = []
-                for line in range(CBS.SCREEN_LINES):
-                    m = vs + line
-                    if not 0 <= m < ch["span"] or (m >> 3) in wild:
-                        continue
-                    kd = kind_of(r0 + m)
-                    if kd is None or kd not in factor_of:
-                        continue
-                    want = -CBS.engine_factor_scroll(factor_of[kd], camx)
-                    if kd[0] == "drift":
-                        j = next(j for j, bd in enumerate(spec["bands"])
-                                 if bd.get("drift") == kd[1])
-                        want += dpx[j] if j < len(dpx) else 0
-                    got = CBS._sx(int.from_bytes(buf[line * 4 + 2:line * 4 + 4], "big"), 16)
-                    if CBS._sx(want, 16) != got:
-                        wrong.append(line)
-                rows = [m for m in range(vs >> 3, min((vs + CBS.SCREEN_LINES - 1) >> 3,
-                                                      ch["span"] // 8 - 1) + 1)
-                        if pb[(m & 63) * PLANE_ROW_BYTES:((m & 63) + 1) * PLANE_ROW_BYTES]
-                        != blob[m * PLANE_ROW_BYTES:(m + 1) * PLANE_ROW_BYTES]]
-                target = CBS.engine_vscroll(spec, camy)
-                sliding = vs != target
-                slide += sliding
-                if wrong or rows:
-                    if sliding:
-                        slide_bad += 1
-                    else:
-                        bad_frames += 1
-                        if first is None:
-                            first = (f, vs, target, li, len(wrong), wrong[:1] + wrong[-1:],
-                                     rows[:4])
-                await b.call("emulator/run_frames", {"frames": 1})
-            fails += bad_frames > 0 or slide > 0
-            out.append(
-                (f"FAIL entry {zone} layout {i} ({origin[1]} ({origin[3]},{origin[4]}) -> "
-                 f"({x},{y})): {bad_frames} of {ENTRY_FRAMES} frames, the scroll AT its "
-                 f"target, show a line Sonic 2 scrolls differently or a wrong plane row; first "
-                 f"at frame {first[0]}: vscroll {first[1]}, layout {first[3]}, {first[4]} "
-                 f"line(s) {first[5]}, rows {first[6]}" if bad_frames else
-                 f"{'FAIL' if slide else 'OK  '} entry {zone} layout {i} ({origin[1]} -> "
-                 f"({x},{y})): every frame with the scroll at its target exact")
-                + f"; the scroll slid to its target over {slide} frame(s)"
-                + (f" ({slide_bad} of them torn): BG-RATE-PRIME-EXEMPTION is back — the warp "
-                   f"must store the BG scroll at its target and prime the plane from it, so "
-                   f"no frame after it may slide (WARP-VSCROLL-PRIME)" if slide else ""))
+            g = await _grade_frames(b, sym, key, ch, ctxs[key], spec_at, ENTRY_FRAMES)
+            fails += g[0] > 0 or g[1] > 0
+            out.append(_entry_line("entry", f"{zone} layout {i} ({origin[1]} "
+                                   f"({origin[3]},{origin[4]}) -> ({x},{y}))" if g[0] else
+                                   f"{zone} layout {i} ({origin[1]} -> ({x},{y}))",
+                                   g, "the warp", "WARP-VSCROLL-PRIME"))
+    return fails, out
+
+
+#: run_to ceiling for the boot to reach GameState_OJZScroll_Init and then its Update (the DEBUG
+#: shape's boot, bg_vscroll_rate_witness's figure)
+BOOT_MAX_FRAMES = 600
+
+
+async def _boot_to_update(b, sym, at):
+    """Reset and run the boot ladder, with the DEBUG boot-position override aimed at `at` (a
+    player centre; None = the act's AUTHORED start), to the first GameState_OJZScroll_Update:
+    the frame the init hands the screen. The mailbox is written at the Init breakpoint, as
+    tools/boot_override_gate.py and bg_vscroll_rate_witness leg B write it (boot clears all of
+    Work RAM, so an earlier write is zeroed). Debug_Scene_Freeze is set in the same window so
+    the camera is pinned from frame 1 exactly as the ENTRY leg pins it. Returns None, or the
+    reason this boot could not be measured."""
+    await b.call("emulator/reset", {})
+    got = await b.call("emulator/run_to", {"addr": hex(sym["GameState_OJZScroll_Init"]),
+                                           "maxFrames": BOOT_MAX_FRAMES})
+    if not got.get("reached"):
+        return f"run_to GameState_OJZScroll_Init never reached it: {got}"
+    writes = [("Debug_Scene_Freeze", 1, 1)]
+    if at is not None:
+        writes = [("Boot_At_X", at[0], 2), ("Boot_At_Y", at[1], 2), ("Boot_At_Flag", 1, 1)] \
+            + writes
+    for n, v, w in writes:
+        await b.call("emulator/write_memory", {"addr": hex(sym[n]), "value": v, "width": w})
+    got = await b.call("emulator/run_to", {"addr": hex(sym["GameState_OJZScroll_Update"]),
+                                           "maxFrames": BOOT_MAX_FRAMES})
+    if not got.get("reached"):
+        return f"run_to GameState_OJZScroll_Update never reached it: {got}"
+    r = await b.call("emulator/read_memory", {"addr": hex(sym["Boot_At_Flag"]), "len": 1})
+    if int(_hex(r), 16) != 0:
+        return "the init never consumed the boot override (Boot_At_Flag still set)"
+    return None
+
+
+async def _read_cam(b, sym):
+    out = []
+    for n in ("Camera_X", "Camera_Y"):
+        r = await b.call("emulator/read_memory", {"addr": hex(sym[n]), "len": 2})
+        out.append(int(_hex(r), 16))
+    return tuple(out)
+
+
+async def _boot_leg(b, sym, act, chains, plan, spec_at, ctxs, need_authored):
+    """THE BOOT LEG (`--boot-entry`, BOOT-ENTRY-PICTURE 2026-09-28): the ENTRY leg's question
+    asked of a LEVEL START instead of a warp. BOOT-TALL-VSCROLL-RATCHET found the boot ladder
+    priming Plane B from a scroll capped at the act-default ceiling (288) and sliding to its
+    target at the rate clamp (s2_hpz_solo's AUTHORED start: 288 -> 446 over 10 frames);
+    bg_vscroll_rate_witness leg B (A8) grades that SCROLL VALUE on DEBUG OJZ. This grades the
+    PICTURE on Hidden Palace's band chain: every visible line and plane row of the first
+    ENTRY_FRAMES frames, from the one the init hands the screen, by _grade_frames, the grade
+    the ENTRY leg uses (at-target frames exact, and no frame may slide).
+
+    Boots: (1) for each tall zone and each of its band layouts, a boot through the DEBUG
+    boot-position override (Aurora's "Build & Run at the cursor") at the same probe the ENTRY
+    leg warps to, i.e. the player centre camera + (CAM_SCREEN_HALF_W, CAM_SCREEN_HALF_H);
+    (2) the act's AUTHORED start, no override. LOUD ON UNMEASURABLE: an override boot whose
+    camera is not the probe's, or whose camera centre is not in that zone's clip and layout,
+    is COULD NOT MEASURE; so is an authored start outside every tall zone when `need_authored`
+    (the row that names s2_hpz_solo, whose authored start IS the subject); without it that is
+    a SKIP row that counts nothing (the woven act starts in a one-plane map).
+
+    Returns (fails, lines) as the ENTRY leg does."""
+    out, fails = [], 0
+    for key, ch in chains.items():
+        clip = ctxs[key]["clip"]
+        boots = []
+        for i, t in _layout_targets(plan, key, ch, spec_at):
+            if t is None:
+                out.append(f"COULD NOT MEASURE boot {clip.zone} layout {i}: no probe inside it")
+                fails += 1
+                continue
+            # the ENTRY leg's probe (the layout's first), and its DEEPEST probe at the same x:
+            # a target above VSCROLL_BG_MAX is what the capped prime could not reach, and the
+            # deepest camera of a layout is where its target is highest
+            deep = max((p for p in plan if p[0] == key and p[3] == t[3]
+                        and spec_at(key, p[4])[0] == i), key=lambda p: p[4])
+            boots += [(i, t)] + ([(i, deep)] if deep[4] != t[4] else [])
+        for i, (_k, zone, _dy, x, y) in boots:
+            why = await _boot_to_update(b, sym, (x + CAM_HALF_W, y + CAM_HALF_H))
+            if why is None:
+                cam = await _read_cam(b, sym)
+                if cam != (x, y):
+                    why = (f"the override did not land the camera on the probe: camera {cam}, "
+                           f"wanted ({x},{y})")
+                elif spec_at(key, y)[0] != i:
+                    why = f"the camera centre is in layout {spec_at(key, y)[0]}, not {i}"
+            if why:
+                out.append(f"COULD NOT MEASURE boot {zone} layout {i} at ({x},{y}): {why}")
+                fails += 1
+                continue
+            g = await _grade_frames(b, sym, key, ch, ctxs[key], spec_at, ENTRY_FRAMES)
+            fails += g[0] > 0 or g[1] > 0
+            out.append(_entry_line("boot", f"{zone} layout {i} (Boot_At -> ({x},{y}), first frame "
+                                   f"vscroll {g[4][0]} target {g[4][1]})", g,
+                                   "the boot ladder", "BOOT-TALL-VSCROLL-RATCHET"))
+    why = await _boot_to_update(b, sym, None)
+    if why:
+        out.append(f"COULD NOT MEASURE boot authored start: {why}")
+        return fails + 1, out
+    cx_, cy_ = await _read_cam(b, sym)
+    home = next((c for c in act.clips
+                 if c.dst[0] <= cx_ + CAM_HALF_W < c.dst[0] + c.dst[2]
+                 and c.dst[1] <= cy_ + CAM_HALF_H < c.dst[1] + c.dst[3]), None)
+    if home is None or home.zone_key not in chains:
+        where = home.zone if home else "no clip"
+        if need_authored:
+            out.append(f"COULD NOT MEASURE boot authored start: camera ({cx_},{cy_}) centre is in "
+                       f"{where}, not a tall zone, and --require-authored-tall names it the "
+                       f"subject")
+            return fails + 1, out
+        out.append(f"SKIP boot authored start: camera ({cx_},{cy_}) centre is in {where}, not a "
+                   f"tall zone; nothing on this boot can slide (graded: nothing)")
+        return fails, out
+    key = home.zone_key
+    g = await _grade_frames(b, sym, key, chains[key], ctxs[key], spec_at, ENTRY_FRAMES)
+    fails += g[0] > 0 or g[1] > 0
+    out.append(_entry_line("boot", f"{home.zone} layout {spec_at(key, cy_)[0]} (AUTHORED start, "
+                           f"camera ({cx_},{cy_}), first frame vscroll {g[4][0]} target "
+                           f"{g[4][1]})", g, "the boot ladder",
+                           "BOOT-TALL-VSCROLL-RATCHET"))
     return fails, out
 
 
@@ -424,7 +588,7 @@ def _waypoints(co, frm, to):
     return [(x + w + 2 * FLY_TOL, cy), (max(x - 256, to.dst[0] + 200), cy)]
 
 
-async def _fly_leg(b, sym, rom, act, chains, specs, plan, spec_at, blob_lab, rates_of):
+async def _fly_leg(b, sym, act, chains, specs, plan, spec_at, ctxs):
     """THE FLIGHT LEG (`--warp-entry` runs it after the ENTRY leg): the same question asked of
     a WALKED crossing, with no teleport between the drifting zone and the tall one. Warp into a
     zone whose bands DRIFT, let it run STABLE_FRAMES * 10 frames so the accumulators move, then
@@ -463,7 +627,7 @@ async def _fly_leg(b, sym, rom, act, chains, specs, plan, spec_at, blob_lab, rat
         pts = [p for co, frm, to in route for p in _waypoints(co, frm, to)]
         low = max(p[4] for p in plan if p[0] == key)
         pts.append((clip.dst[0] + 64 + CAM_HALF_W, low + CAM_HALF_H))
-        res = await _fly_grade(b, sym, rom, pts, key, ch, clip, spec_at, blob_lab)
+        res = await _fly_grade(b, sym, pts, key, ch, ctxs[key], spec_at)
         await b.call("emulator/write_memory", {"addr": hex(sym["Debug_Scene_Freeze"]),
                                                "value": 1, "width": 1})
         names = " -> ".join(co.id for co, _f, _t in route)
@@ -488,21 +652,11 @@ async def _fly_leg(b, sym, rom, act, chains, specs, plan, spec_at, blob_lab, rat
     return fails, out
 
 
-async def _fly_grade(b, sym, rom, pts, key, ch, clip, spec_at, blob_lab):
+async def _fly_grade(b, sym, pts, key, ch, cx, spec_at):
     """Fly through `pts` (player centres) in DEBUG free flight, grading every frame whose
-    camera centre is inside `clip`. Returns (graded, bad, first, layouts) or a reason string."""
-    r0 = ch["r0"]
-    _raw, kind_of = CBS._tall_source(clip.donor, clip.zone, 0, ch["v_hi"])
-    base = sym[blob_lab[key]] & 0xFFFFFF
-    blob = rom[base:base + ch["span"] // 8 * PLANE_ROW_BYTES]
-    wild = {t for t in range(ch["span"] // 8)
-            if not any(blob[t * PLANE_ROW_BYTES:(t + 1) * PLANE_ROW_BYTES])}
-    factor_of = {}
-    for sp in ch["specs"]:
-        for bd in sp["bands"]:
-            k = ("drift", bd["drift"]) if bd.get("drift") else \
-                ("flat", bd.get("s2_ratio", bd["ratio"]))
-            factor_of.setdefault(k, bd["factor"])
+    camera centre is inside `cx`'s clip. Returns (graded, bad, first, layouts) or a reason."""
+    r0, clip = ch["r0"], cx["clip"]
+    kind_of, blob, wild, factor_of = cx["kind_of"], cx["blob"], cx["wild"], cx["factor_of"]
     pos = (sym["Player_1"] + SST_POS[0], sym["Player_1"] + SST_POS[1])
     graded, bad, first, layouts = 0, 0, None, set()
     x0, y0, w0, h0 = clip.dst
@@ -599,7 +753,16 @@ def main():
     ap.add_argument("--place", choices=("warp", "poke"), default="warp",
                     help="how each probe moves the camera (see _place); `poke` is the pre-"
                          "2026-09-27 raw Camera_X/Y write, kept to reproduce what it measured")
+    ap.add_argument("--boot-entry", action="store_true",
+                    help="after the probes (and --warp-entry), the BOOT leg: the first frames of "
+                         "a level start in each tall zone's layouts (DEBUG Boot_At) and at the "
+                         "act's authored start, graded as the ENTRY leg grades (see _boot_leg)")
+    ap.add_argument("--require-authored-tall", action="store_true",
+                    help="with --boot-entry: an authored start outside every tall zone is COULD "
+                         "NOT MEASURE, not a SKIP (the act whose authored start is the subject)")
     a = ap.parse_args()
+    if a.require_authored_tall and not a.boot_entry:
+        ap.error("--require-authored-tall grades the BOOT leg; pass --boot-entry")
     rom, lst = str(Path(a.rom).resolve()), str(Path(a.lst).resolve())
     global CAM_HALF_W, CAM_HALF_H
     from fg_working_set import ConstantSource
@@ -635,6 +798,8 @@ def main():
         labels.update({CRB.tall_parallax_label(k, i): (k, i) for i in range(len(ch["specs"]))})
     blob_lab = {k: f"OJZ_Clip_BG_Layout_{k}" for k in chains}
     need = SYMS + sorted(labels) + sorted(blob_lab.values()) + (
+        ["Boot_At_X", "Boot_At_Y", "Boot_At_Flag", "GameState_OJZScroll_Init",
+         "GameState_OJZScroll_Update"] if a.boot_entry else []) + (
         ["Parallax_Drift_Acc"] if any(b.get("drift") for sp in specs.values()
                                       for b in sp["bands"]) else [])
     missing = [s for s in need if s not in sym]
@@ -648,8 +813,10 @@ def main():
     rates_of = {k: [b.get("drift") or 0 for b in sp["bands"]] for k, sp in specs.items()}
     results = []
     entry = []
+    boot = []
     with open(rom, "rb") as fh:
         rom_bytes = fh.read()
+    ctxs = {k: _chain_ctx(rom_bytes, act, sym, k, ch, blob_lab) for k, ch in chains.items()}
 
     async def run(sock):
         b = BusClient(socket_path=sock, client_id="clipscroll", client_name="clip_bg_scroll_witness")
@@ -668,11 +835,16 @@ def main():
             if not chains:
                 entry.extend((1, ["COULD NOT MEASURE entry: this act has no tall zone"]))
             else:
-                f1, l1 = await _entry_leg(b, sym, rom_bytes, act, chains, specs, plan, spec_at,
-                                          blob_lab, rates_of)
-                f2, l2 = await _fly_leg(b, sym, rom_bytes, act, chains, specs, plan, spec_at,
-                                        blob_lab, rates_of)
+                f1, l1 = await _entry_leg(b, sym, act, chains, plan, spec_at, ctxs, rates_of)
+                f2, l2 = await _fly_leg(b, sym, act, chains, specs, plan, spec_at, ctxs)
                 entry.extend((f1 + f2, l1 + l2))
+        # LAST: every boot resets the machine, so nothing above may run after it
+        if a.boot_entry:
+            if not chains:
+                boot.extend((1, ["COULD NOT MEASURE boot: this act has no tall zone"]))
+            else:
+                boot.extend(await _boot_leg(b, sym, act, chains, plan, spec_at, ctxs,
+                                            a.require_authored_tall))
         await b.close()
 
     with aether_emulator(rom, symbols=lst) as sock:
@@ -782,6 +954,19 @@ def main():
               f"{entry_fail - n_cnm} FAIL, {n_cnm} could not measure")
         unmeasured += n_cnm
         bad += entry_fail - n_cnm
+    if a.boot_entry:
+        boot_fail, lines = boot
+        for ln in lines:
+            print(ln)
+        n_cnm = sum(1 for ln in lines if ln.startswith("COULD NOT"))
+        n_graded = sum(1 for ln in lines if ln.startswith(("OK", "FAIL")))
+        print(f"clip_bg_scroll_witness BOOT leg: {len(lines)} row(s), {n_graded} graded, "
+              f"{boot_fail - n_cnm} FAIL, {n_cnm} could not measure")
+        bad += boot_fail - n_cnm
+        if n_graded == 0 and not n_cnm:
+            print("COULD NOT MEASURE boot: no boot was graded")
+            n_cnm = 1
+        unmeasured += n_cnm
     if a.json:
         Path(a.json).write_text(json.dumps(report, indent=1))
     return 2 if unmeasured else (1 if bad else 0)
