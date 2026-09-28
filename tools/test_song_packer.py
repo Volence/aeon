@@ -1093,16 +1093,21 @@ class TestCommittedSongHeaders(unittest.TestCase):
     SONG_COUNT, so a new song cannot join the ROM unaudited.
     """
     MT_BANK = os.path.join(AEON, "games/sonic4/data/sound/mt_bank.emp")
+    # Every module that embeds a song (bank 1 and the second song bank, 2026-09-28).
+    SONG_MODULES = (MT_BANK, os.path.join(AEON, "games/sonic4/data/sound/song_bank2.emp"))
     SOUND_IDS = os.path.join(AEON, "games/sonic4/config/sound_ids.emp")
 
     def _population(self):
-        text = open(self.MT_BANK).read()
         # The paths are aeon-root relative (song bank 2 step 1: the ROM build places
         # mt_bank.emp and resolves its embeds from the root).
-        names = re.findall(r'embed\("(games/sonic4/data/sound/song_[A-Za-z0-9_]+\.bin)"\)', text)
-        if not names:
-            self.fail(f"no `embed(\"games/sonic4/data/sound/song_*.bin\")` in {self.MT_BANK}: "
-                      f"the audit has nothing to audit, which must be loud, never a pass")
+        names = []
+        for module in self.SONG_MODULES:
+            text = open(module).read()
+            found = re.findall(r'embed\("(games/sonic4/data/sound/song_[A-Za-z0-9_]+\.bin)"\)', text)
+            if not found:
+                self.fail(f"no `embed(\"games/sonic4/data/sound/song_*.bin\")` in {module}: "
+                          f"the audit has nothing to audit, which must be loud, never a pass")
+            names += found
         return [os.path.join(AEON, n) for n in names]
 
     @staticmethod
@@ -1123,7 +1128,7 @@ class TestCommittedSongHeaders(unittest.TestCase):
         self.assertIsNotNone(m, "SONG_COUNT's DEBUG arm not found in sound_ids.emp")
         pop = self._population()
         self.assertEqual(len(pop), int(m.group(1)),
-                         f"mt_bank.emp embeds {len(pop)} song blobs but the DEBUG "
+                         f"the song modules embed {len(pop)} song blobs but the DEBUG "
                          f"SONG_COUNT is {m.group(1)}")
         for p in pop:
             self.assertTrue(os.path.isfile(p), f"{p} is embedded but absent")

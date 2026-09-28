@@ -24,3 +24,8 @@ name = "sound_bank"
 at = 0x108000
 vma = 0x8000
 when = "sound_on"
+
+[[anchor]]
+name = "song_bank_2"
+at = 0x110000
+when = "sound_on"

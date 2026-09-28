@@ -1,14 +1,17 @@
 #!/usr/bin/env python3
-"""data/sound/song_s2_ehz_cpz.py — Sonic 2 Emerald Hill + Chemical Plant import
-(S2CLIP-REGION-MUSIC: the converter's S2 mode + its declared tables).
+"""data/sound/song_s2_ehz_cpz.py — Sonic 2 Emerald Hill, Chemical Plant and Metropolis import
+(S2CLIP-REGION-MUSIC: the converter's S2 mode + its declared tables; Metropolis joined with
+the second song bank, S2CLIP-MTZ-SONG-BANK, 2026-09-28).
 
-Converts the two Sonic 2 songs straight from s2disasm's smps2asm source through
+Converts the three Sonic 2 songs straight from s2disasm's smps2asm source through
 tools/smps_import.py, whose S2 mode (SourceDriver 2, read from each song's own
 `smpsHeaderStartSong 2`) applies the S2 -> S3K rules s2disasm's _smps2asm_inc.asm
 defines and parses each song's own voice bank:
 
   * games/sonic4/data/sound/song_s2_ehz.bin + s2_ehz_patches.bin
   * games/sonic4/data/sound/song_s2_cpz.bin + s2_cpz_patches.bin
+  * games/sonic4/data/sound/song_s2_mtz.bin + s2_mtz_patches.bin (embedded by
+    games/sonic4/data/sound/song_bank2.emp, the second song bank)
 
 Run from the repo root:
     python3 games/sonic4/data/sound/song_s2_ehz_cpz.py
@@ -55,6 +58,7 @@ from smps_import import (                                       # noqa: E402
 SONGS = (
     ("ehz", "82 - EHZ.asm"),
     ("cpz", "8E - CPZ.asm"),
+    ("mtz", "85 - MTZ.asm"),
 )
 
 OUT_DIR = _HERE

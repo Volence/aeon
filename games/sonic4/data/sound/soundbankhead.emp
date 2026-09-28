@@ -41,19 +41,19 @@
 
 module games.sonic4.soundbankhead
 
-const _sound_tables = embed("engine/sound/generated/sound_tables_z80.bin")
-const _pitchtab     = embed("engine/sound/generated/movingtrucks_pitchtable.bin")
-const _sfxwin       = if DEBUG == 1 {
+pub const _sound_tables = embed("engine/sound/generated/sound_tables_z80.bin")
+pub const _pitchtab     = embed("engine/sound/generated/movingtrucks_pitchtable.bin")
+pub const _sfxwin       = if DEBUG == 1 {
     embed("engine/sound/generated/sfx_blob_win_tab_debug.bin")
 } else {
     embed("engine/sound/generated/sfx_blob_win_tab.bin")
 }
-const _seqop        = if DEBUG == 1 {
+pub const _seqop        = if DEBUG == 1 {
     embed("engine/sound/generated/seq_opcode_tab_debug.bin")
 } else {
     embed("engine/sound/generated/seq_opcode_tab.bin")
 }
-const _dacsamp      = embed("engine/sound/generated/dac_sample_tab.bin")
+pub const _dacsamp      = embed("engine/sound/generated/dac_sample_tab.bin")
 
 section soundbankhead (cpu: m68000, vma: $8000) {
     // The generated FM/PSG data tables (4 pure-math LUTs + the PSG/FM vol-env
@@ -102,9 +102,9 @@ ensure(_seqop.len == $40, "SeqOpcodeTable wrong size (must be 32 dw entries = $4
 // dac_sample_tab.emp, which cannot see the other heads (seam-2 lowers it
 // standalone), so it was sized off a retyped `$357 + $108 + $112 + $40` that went
 // stale whenever an upstream head grew.
-const HEAD_BODY = _sound_tables.len + _pitchtab.len + _sfxwin.len + _seqop.len + _dacsamp.len
-const HEAD_PAD = (8 - (HEAD_BODY % 8)) % 8
-const _head_pad = bytes(comptime for i in 0..HEAD_PAD { 0 })
+pub const HEAD_BODY = _sound_tables.len + _pitchtab.len + _sfxwin.len + _seqop.len + _dacsamp.len
+pub const HEAD_PAD = (8 - (HEAD_BODY % 8)) % 8
+pub const _head_pad = bytes(comptime for i in 0..HEAD_PAD { 0 })
 // The tripwire: the head as EMITTED (the five embeds plus the pad data actually
 // appended to DacSampleTable) must total a multiple of 8. `_head_pad.len` is the
 // length of the Data the section carries, not the HEAD_PAD arithmetic, so a pad
@@ -112,3 +112,15 @@ const _head_pad = bytes(comptime for i in 0..HEAD_PAD { 0 })
 // refused here rather than shipping a head that ends off the 8-byte quantum.
 ensure((HEAD_BODY + _head_pad.len) % 8 == 0,
        "engine-table head must end 8-aligned: the MT bank's lowering baseline and the SFX pointer fold both assume it")
+
+// THE HEAD IMAGE, for every OTHER song bank (song bank 2, 2026-09-28). The resident Z80
+// reads these tables at fixed $8000-window addresses under WHATEVER bank is latched, so a
+// song bank other than this one must begin with the same bytes (a replica, no labels: no
+// code reads a replica by name). games/sonic4/data/sound/song_bank2.emp places this exact
+// const as `SongBank2_Head`, so the replica is built from the same five embeds and the same
+// pad as the head above, never a retyped copy; tools/song_bank_witness.py compares the two
+// on the built ROM. A `.emp` const's free names resolve in the module that USES it, so
+// song_bank2.emp imports this const's whole closure (the five embeds, HEAD_BODY, HEAD_PAD,
+// _head_pad), which is why those are `pub`. A new name here must join that import, or
+// song_bank2.emp fails to lower (loud, never a drifted copy).
+pub const SOUND_BANK_HEAD_IMAGE = _sound_tables ++ _pitchtab ++ _sfxwin ++ _seqop ++ _dacsamp ++ _head_pad

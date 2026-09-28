@@ -1622,12 +1622,15 @@ def test_s2_generator_refuses_and_writes_nothing_with_empty_tables(tmp_path):
 
 
 def test_s2_generator_writes_both_songs_given_declared_maps(tmp_path):
+    # (all three songs since song bank 2: MTZ's three extra drums take the declared
+    # table's readings, docs/decisions.jsonl S2CLIP-MUSIC-DRUMS-MTZ; the probe map above
+    # was measured for EHZ/CPZ only.)
     gen = _load_s2_generator()
-    written = gen.generate(out_dir=str(tmp_path), dac_map=_PROBE_DAC_BY_NAME,
-                           ftone_map=_PROBE_FTONE)
+    dac = dict(_PROBE_DAC_BY_NAME, **{n: _si.S2_DAC_MAP[n] for n in ("dLowTom", "dClap", "dScratch")})
+    written = gen.generate(out_dir=str(tmp_path), dac_map=dac, ftone_map=_PROBE_FTONE)
     names = sorted(p.name for p in tmp_path.iterdir())
-    assert names == ["s2_cpz_patches.bin", "s2_ehz_patches.bin",
-                     "song_s2_cpz.bin", "song_s2_ehz.bin"]
+    assert names == ["s2_cpz_patches.bin", "s2_ehz_patches.bin", "s2_mtz_patches.bin",
+                     "song_s2_cpz.bin", "song_s2_ehz.bin", "song_s2_mtz.bin"]
     sizes = {os.path.basename(p): n for p, n in written}
     assert sizes["s2_ehz_patches.bin"] == 9 * FMPATCH_LEN
     assert sizes["s2_cpz_patches.bin"] == 6 * FMPATCH_LEN
@@ -1640,12 +1643,14 @@ def test_s2_generator_default_output_is_the_embedded_sound_dir():
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     assert (os.path.relpath(gen.OUT_DIR, root).replace(os.sep, "/")
             == "games/sonic4/data/sound")
-    mt_bank = open(os.path.join(root, "games/sonic4/data/sound/mt_bank.emp")).read()
-    for name in ("song_s2_ehz.bin", "s2_ehz_patches.bin",
-                 "song_s2_cpz.bin", "s2_cpz_patches.bin"):
-        # aeon-root relative since song bank 2 step 1 (the ROM build places mt_bank.emp)
-        assert f'embed("games/sonic4/data/sound/{name}")' in mt_bank, \
-            f"mt_bank.emp does not embed {name}"
+    # EHZ/CPZ live in bank 1 (mt_bank.emp), MTZ in the second song bank (song_bank2.emp);
+    # both spell their embeds from the aeon root (the ROM build places both modules).
+    for module, stems in (("mt_bank.emp", ("ehz", "cpz")), ("song_bank2.emp", ("mtz",))):
+        text = open(os.path.join(root, "games/sonic4/data/sound", module)).read()
+        for stem in stems:
+            for name in (f"song_s2_{stem}.bin", f"s2_{stem}_patches.bin"):
+                assert f'embed("games/sonic4/data/sound/{name}")' in text, \
+                    f"{module} does not embed {name}"
 
 
 def test_s2_committed_songs_are_the_generators_output(tmp_path):
@@ -1654,7 +1659,7 @@ def test_s2_committed_songs_are_the_generators_output(tmp_path):
     # regenerated and committed (a regeneration moves ROM bytes).
     gen = _load_s2_generator()
     written = gen.generate(out_dir=str(tmp_path))
-    assert len(written) == 4
+    assert len(written) == 6
     for p, n in written:
         committed = os.path.join(gen.OUT_DIR, os.path.basename(p))
         assert os.path.isfile(committed), f"{committed} is not committed"
@@ -1784,10 +1789,11 @@ def test_s2_generator_writes_both_songs_with_the_declared_tables(tmp_path):
     gen = _load_s2_generator()
     written = gen.generate(out_dir=str(tmp_path))
     sizes = {os.path.basename(p): n for p, n in written}
-    assert sorted(sizes) == ["s2_cpz_patches.bin", "s2_ehz_patches.bin",
-                             "song_s2_cpz.bin", "song_s2_ehz.bin"]
+    assert sorted(sizes) == ["s2_cpz_patches.bin", "s2_ehz_patches.bin", "s2_mtz_patches.bin",
+                             "song_s2_cpz.bin", "song_s2_ehz.bin", "song_s2_mtz.bin"]
     assert sizes["s2_ehz_patches.bin"] == 9 * FMPATCH_LEN
     assert sizes["s2_cpz_patches.bin"] == 6 * FMPATCH_LEN
+    assert sizes["s2_mtz_patches.bin"] == 6 * FMPATCH_LEN
 
 
 # ---- header volume seeds the running volume (S2CLIP volume parcel, 2026-09-26) ------

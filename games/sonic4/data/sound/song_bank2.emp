@@ -1,0 +1,50 @@
+// ===========================================================================
+// games/sonic4/data/sound/song_bank2.emp — the SECOND Z80 song bank (S2CLIP-MTZ-SONG-BANK,
+// 2026-09-28)
+// ===========================================================================
+// Bank 1 (the `sound_bank` window: the engine-table head, the Moving-Trucks bank's songs,
+// the SFX block) was full in the DEBUG shape: 2,533 B free, and Sonic 2's Metropolis is
+// 2,875 + 192 B. This bank holds songs that do not fit there, one $8000 window of its own.
+//
+// HOW A SONG HERE PLAYS (docs/ENGINE_ARCHITECTURE.md, "Song banks"). Sound_PlayMusic derives
+// the bank and window pointers from the song's own ROM address (SongTable, sfx_bank_blob.emp),
+// Snd_LoadSong latches that bank as SND_SONG_BANK, and Run_SeqFrame_OnSongBank banks it in
+// for every sequencer frame. Two things make that correct:
+//   * this bank BEGINS WITH THE ENGINE-TABLE HEAD, byte for byte (`SongBank2_Head`, the
+//     const soundbankhead.emp exports), because the resident Z80 reads SeqOpcodeTable,
+//     DacSampleTable, SndDefaultPitchTable and the FM/PSG LUTs at fixed window addresses
+//     under whatever bank is in;
+//   * a music-patch read on the SFX path banks the SONG's bank in (SndDrv_SongBankIn in
+//     Sfx_Restore and Sfx_UnpauseRestore).
+// A song and its patch bank must share one bank: the section's `bank: $8000` property is a
+// no-straddle link assert over everything here.
+//
+// PLACEMENT. `SongBank2_Head` is the first item and the section's map row (map.toml,
+// after `Sfx_33`). Sigil's `section_align` declares it 0x8000 (walk-ROUNDED, not held: no
+// frozen row, and a refreeze does not add one), so the packing walk puts it on the first
+// window boundary after bank 1, and the map's `song_bank_2` anchor declares that island
+// (sound_bank + 0x8000). See the map.toml comment for what the anchor depends on.
+// A ROM-build module only (sigil SHAPE_GATES: SoundOn); seam-2 never lowers it, so its
+// embeds are ordinary aeon-root paths.
+// ===========================================================================
+
+module games.sonic4.song_bank2
+
+// The head image and its whole closure: a const's free names resolve HERE, not in
+// soundbankhead.emp (see its SOUND_BANK_HEAD_IMAGE comment).
+use games.sonic4.soundbankhead.{SOUND_BANK_HEAD_IMAGE, _sound_tables, _pitchtab, _sfxwin, _seqop,
+                                _dacsamp, HEAD_BODY, HEAD_PAD, _head_pad}
+
+const S2MtzBlob      = embed("games/sonic4/data/sound/song_s2_mtz.bin")      // 2875 B
+const S2MtzPatchBlob = embed("games/sonic4/data/sound/s2_mtz_patches.bin")   // 192 B
+
+section song_bank2 (cpu: m68000, bank: $8000) {
+    // The engine-table head replica, at window offset 0.
+    pub data SongBank2_Head = SOUND_BANK_HEAD_IMAGE
+
+    // Sonic 2 Metropolis (SONG_S2_MTZ), then its own patch bank. The align-2 pad keeps the
+    // bank-1 songs' convention (nothing here needs even addresses: the Z80 reads bytes).
+    pub data Song_S2_MTZ   = S2MtzBlob
+    data _s2_mtz_align     = if S2MtzBlob.len % 2 == 1 { byte(0) } else { Data.empty }
+    pub data S2_MTZ_Patches = S2MtzPatchBlob
+}
