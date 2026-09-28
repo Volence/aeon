@@ -3901,7 +3901,9 @@ proc Decode_Factor_B () clobbers(d1-d2) preserves(d3) {
 // only cross-loop contract: **d4 = the band's end line**, a1/a2/a3/a5/a6/d7 untouched.
 //   `.lp_both`  — the ORIGINAL shape, and the only one that still walks d4 per line: it
 //                 indexes both curves as `(phase + d4) & $FF` and swaps d3 to switch shifts.
-//   `.lp_flat`  — d0 broadcast 8 longs at a time; d1/d2 are the group/remainder counters.
+//   `.lp_flat`  — d0 broadcast 8 longs at a time, as two `movem.l` of d0/d3/d5/d6 through
+//                 a0 walking back from the band's end (PPB-6); d1/d2 are the group/remainder
+//                 counters, and a4 jumps to the band end before the first store.
 //   `.band_fg_only` / `.lp_bg` — d4 jumps to the band end IMMEDIATELY and the curve is read
 //                 through a0, a walking pointer, reset at the 256-byte wrap. d5 is the
 //                 sample scratch, so the post-wrap line count lives on the stack. See the
@@ -4582,25 +4584,42 @@ proc Parallax_Fill_PerLine () clobbers(d0-d6/a1-a6) preserves(a0/d7) {
     //
     // d2/d3/d6 are dead on this path (they carry the deform paths' phase bases and
     // shifts, and this is the no-deform branch), so the remainder counter is free.
+    //
+    // BY `movem.l`, BACKWARDS (PPB-6, 2026-09-28). A group of 8 lines is two `movem.l` of
+    // four copies of d0 (d0/d3/d5/d6) through a0 walking DOWN from the band's end: 2 x 40 +
+    // the dbf's 10 = 90 cycles, against 8 x `move.l d0,(a4)+` (96) + 10 = 106. `movem` has
+    // no post-increment store, so the band is written from its end back to its start, and
+    // a4 steps to the end FIRST, from the span, which also retires the second failure mode
+    // above: a4 no longer counts the lines it wrote, so it cannot fall out of step with d4.
+    // The first one still stands, backwards (a zero remainder into the dbf sprays ~256 KB
+    // DOWN from the band into the rest of work RAM), so the tail keeps its guard. Four
+    // copies, not more: d0, d3, d5 and d6 are the free data registers here; a1-a3 are the
+    // cross-loop contract, a5/a6 the deform table bases, d1/d2 the two counters, d4/d7
+    // live, and a0 is the cursor. The setup is 32 cycles a band and the saving 16 a group,
+    // so a flat band gains from its third group of 8 lines: measured on the legs, Emerald
+    // Hill's short flat bands (11 to 58 lines) gain ~40 cycles a tick in all, canonical
+    // OJZ's tall ones ~270 (docs/research/2026-09-28-parallax-perband-2.md).
     .lp_flat:
         move.w  d5, d1
         sub.w   d4, d1
         ble     .band_done                          // empty/malformed band
         move.w  d5, d4                              // line index jumps to band end
         move.w  d1, d2
+        add.w   d2, d2
+        add.w   d2, d2                              // d2 = the band's bytes (4 per line)
+        adda.w  d2, a4                              // a4 = the band's end: the next band's start
+        movea.l a4, a0                              // a0 = the fill cursor, walking BACK from it
+        move.w  d1, d2
         andi.w  #7, d2                              // d2 = remainder lines 0..7
         lsr.w   #3, d1                              // d1 = whole groups of 8
         beq     .fl_tail                            // span < 8: tail only, no group
         subq.w  #1, d1
+        move.l  d0, d3
+        move.l  d0, d5
+        move.l  d0, d6
     .fl_line:
-        move.l  d0, (a4)+
-        move.l  d0, (a4)+
-        move.l  d0, (a4)+
-        move.l  d0, (a4)+
-        move.l  d0, (a4)+
-        move.l  d0, (a4)+
-        move.l  d0, (a4)+
-        move.l  d0, (a4)+
+        movem.l d0/d3/d5-d6, -(a0)
+        movem.l d0/d3/d5-d6, -(a0)
         dbf     d1, .fl_line
     .fl_tail:
         // A ZERO REMAINDER MUST BRANCH AROUND, never fall into the dbf: `subq #1` on 0
@@ -4610,7 +4629,7 @@ proc Parallax_Fill_PerLine () clobbers(d0-d6/a1-a6) preserves(a0/d7) {
         beq     .band_done
         subq.w  #1, d2
     .fl_rem:
-        move.l  d0, (a4)+
+        move.l  d0, -(a0)
         dbf     d2, .fl_rem
 
     .band_done:
