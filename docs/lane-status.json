@@ -7,13 +7,13 @@
       "agent": true
     },
     {
-      "what": "Fix the overnight eviction test drive, which refused to run after code moved under it",
-      "where": "branch fix/evict-witness-site",
+      "what": "Parallax round 2: three more small savings (about 1.3k cycles a tick), same picture",
+      "where": "branch perf/parallax-perband-2",
       "agent": true
     },
     {
-      "what": "Parallax round 2: three more small savings (about 1.3k cycles a tick), same picture",
-      "where": "branch perf/parallax-perband-2",
+      "what": "Re-aim the overnight eviction test drive so it proves pages really swap after the level starts",
+      "where": "branch fix/evict-witness-phase1",
       "agent": true
     }
   ],
@@ -43,7 +43,7 @@
   "queue": [
     {
       "id": "EVICT-WITNESS-SITE",
-      "title": "The overnight eviction test drive refused to run (code moved under its search window); fixing how it finds its spot",
+      "title": "Overnight eviction test drive: locator fixed (landed); re-aiming its first phase, which a 09-25 change made obsolete",
       "state": "doing",
       "size": "S",
       "blockedBy": null
@@ -159,5 +159,5 @@
   ],
   "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-09-28T10:22:39Z"
+  "updatedAt": "2026-09-28T10:45:59Z"
 }
