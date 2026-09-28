@@ -386,3 +386,84 @@ def _pin0_worst(c, args, glob):
     """The stress act's page-0-only worst window: the smallest budget its frame-aware pins
     can fit (a pin is kept only if it pushes no window over the budget)."""
     return int(fpo.place_fixed_pool(glob, len(args["pages"]), [0], c)["needed_pin0"].max())
+
+
+# ---------------------------------------------------------------------------
+# The ROM arm (GPP-FG-WINDOW-MODEL, 2026-09-28): `rom-window` decodes the emitted
+# Tile_Cache_Fill window arithmetic and requires the model's. The encodings below are the
+# 68000 words sigil emits for tile_cache.emp's .no_pending..h_clamp_ok and
+# .v_section..v_clamp_ok (read from s4.bin at c76c9f90), with every immediate taken from
+# the engine constants the model reads, so the fixture tracks the constants, not a number.
+# ---------------------------------------------------------------------------
+
+CAM_X, CAM_Y = 0xFFA6E2, 0xFFA6E6
+
+
+def _window_blocks(c, h_margin=None, drop_even=False):
+    mh = c["TILE_CACHE_MARGIN_H"] if h_margin is None else h_margin
+    mv = c["TILE_CACHE_MARGIN_V"]
+    h = ("2c38%04x4846e64e30060440%04x6a0270003f002c38%04x48460646%04xe64e30060640%04x"
+         "3e0030170640%04xbe406f023e00") % (CAM_X & 0xFFFF, mh, CAM_X & 0xFFFF,
+                                            c["SECTION_H_REACH_PX"], mh, c["TILE_CACHE_COLS"] - 1)
+    even = "4e714e71" if drop_even else "0240fffe"
+    v = ("2c38%04x4846e64e30060440%04x6a027000%s3f002c38%04x48460646%04xe64e30060640%04x"
+         "3e0030170640%04xbe406f023e00") % (CAM_Y & 0xFFFF, mv, even, CAM_Y & 0xFFFF,
+                                            c["SECTION_V_REACH_PX"], mv, c["TILE_CACHE_ROWS"] - 1)
+    return bytes.fromhex(h), bytes.fromhex(v)
+
+
+def _rom_window_tree(tmp_path, blocks, drop_label=None):
+    h, v = blocks
+    rom = bytearray(0x3000)
+    rom[0x1000:0x1000 + len(h)] = h
+    rom[0x2000:0x2000 + len(v)] = v
+    labels = {"no_pending": 0x1000, "h_left_pos": 0x1012, "h_clamp_ok": 0x1000 + len(h),
+              "v_section": 0x2000, "v_top_pos": 0x2012, "v_clamp_ok": 0x2000 + len(v)}
+    rows = [f"(0) {i}/{a:X} :        $engine.tile_cache$Tile_Cache_Fill${n}:"
+            for i, (n, a) in enumerate(sorted(labels.items(), key=lambda kv: kv[1]))
+            if n != drop_label]
+    rows += [f" Camera_X : {CAM_X | 0xFF000000:X} C |", f" Camera_Y : {CAM_Y | 0xFF000000:X} C |"]
+    (tmp_path / "t.lst").write_text("\n".join(rows) + "\n")
+    (tmp_path / "t.bin").write_bytes(bytes(rom))
+    return str(tmp_path / "t.lst"), str(tmp_path / "t.bin")
+
+
+def test_rom_window_accepts_the_models_arithmetic(tmp_path):
+    pytest.importorskip("capstone")
+    c = fpo.load_budget_constants()
+    lst, rom = _rom_window_tree(tmp_path, _window_blocks(c))
+    out = []
+    assert fpo.rom_window_check(lst, rom, c, out=out.append) == 0, out
+    assert "is the model's" in out[-1]
+
+
+def test_rom_window_refuses_a_different_margin(tmp_path):
+    """The measured mutation: `subi.w #TILE_CACHE_MARGIN_H+8, d0` at .no_pending."""
+    pytest.importorskip("capstone")
+    c = fpo.load_budget_constants()
+    lst, rom = _rom_window_tree(tmp_path,
+                                _window_blocks(c, h_margin=c["TILE_CACHE_MARGIN_H"] + 8))
+    out = []
+    assert fpo.rom_window_check(lst, rom, c, out=out.append) == 1
+    text = "\n".join(out)
+    assert f"subi.w #${c['TILE_CACHE_MARGIN_H'] + 8:x}, d0" in text, text
+    assert f"wants `subi.w #${c['TILE_CACHE_MARGIN_H']:x}, d0`" in text, text
+
+
+def test_rom_window_refuses_a_lost_even_rounding(tmp_path):
+    pytest.importorskip("capstone")
+    c = fpo.load_budget_constants()
+    lst, rom = _rom_window_tree(tmp_path, _window_blocks(c, drop_even=True))
+    out = []
+    assert fpo.rom_window_check(lst, rom, c, out=out.append) == 1
+    text = "\n".join(out)
+    # two nops for one andi: one instruction too many on the vertical block, named
+    assert "v: .v_section..v_clamp_ok holds" in text and "nop" in text, text
+
+
+def test_rom_window_without_its_labels_is_unmeasurable(tmp_path):
+    pytest.importorskip("capstone")
+    c = fpo.load_budget_constants()
+    lst, rom = _rom_window_tree(tmp_path, _window_blocks(c), drop_label="v_clamp_ok")
+    with pytest.raises(fpo.BudgetError, match="v_clamp_ok"):
+        fpo.rom_window_check(lst, rom, c, out=lambda *_: None)

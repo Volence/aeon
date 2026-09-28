@@ -66,7 +66,14 @@ GATES = {
     # --gate switch. On a demo pair it reaches the primitive, reads FRESH, then finds no
     # HeightMaps label (COULD NOT MEASURE, 2).
     "collision_consistency": (["--rom-tables"], False),
+    # GPP-FG-WINDOW-MODEL (2026-09-28): the post-sigil arm of the FG page budget. Its CLI is
+    # a MODES table (tools/test_cli_dispatch_refuses.py), so the mode leads (LEAD below).
+    "fg_page_order": ([], False),
 }
+
+#: A gate whose CLI takes a MODE first (a MODES dispatch table refuses anything else in
+#: argv[1]): the mode build.sh passes, put before --lst/--rom/--built-after.
+LEAD = {"fg_page_order": ["rom-window"]}
 
 
 @pytest.fixture(scope="module")
@@ -84,7 +91,7 @@ def pairs(tmp_path_factory):
 
 
 def run_gate(gate, lst, rom, t0, extra):
-    p = subprocess.run([sys.executable, os.path.join(TOOLS, gate + ".py"),
+    p = subprocess.run([sys.executable, os.path.join(TOOLS, gate + ".py"), *LEAD.get(gate, []),
                         "--lst", lst, "--rom", rom, "--built-after", str(t0), *extra],
                        cwd=AEON, capture_output=True, text=True, timeout=600)
     return p.returncode, p.stdout + p.stderr

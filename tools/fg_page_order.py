@@ -82,6 +82,9 @@ Usage:
     python3 tools/fg_page_order.py check
       exit 0 every window of every act fits; 1 a window is over budget;
       2 UNMEASURABLE (a constant, an input or an act the decoder does not know).
+    python3 tools/fg_page_order.py rom-window --lst L --rom R [--built-after EPOCH]
+      the post-sigil arm (GPP-FG-WINDOW-MODEL): exit 0 the ROM's Tile_Cache_Fill computes
+      the window `check` counts with; 1 it does not (named); 2 UNMEASURABLE or stale pair.
 """
 
 import json
@@ -843,8 +846,176 @@ def check(out=print):
     return status
 
 
+# ---------------------------------------------------------------------------
+# The ROM arm: the window model IS the emitted Tile_Cache_Fill (GPP-FG-WINDOW-MODEL)
+# ---------------------------------------------------------------------------
+#
+# `check` counts pages over windows from `window_for_camera`, a Python transcription of
+# Tile_Cache_Fill's desired-window arithmetic whose only link to the engine was its
+# CONSTANTS. Measured 2026-09-28 (origin/master c76c9f90): `tile_cache.emp` .no_pending
+# `subi.w #TILE_CACHE_MARGIN_H, d0` -> `subi.w #TILE_CACHE_MARGIN_H+8, d0` built rc 0
+# (ROM crc 1c82de32), a headless probe read the held window 8 columns left of the model at
+# all 11 settled camera stops, and `check` still exited 0: it cannot see the code.
+#
+# This arm reads the BUILD: the instructions from `.no_pending` to `.h_clamp_ok` and from
+# `.v_section` to `.v_clamp_ok` must be exactly the model's arithmetic, with the model's
+# own constants (read from source by load_budget_constants, the same numbers `check` and
+# `window_for_camera` use) as the immediates and the listing's Camera_X / Camera_Y as the
+# operands. Anything else (a different margin, reach or span, a lost clamp or even-rounding,
+# another register, a re-ordered sequence) is exit 1, naming the instruction. A missing
+# label, an undecodable byte, or a stale (.bin, .lst) pair is exit 2.
+#
+# NOT COVERED, named: this pins the DESIRED window. That the held window equals it (the
+# fill reaches it, and never holds fewer than COLS x ROWS: at the act's left edge the ROM
+# holds cols 0..79, one full window, from the init fill) is a runtime property; the headless
+# probe measured it at 11 stops on c76c9f90 but nothing on the landing path re-measures it.
+# Nor does it check who calls Tile_Cache_Fill, or the camera's range (0..W*8-320).
+
+ROM_WINDOW_LABELS = ("no_pending", "h_left_pos", "h_clamp_ok",
+                     "v_section", "v_top_pos", "v_clamp_ok")
+_LST_ROW = re.compile(r"^\(0\)\s+\d+/([0-9A-Fa-f]+)\s+:\s+([^\s:]+):\s*$")
+
+
+def _fill_labels(lst_path):
+    """{short local name: address} for Tile_Cache_Fill's window labels, plus Camera_X/Y."""
+    want = {"$Tile_Cache_Fill$" + n: n for n in ROM_WINDOW_LABELS}
+    out, cams = {}, {}
+    with open(lst_path, encoding="utf-8", errors="replace") as f:
+        for line in f:
+            m = _LST_ROW.match(line)
+            if not m:
+                continue
+            addr, name = int(m.group(1), 16), m.group(2)
+            for suffix, short in want.items():
+                if name.endswith(suffix):
+                    if short in out and out[short] != addr:
+                        raise BudgetError(f"rom-window: two labels end in {suffix!r} in {lst_path}")
+                    out[short] = addr
+    with open(lst_path, encoding="utf-8", errors="replace") as f:
+        for line in f:
+            m = re.match(r"^\s+(Camera_[XY])\s+:\s+([0-9A-Fa-f]+)\s+C\s+\|", line)
+            if m:
+                cams[m.group(1)] = int(m.group(2), 16) & 0xFFFFFF
+    missing = [n for n in ROM_WINDOW_LABELS if n not in out] + \
+              [n for n in ("Camera_X", "Camera_Y") if n not in cams]
+    if missing:
+        raise BudgetError(f"rom-window: {lst_path} carries no {missing}: the window arithmetic "
+                          f"cannot be located, so it is not measured (not a pass)")
+    return out, cams
+
+
+def _abs_operand(op):
+    """`$a756.w` / `$ffffa756.l` -> 24-bit address, or None."""
+    m = re.fullmatch(r"\$([0-9a-f]+)\.(w|l)", op.strip())
+    if not m:
+        return None
+    v = int(m.group(1), 16)
+    if m.group(2) == "w" and v & 0x8000:
+        v |= 0xFFFF0000
+    return v & 0xFFFFFF
+
+
+def expected_window_code(c, axis, cam, labels):
+    """The model's arithmetic as (mnemonic, operands-check) rows, one per instruction.
+    Each check takes (op_str) and returns None if it matches, else what it wanted."""
+    if axis == "h":
+        margin, reach, span, lab_pos, lab_ok, even = (c["TILE_CACHE_MARGIN_H"],
+            c["SECTION_H_REACH_PX"], c["TILE_CACHE_COLS"], "h_left_pos", "h_clamp_ok", False)
+    else:
+        margin, reach, span, lab_pos, lab_ok, even = (c["TILE_CACHE_MARGIN_V"],
+            c["SECTION_V_REACH_PX"], c["TILE_CACHE_ROWS"], "v_top_pos", "v_clamp_ok", True)
+
+    def ops(text):
+        return lambda o: None if o == text else text
+
+    def cam_to(reg):
+        return lambda o: (None if (o.rsplit(",", 1)[-1].strip() == reg
+                                   and _abs_operand(o.rsplit(",", 1)[0]) == cam)
+                          else f"${cam:06x}, {reg}")
+
+    def branch_to(label):
+        def chk(o):
+            try:
+                tgt = int(o.strip().lstrip("$"), 16)
+            except ValueError:
+                return f"${labels[label]:x}"
+            return None if tgt == labels[label] else f"${labels[label]:x} (.{label})"
+        return chk
+
+    rows = [("move.l", cam_to("d6")), ("swap", ops("d6")), ("lsr.w", ops("#$3, d6")),
+            ("move.w", ops("d6, d0")), ("subi.w", ops(f"#${margin:x}, d0")),
+            ("bpl", branch_to(lab_pos)), ("moveq", ops("#$0, d0"))]
+    if even:
+        rows.append(("andi.w", ops("#$fffe, d0")))
+    rows += [("move.w", ops("d0, -(a7)")), ("move.l", cam_to("d6")), ("swap", ops("d6")),
+             ("addi.w", ops(f"#${reach:x}, d6")), ("lsr.w", ops("#$3, d6")),
+             ("move.w", ops("d6, d0")), ("addi.w", ops(f"#${margin:x}, d0")),
+             ("move.w", ops("d0, d7")), ("move.w", ops("(a7), d0")),
+             ("addi.w", ops(f"#${span - 1:x}, d0")), ("cmp.w", ops("d0, d7")),
+             ("ble", branch_to(lab_ok)), ("move.w", ops("d0, d7"))]
+    return rows, lab_pos
+
+
+def rom_window_check(lst_path, rom_path, c, out=print):
+    """0 the emitted window arithmetic is the model's; 1 it is not (named)."""
+    try:
+        import capstone
+    except ImportError as exc:
+        raise BudgetError(f"rom-window: capstone is not importable ({exc}): cannot decode")
+    labels, cams = _fill_labels(lst_path)
+    with open(rom_path, "rb") as f:
+        rom = f.read()
+    md = capstone.Cs(capstone.CS_ARCH_M68K,
+                     capstone.CS_MODE_BIG_ENDIAN | capstone.CS_MODE_M68K_000)
+    faults = []
+    for axis, lo_l, hi_l, cam in (("h", "no_pending", "h_clamp_ok", cams["Camera_X"]),
+                                  ("v", "v_section", "v_clamp_ok", cams["Camera_Y"])):
+        lo, hi = labels[lo_l], labels[hi_l]
+        if not 0 <= lo < hi <= len(rom):
+            raise BudgetError(f"rom-window: .{lo_l} ${lo:X} .. .{hi_l} ${hi:X} is not a span "
+                              f"of {rom_path} ({len(rom)} B)")
+        got = list(md.disasm(rom[lo:hi], lo))
+        if sum(i.size for i in got) != hi - lo:
+            raise BudgetError(f"rom-window: the {axis} block ${lo:X}..${hi:X} does not decode "
+                              f"whole ({sum(i.size for i in got)} of {hi - lo} B)")
+        want, lab_pos = expected_window_code(c, axis, cam, labels)
+        if len(got) != len(want):
+            faults.append(f"{axis}: .{lo_l}..{hi_l} holds {len(got)} instruction(s), the model "
+                          f"is {len(want)}: " + "; ".join(f"{i.mnemonic} {i.op_str}" for i in got))
+            continue
+        for k, (ins, (mn, chk)) in enumerate(zip(got, want)):
+            m = ins.mnemonic
+            m_ok = m == mn or (mn in ("bpl", "ble") and m.split(".")[0] == mn)
+            bad = None if m_ok else mn
+            wop = chk(ins.op_str) if m_ok else None
+            if bad or wop:
+                faults.append(f"{axis} #{k} ${ins.address:X}: `{m} {ins.op_str}`, the model "
+                              f"wants `{mn} {wop or '...'}`")
+        # the clamp-at-0 branch lands on an instruction boundary (.h_left_pos / .v_top_pos)
+        pos_ins = [i for i in got if i.address == labels[lab_pos]]
+        if not pos_ins:
+            faults.append(f"{axis}: no instruction starts at .{lab_pos} ${labels[lab_pos]:X}")
+    if faults:
+        out("fg_page_order rom-window: FAIL — the emitted Tile_Cache_Fill window arithmetic "
+            "is not the model `check` counts with (window_for_camera):")
+        for f_ in faults:
+            out("  " + f_)
+        out("  Either re-transcribe window_for_camera (and re-derive the page budget) or "
+            "restore the engine code; the page-budget verdict above is about a window the "
+            "ROM does not hold.")
+        return 1
+    out(f"fg_page_order rom-window: OK — Tile_Cache_Fill's desired window in {os.path.basename(rom_path)} "
+        f"is the model's (left = max(0, cam_x/8 - {c['TILE_CACHE_MARGIN_H']}), span "
+        f"{c['TILE_CACHE_COLS']}, reach {c['SECTION_H_REACH_PX']} px; top = max(0, cam_y/8 - "
+        f"{c['TILE_CACHE_MARGIN_V']}) & ~1, span {c['TILE_CACHE_ROWS']}, reach "
+        f"{c['SECTION_V_REACH_PX']} px; Camera_X ${cams['Camera_X']:06X}, Camera_Y "
+        f"${cams['Camera_Y']:06X})")
+    return 0
+
+
 USAGE = """Usage:
-    python3 tools/fg_page_order.py check"""
+    python3 tools/fg_page_order.py check
+    python3 tools/fg_page_order.py rom-window --lst L --rom R [--built-after EPOCH]"""
 
 
 def _mode_check(rest):
@@ -862,8 +1033,29 @@ def _mode_check(rest):
 # ONE list of legal modes, and it is the dispatch table (LS-15d shape,
 # tools/test_cli_dispatch_refuses.py). An unknown or missing mode prints usage and
 # exits 1 BEFORE any handler; nothing is a default.
+def _mode_rom_window(rest):
+    import argparse
+    ap = argparse.ArgumentParser(prog="fg_page_order.py rom-window")
+    ap.add_argument("--lst", required=True)
+    ap.add_argument("--rom", required=True)
+    ap.add_argument("--built-after", type=float, default=None)
+    a = ap.parse_args(rest)
+    if a.built_after is not None:
+        import artifact_provenance
+        rc = artifact_provenance.gate_check("fg_page_order rom-window", a.rom, a.lst,
+                                            a.built_after)
+        if rc is not None:
+            return rc
+    try:
+        return rom_window_check(a.lst, a.rom, load_budget_constants())
+    except (BudgetError, OSError) as exc:
+        print(f"fg_page_order rom-window: UNMEASURABLE — {exc}")
+        return 2
+
+
 MODES = {
     "check": _mode_check,
+    "rom-window": _mode_rom_window,
 }
 
 

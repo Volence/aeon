@@ -33,6 +33,10 @@ WHAT IS ASSERTED (each refusal also checks that the remote did NOT move):
   * `finish` writes no stamp when HEAD moved, when the tree changed during the run, when
     code was dirty at the start, or when the run was not finished=0, and does write one
     when only docs were dirty;
+  * `finish` writes no stamp when a listing the run built READ a file the key does not
+    cover: a gitignored or untracked input, a file outside the repository, a regenerated
+    input this run did not rewrite or whose bytes differ, or no listing at all
+    (GPP-LAND-GATE-IGNORED-INPUTS);
   * deleting master: refused;
   * the printed bypass (AEON_LAND_GATE=skip) and git's own, silent, --no-verify;
   * a checkout that predates the gate: a master push is refused, other refs still pass.
@@ -46,6 +50,9 @@ import shutil
 import subprocess
 import sys
 import tempfile
+
+import time
+import zlib
 
 import pytest
 
@@ -91,6 +98,31 @@ def _git(cwd, env, *args):
     return p.stdout.strip()
 
 
+def listing(work, reads, name="s4.lst"):
+    """A Source Digest in the grammar tools/artifact_provenance.read_digest accepts, whose
+    READ rows are `reads`: (path, origin) or (path, origin, root). crc/size are the file's
+    real ones when it exists under `work`, so a regenerated row is honest unless a test
+    edits it afterwards."""
+    rows = []
+    for r in reads:
+        path, origin = r[0], r[1]
+        fp = os.path.join(work, path)
+        data = open(fp, "rb").read() if os.path.isfile(fp) else b""
+        extra = " root=%s" % r[2] if len(r) > 2 else ""
+        rows.append("DIGEST-READ crc=%08x size=%d origin=%s%s path=%s"
+                    % (zlib.crc32(data) & 0xFFFFFFFF, len(data), origin, extra, path))
+    agg = zlib.crc32("".join(l + "\n" for l in rows).encode()) & 0xFFFFFFFF
+    text = "\n".join(["  listing body", "DIGEST-FORMAT 1",
+                      "DIGEST-ASSEMBLER sigil version=0 revision=0 tree=clean",
+                      "DIGEST-SHAPE target=t game=g debug=0 extra-entries=none",
+                      "DIGEST-SCAN pattern=*.emp files=0 crc=00000000", *rows,
+                      "DIGEST-AGGREGATE crc=%08x reads=%d" % (agg, len(rows)),
+                      "DIGEST-ROM crc=00000000 size=0 path=s4.bin", "DIGEST-END", ""])
+    with open(os.path.join(work, name), "w") as f:
+        f.write(text)
+    return name
+
+
 def _write(work, files):
     for rel, text in files.items():
         p = os.path.join(work, rel)
@@ -108,8 +140,11 @@ def template():
     _git(root, env, "init", "-q", "--bare", "-b", "master", "origin.git")
     _git(root, env, "init", "-q", "-b", "master", "work")
     _git(work, env, "remote", "add", "origin", "../origin.git")    # relative: survives a copy
+    # .gitignore as the real tree's: ROMs and listings are build outputs, and so is every
+    # other *.bin unless it is committed (the gitignored-input rows below rely on it).
     base = {"engine/a.emp": "a\n", "docs/notes.md": "n\n", "docs/read-by-build.md": "r\n",
-            "docs/ledger.jsonl": '{"a":1}\n', "docs/checkdir/x.md": "x\n"}
+            "docs/ledger.jsonl": '{"a":1}\n', "docs/checkdir/x.md": "x\n",
+            ".gitignore": "*.bin\n*.lst\n"}
     _write(work, base)
     _git(work, env, "add", *base)
     _git(work, env, "commit", "-q", "-m", "base, before the gate")
@@ -119,8 +154,10 @@ def template():
     assert n == 1, "tools/land_gate.py must carry exactly one '# >>> RULES ... # <<< RULES' block"
     with open(HOOK) as f:
         hook = f.read()
+    with open(os.path.join(TOOLS, "artifact_provenance.py")) as f:
+        provenance = f.read()        # finish reads the listings' Source Digests through it
     _write(work, {"tools/land_gate.py": gate, "tools/test_ledger_shape.py": READER,
-                  "tools/hooks/pre-push": hook})
+                  "tools/hooks/pre-push": hook, "tools/artifact_provenance.py": provenance})
     os.chmod(os.path.join(work, "tools/hooks/pre-push"), 0o755)
     _git(work, env, "add", "tools")
     _git(work, env, "commit", "-q", "-m", "the gate")
@@ -177,13 +214,22 @@ class Repo:
         assert len(line) == 1, out
         return line[0].split()[1:], out
 
-    def finish(self, head, key, clean, rc="0"):
-        return self.gate("finish", "--head", head, "--key", key, "--clean", clean, "--rc", rc)
+    def finish(self, head, key, clean, rc="0", lst="default", built_after=None):
+        """`lst="default"` names a listing whose only READ is the committed engine/a.emp,
+        which is what every row that is not about the build's inputs wants."""
+        if lst == "default":
+            lst = [listing(self.work, [("engine/a.emp", "source")])]
+        args = ["finish", "--head", head, "--key", key, "--clean", clean, "--rc", rc]
+        for name in lst or ():
+            args += ["--lst", name]
+        if built_after is not None:
+            args += ["--built-after", str(built_after)]
+        return self.gate(*args)
 
-    def stamp(self):
+    def stamp(self, **kw):
         """What tools/landing_build.sh does around a green run, by the same two calls."""
         (head, key, clean), _ = self.begin()
-        rc, out = self.finish(head, key, clean)
+        rc, out = self.finish(head, key, clean, **kw)
         return rc, out, key
 
     def stamp_file(self, key):
@@ -393,3 +439,75 @@ def test_nothing_outside_docs_is_ever_anything_but_code():
     for p in ("build.sh", "CLAUDE.md", "README.md", "tools/x.py", "games/sonic4/map.toml",
               "docsx/a.md", "doc/a.md", ".gitignore", "tools/docs/a.md"):
         assert land_gate.classify(p) == land_gate.CODE, p
+
+
+# ---- what the build READ must be what the key covers (GPP-LAND-GATE-IGNORED-INPUTS) ------
+
+def _no_stamp(repo, key):
+    d = os.path.dirname(repo.stamp_file(key))
+    return not os.path.isdir(d) or not os.listdir(d)
+
+
+def test_a_gitignored_input_the_build_read_gets_no_stamp(repo):
+    """The drill, in the scratch repository: a committed module reads a gitignored blob.
+    `begin` calls the tree clean, and changing the blob moves no key, so before the fix a
+    stamp for one blob's build vouched for any other blob's."""
+    repo.commit({"engine/a.emp": 'embed("engine/blob.bin")\n'})
+    repo.write({"engine/blob.bin": "AAAA"})
+    (head, key, clean), _ = repo.begin()
+    assert clean == "1"                           # git status cannot see it: the premise
+    repo.write({"engine/blob.bin": "BBBB"})
+    assert repo.gate("key")[1].strip() == key     # and the key does not move with it
+    lst = listing(repo.work, [("engine/a.emp", "source"), ("engine/blob.bin", "source")])
+    rc, out = repo.finish(head, key, clean, lst=[lst])
+    assert rc == 1 and "engine/blob.bin, which is NOT COMMITTED" in out, out
+    assert _no_stamp(repo, key)
+    rc, out = repo.push("master")
+    assert rc != 0 and "no stamp for this content" in out, out
+
+
+def test_a_green_finish_without_a_listing_is_unmeasurable_not_clean(repo):
+    (head, key, clean), _ = repo.begin()
+    rc, out = repo.finish(head, key, clean, lst=None)
+    assert rc == 1 and "no listing was named" in out, out
+    assert _no_stamp(repo, key)
+
+
+def test_an_input_outside_the_repository_gets_no_stamp(repo):
+    (head, key, clean), _ = repo.begin()
+    lst = listing(repo.work, [("engine/a.emp", "source"), ("lib/x.inc", "external", "sigil")])
+    rc, out = repo.finish(head, key, clean, lst=[lst])
+    assert rc == 1 and "outside this repository" in out, out
+    assert _no_stamp(repo, key)
+
+
+def test_a_regenerated_input_counts_only_when_this_run_rewrote_it_with_those_bytes(repo):
+    gen = "engine/sound/generated/blob.bin"      # gitignored, under a REGENERATED prefix
+    t0 = int(time.time()) - 1
+    repo.write({gen: "fresh"})
+    reads = [("engine/a.emp", "source"), (gen, "generated")]
+    lst = listing(repo.work, reads)
+    rc, out, key = repo.stamp(lst=[lst], built_after=t0)
+    assert rc == 0 and "STAMP WRITTEN" in out and "2 DIGEST-READ row(s)" in out, out
+    os.remove(repo.stamp_file(key))
+    # not rewritten by THIS run: the file predates --built-after
+    old = t0 - 100
+    os.utime(os.path.join(repo.work, gen), (old, old))
+    rc, out, key = repo.stamp(lst=[lst], built_after=t0)
+    assert rc == 1 and "did not rewrite it" in out, out
+    assert _no_stamp(repo, key)
+    # rewritten, but not with the bytes the build read
+    lst = listing(repo.work, reads)
+    repo.write({gen: "other"})
+    rc, out, key = repo.stamp(lst=[lst], built_after=t0)
+    assert rc == 1 and "on disk it is" in out, out
+    assert _no_stamp(repo, key)
+
+
+def test_a_listing_older_than_the_run_does_not_describe_it(repo):
+    lst = listing(repo.work, [("engine/a.emp", "source")])
+    old = int(time.time()) - 100
+    os.utime(os.path.join(repo.work, lst), (old, old))
+    rc, out, key = repo.stamp(lst=[lst], built_after=old + 50)
+    assert rc == 1 and "written before this run began" in out, out
+    assert _no_stamp(repo, key)

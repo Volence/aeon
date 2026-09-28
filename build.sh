@@ -1996,6 +1996,20 @@ if [[ "$FAST" == "0" ]]; then
             echo "  (tools/collision_consistency.py --rom-tables)."
             exit 1
         fi
+
+        # fg_page_order's POST-SIGIL ARM (GPP-FG-WINDOW-MODEL, 2026-09-28). The pre-sigil
+        # `check` counts pages over windows from window_for_camera, a transcription of
+        # Tile_Cache_Fill tied to the engine by its CONSTANTS only: widening the fill's
+        # left margin by 8 columns built with that gate at exit 0 (measured). This arm
+        # decodes THIS ROM's Tile_Cache_Fill from .no_pending to .h_clamp_ok and from
+        # .v_section to .v_clamp_ok and requires exactly the model's arithmetic and
+        # constants. EXIT 2: a label is missing, the bytes do not decode, or the pair is stale.
+        if ! gate strict "fg_page_order.py rom-window" python3 "${TOOLS}/fg_page_order.py" \
+                rom-window --lst "${ROM_NAME}.lst" --rom "${ROM_NAME}.bin" --built-after "${SIGIL_T0}"; then
+            echo "Tile_Cache_Fill's window is not the one the FG page budget counts — see above"
+            echo "  (tools/fg_page_order.py rom-window)."
+            exit 1
+        fi
     fi
 fi
 

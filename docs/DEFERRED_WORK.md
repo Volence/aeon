@@ -40808,6 +40808,38 @@ for every gate; it is not the proxy/subject shape.
    Presence proves the module was lowered, not that the descriptor reaches it, because
    `ojz_effects.emp` also `use`s it. The one measured mutation is now caught by step 2.
    A real witness needs an equ that exists only through the descriptor's call.
+
+   **MEASURED 2026-09-28 (`fix/gpp-unmeasured`, base origin/master `c76c9f90`): step 3 on its
+   own stays GREEN when the descriptor's seam is dropped. STILL BOOKED: no tools-only witness
+   exists.**
+   - **Promise** (step 3's own failure text): a witness absent from the listing means
+     "act_descriptor.emp's seam import has been dropped or renamed"; the docstring calls that
+     import "the module's only `use`-closure edge". **Predicate:** six `EQU`s present in the
+     listing with values equal to a recount from the editor inputs.
+   - **The premise is false on this base.** `games.sonic4.ojz_effects_editor_act1` is `use`d
+     by four modules, seven lines: `act_descriptor.emp` (:75 and :91), `ojz_effects.emp`
+     (:117, :124, :160), `generated/ojz/act1/regions.emp` (:59), `test/ojz_scroll_test.emp`
+     (:204). Any one of them lowers the module and mints the witnesses.
+   - **Mutation, built:** `act_descriptor.emp` line 75 `use games.sonic4.ojz_effects_editor_act1.{ojz_act1_act_default}`
+     deleted, and :254 `act_parallax_config: ojz_act1_act_default(hand: ParallaxConfig_OJZ_Default),`
+     -> `act_parallax_config: ParallaxConfig_OJZ_Default,`. `DEBUG=1 NO_LINT=1 ./build.sh`:
+     sigil built, ROM crc `198fd717` (= baseline: byte-neutral, as the audit found), and
+     build.sh exit 1 at the seam gate's **step 2** ("seam import does not name
+     ojz_act1_act_default"). **Step 3's predicate on that listing:** all six witnesses present,
+     `EditorScenes_OJZ_Act1_Count=4`, `_Bindings=4`, `EditorRaster=2`, `EditorCycle=0`,
+     `EditorVariant=0`, `EditorPatch=1`, 835 equates: identical to the unmutated tree, so step 3
+     alone would pass. The descriptor edge is held today by step 2 (source, comment-stripped
+     since the audit), not by step 3. Restored with `git show HEAD:`.
+   - **Why not fixed here:** the mutation is byte-neutral by construction (the chooser
+     returns `hand:` while the act `sceneRef` is null), so no ROM or listing read can see it,
+     and an equ minted "only through the call" does not exist: the call is a `comptime fn`
+     evaluation, and sigil's listing records no comptime call sites. A real witness needs
+     either sigil (a per-call-site record, or an unreachable/uncalled-`pub comptime fn`
+     diagnostic the gate can read) or a generator/format design in which the chooser's result
+     carries a ROM-visible marker the descriptor must pass on. Both are outside a tools-only
+     parcel. The step-3 failure text and the docstring's "only `use`-closure edge" are also
+     wrong on this base; they are left for the parcel that decides the witness, so the text
+     and the mechanism change together.
 3. **GPP-EXPECT-FAIL-RESTATES** (`emp_expect_fail.py`, measured). Three poisons carry their OWN copy
    of the guard they are labelled as proving. `ring_sparkle.emp:113`'s shipped `ensure` weakened to
    `>= 0` gave exit 0. Same shape: `poison_instashield_frames`, `poison_dplc_tile_start`. Fix
@@ -40815,6 +40847,58 @@ for every gate; it is not the proxy/subject shape.
    a design choice.
 4. **GPP-FG-WINDOW-MODEL** (`fg_page_order.py`, doubtful, unmeasured). The camera-window arithmetic
    is a Python transcription of `Tile_Cache_Fill`, and only its constants are read from source.
+
+   **MEASURED, then FIXED 2026-09-28 (`fix/gpp-unmeasured`, base origin/master `c76c9f90`).**
+   - **Promise** (docstring): the committed placed act never needs more than `PAGE_FRAMES`
+     pages "over every distinct tile-cache window a camera in the act can hold".
+     **Predicate:** pages counted over COLS x ROWS windows at `(left, top)` from
+     `window_for_camera`; the engine enters only through its constants.
+   - **The model against the ROM, first (headless, no MCP):** a scratch probe booted
+     `s4.debug.bin` (crc `198fd717`) in a spawned `oracle-aether`, flew the DEBUG camera
+     through 10 legs and at 11 settled stops compared `window_for_camera` with
+     `Cache_Left_Col/Head_Col/Top_Row/Bottom_Row`. **Left and top matched at all 11**
+     (e.g. cam (3824,2608): L458 R537 T310 B369 both). Right differed at ONE stop, the boot
+     position cam (96,144): ROM R79, model R72. At the act's left edge the ROM holds one
+     full 80-column window (the init fill), while the model's right is `desired_right`.
+     `check` does not use the model's right or bottom (it counts full COLS x ROWS from
+     `(left, top)`), so its count matched the ROM at every stop. The narrower right DOES
+     reach `evict_witness.py` (`Route.pages` uses the model's `r`), which under-states
+     the page set of a window near the left edge. Booked there, below.
+   - **`evict_witness.py` was not a check of this:** it takes `window_for_camera` as given
+     to choose its stimulus, and grades that the settled window's pages are resident, which
+     a model window narrower than the held one also passes.
+   - **Mutation, built:** `engine/level/tile_cache.emp:1328` (Tile_Cache_Fill `.no_pending`)
+     `subi.w  #TILE_CACHE_MARGIN_H, d0` -> `subi.w  #TILE_CACHE_MARGIN_H+8, d0`.
+     `DEBUG=1 NO_LINT=1 ./build.sh` **rc 0**, ROM crc `1c82de32`, `$66FA` = `subi.w #$1c`.
+     `fg_page_order.py check`: **exit 0** ("FG page budget OK ... worst window needs 10").
+     The probe on that ROM: **0 of 11 stops match**, every held window 8 columns left of the
+     model (cam (688,144): ROM L58 R137, model L66 R145). Restored with `git show HEAD:`.
+   - **Fix (tools only):** new post-sigil mode `fg_page_order.py rom-window --lst --rom
+     --built-after`, wired `gate strict` in build.sh's sonic4 post-sigil block after
+     `collision_consistency --rom-tables`. It decodes (capstone) the ROM from
+     `Tile_Cache_Fill$no_pending` to `$h_clamp_ok` and from `$v_section` to `$v_clamp_ok`
+     and requires exactly the model's instructions: `Camera_X`/`Camera_Y` from the listing,
+     `subi.w #MARGIN`, the clamp-at-0 `bpl`/`moveq #0`, the vertical `andi.w #$fffe`, the
+     reach and margin `addi.w`s and the `addi.w #COLS-1 / ROWS-1` span clamp, with every
+     immediate from the same `load_budget_constants()` the model and `check` use. Exit 1
+     names the instruction; exit 2 on a missing label, an undecodable block or a stale pair.
+     Registered in `test_provenance_consumers.py` (GATES + a mode-first LEAD) and
+     `test_cli_dispatch_refuses.py`; +4 synthetic rows in `test_fg_page_order.py`.
+   - **Red:** the same mutation, `DEBUG=1 NO_LINT=1 ./build.sh` **rc 1** at the arm: "h #4
+     $66FA: `subi.w #$1c, d0`, the model wants `subi.w #$14, d0`". **Green:** restored tree,
+     full `DEBUG=1 ./build.sh` rc 0, crc `198fd717` (= baseline), arm OK; release `s4.bin`
+     arm OK (Camera_X `$FFA6E2`).
+   - **Not covered (named):** the arm pins the DESIRED window. That the held window equals
+     it (the fill reaches it; never fewer than COLS x ROWS) is runtime behaviour the probe
+     measured at 11 stops on this base and nothing on the landing path re-measures; the top
+     edge (cam_y < 128) was not visited. Who calls Tile_Cache_Fill, and the camera's range,
+     are not checked. The probe itself was a scratch script, not committed.
+   - **BOOKED, not fixed (another lane's nightly tool):** `window_for_camera`'s right/bottom
+     at the act's left/top edge. The ROM holds `left + COLS - 1` there (measured once, at
+     boot); the model returns the unclamped `desired_right`. Only `evict_witness.py`'s
+     `Route.pages` and the megaact research tools read it. Changing it moves
+     evict_witness's derived stimulus, so it belongs to that tool's owner, with a probe stop
+     at the top edge first.
 5. **GPP-COLLISION-ROM-TABLES** (`collision_consistency.py`, measured). It runs pre-sigil over the
    three `.bin` files. `AngleTable = _solidity` in `collision_data.emp` gave exit 0 (both blobs are
    256 B). The odd-angle exemption also rests on `player_sensors.emp`'s `btst #0` being there.
@@ -40863,6 +40947,44 @@ for every gate; it is not the proxy/subject shape.
 8. **GPP-BGANIM-LIVE-FORMULA** (`bganim_room.py`, doubtful, unmeasured). `live` is a formula over
    the override JSON, not the section's listing span, and it is shape-blind (~138 B over on
    release). The reserve arm fires first today, so no mutation reaches it.
+
+   **MEASURED, then FIXED 2026-09-28 (`fix/gpp-unmeasured`, base origin/master `c76c9f90`).**
+   - **Promise** (header): "the ONLY ENFORCEMENT of `BGANIM_SECTION_CEILINGS` against a real
+     listing", failing "the moment a shape's ROM room can no longer hold that shape's
+     ceiling". **Predicate:** `ceiling > room + live - slop`, with `live` =
+     `inject_editor_bg.live_section_bytes()`, a formula over the override JSON.
+   - **The formula, measured against the listings of this base:** debug `s4.debug.lst`
+     `BgAnim_Table` `$2CCC0` to the next foreign label `Map_TestObj` `$2ED78` = **8376 B**,
+     formula 8376 (exact). Release `s4.lst` `BgAnim_Table` `$26354` to `Map_TestObj` `$28382`
+     = **8238 B**, formula **8376** (+138 B: the DEBUG-only view twins, which are zero-size
+     labels at `$26382` in release). So the release headroom was 138 B generous.
+   - **"No mutation reaches it" was true only of mutations that shrink the room** (the
+     reserve arm, room < 49,152, fires first). Raising the ruled ceiling reaches the arm
+     directly. **Mutation (on disk, `tools/inject_editor_bg.py`):** `"s4.lst": 131700,` in
+     place of `BGANIM_SECTION_CEILING_RULED`. True headroom on the release ROM
+     (`s4.bin` crc `50401674`): 123,430 room + 8,238 - 6 slop = **131,662 B**, so a real
+     38 B breach. `bganim_room.py --lst s4.lst --rom s4.bin --fixture ... --gate` (build.sh's
+     arguments): **exit 0**, "the ruled ceiling (131700 B) ... sits 100 B inside the ROM
+     room". Restored with `git show HEAD:`.
+   - **Fix (tools only):** `section_span()` measures the section from the listing: the
+     modules declared `in` the section that defines `BgAnim_Table` (searched in `engine/` and
+     this game's tree only; `games/demo` defines one too) give the section's own labels; the
+     span runs from the head to the first label above it those modules do not define.
+     Unmeasurable (never a size): no or two owning sections, no foreign label above, an own
+     label at or past the end, or a whole-bound `embed` running past it (a foreign label
+     inside the section). `headroom = room + span - slop`; the formula is still printed
+     beside it with its difference, and not used.
+   - **Red:** the same mutation, fixed tool: **exit 1**, "BGANIM_SECTION_CEILINGS['s4.lst'] =
+     131700 B but only 131662 B are reachable", with "section: 'ojz_bg_anim' spans 8238 B ...
+     the override formula estimates 8376 B (+138 B, not used)". **Green** on the restored
+     tree: `s4.lst` exit 0 (8238 B), `s4.debug.lst` exit 0 (8376 B, +0). `test_bg_emit.py`:
+     the hermetic tree now carries the section's module; +3 rows (release ceiling inside the
+     formula's error fails; foreign label inside the section; no owning module).
+   - **Not covered:** bytes between the section's last own byte and the next foreign label
+     are counted as the section's. Unlabelled bytes another section placed there first would
+     over-state the span (the generous direction). Today there are none: `BgAnim_Banks` +
+     its 8,192 B embed ends exactly at `Map_TestObj` in both shapes; the check only refuses
+     an embed running PAST the next label, not a gap before it.
 9. **GPP-INSTASHIELD-WALKOFF** (`instashield_gate.py`, measured). `Ground_DetachState`
    `moveq #PSTATE_AIR` -> `#PSTATE_JUMP` gave exit 0. The gate proves the routine refuses every
    state except JUMP/ROLLJUMP. That a walk-off is not JUMP came from a one-time hand enumeration of
@@ -40967,6 +41089,49 @@ for every gate; it is not the proxy/subject shape.
     commit-and-push drill). "Clean" is `git status`, which cannot see gitignored inputs such as
     `*.bin`, and `sigil_md5` is recorded but not keyed. Fix sketch: refuse the stamp when a Source
     Digest input is not in `git ls-files` (outside declared regenerated dirs).
+
+    **MEASURED, then FIXED 2026-09-28 (`fix/gpp-unmeasured`, base origin/master `c76c9f90`).**
+    - **Promise:** "code reaches master only if a completed landing run proved that exact
+      content green" (land_gate.py docstring). **Predicate:** the stamp key is the CODE-class
+      `git ls-tree` of HEAD; "clean" is `git status`. Neither sees a gitignored input.
+    - **The drill (nothing real pushed; stamps in a scratch `AEON_LAND_GATE_DIR`).** A throwaway
+      detached commit `2b2fb8ac` (never pushed, never on a branch) appended to
+      `games/sonic4/data/dust_data.emp`: `const _lg_drill = embed("games/sonic4/data/lg_drill.bin")`
+      / `pub data LgDrill = _lg_drill`, with `lg_drill.bin` (ignored by `*.bin`) = 16 x `A`
+      on disk only. `land_gate.py begin`: clean=1, key `ffd820f0dc519b82`. `DEBUG=1 ./build.sh`
+      rc 0, ROM crc `510e5c23`, the listing's Source Digest carries
+      `DIGEST-READ ... path=games/sonic4/data/lg_drill.bin`, ROM `$2F982` = `AAAA...`.
+      `finish --rc 0`: **STAMP WRITTEN**. Then `lg_drill.bin` = 16 x `B`: `begin` still clean=1,
+      **key unchanged** `ffd820f0dc519b82`; rebuild rc 0, ROM crc `3952302d`, `$2F982` = `BBBB...`.
+      `pre-push` fed git's stdin for `2b2fb8ac -> refs/heads/master` over `c76c9f90` (the same
+      line the installed hook pipes to it): **"code proven green: stamp ffd820f0dc519b82 ...
+      ALLOWED"**, exit 0. `git show 2b2fb8ac:games/sonic4/data/lg_drill.bin` fails: a clone
+      has no such file and cannot build. So one stamp vouched for two different ROMs and for a
+      commit no clone can build. **The gap was real.**
+    - **Fix (tools only):** `finish` takes `--lst` (one per landing shape) and `--built-after
+      $T0`; `landing_build.sh` passes both (`s4.lst s4.debug.lst demo.debug.lst`, from
+      `LANDING_SHAPES`). Before writing, it reads each listing's Source Digest
+      (`artifact_provenance.read_digest`) and refuses the stamp (exit 1) unless every
+      `DIGEST-READ` path is tracked at the stamped HEAD, or lies under a declared
+      `REGENERATED_EACH_BUILD` prefix (`engine/sound/generated/`, `engine/debug/generated/`,
+      the only untracked reads on this base, both rewritten before sigil by every build),
+      in which case the file's crc/size must equal the row and its mtime must post-date
+      `--built-after`. `origin=external` is refused. No listing named, a listing older than
+      the run, or an unreadable digest is unmeasurable: no stamp. The stamp records
+      `listings` and `inputs_checked`.
+    - **Red on the same drill, with the fixed gate** (a scratch copy, run on `2b2fb8ac`, fresh
+      `DEBUG=1` build after T0): "NO STAMP: ... s4.debug.lst reads games/sonic4/data/lg_drill.bin,
+      which is NOT COMMITTED at 2b2fb8ac849c", exit 1. The 15 regenerated reads in the same
+      listing passed (crc and mtime), so the refusal names only the drill file.
+      `tools/test_land_gate.py` +5 rows (ignored input, no listing, external, regenerated
+      stale/wrong bytes, stale listing); the existing `finish` rows now pass a listing.
+      Green: `landing_build.sh` on the tip (see the merge evidence).
+    - **Still not covered (named):** the toolchain. `sigil_md5` is recorded, not keyed, and
+      `SIGIL_EMIT` is not recorded at all; the regenerated sound blobs are functions of it.
+      Whether the stamp should cover the toolchain is a design call (a stamp would then stop
+      travelling between machines), so it stays open here. Also: only what sigil READ is
+      checked, not every file a Python gate opens (a gate reading a gitignored file is not
+      seen).
 12. **GPP-PALETTE-ORDER-IS-A-PIN** (`editor_palette_golden.py`, residual of the fix). The channel
     order is now checked against a stated `CYCLE_WIRE_ORDER`, not decoded from `Palette_DoCycle`.
     The engine-side alternative is an `offsetof` `ensure` beside `Palette_DoCycle`. That is a zero-byte
@@ -41026,6 +41191,30 @@ for every gate; it is not the proxy/subject shape.
       keyed by slot, 1 declared, 0 fault(s)".
     - **Not followed (named, not covered):** an `anim_table` write in a helper the calling
       routine calls; the slot's a0 at the call is taken as the SST convention, not tracked.
+
+    **Palette half MEASURED 2026-09-28 (`fix/gpp-unmeasured`, base origin/master `c76c9f90`):
+    sigil does NOT refuse `palstage`. STILL BOOKED: the fix is an engine edit.**
+    - **Promise** (`palette.emp:91-93`): "Palette_State span guard ... a drift on either side
+      must fail the build", message "Palette_State RAM block drifted from palette.emp's
+      layout". **Predicate:** `Palette_State_End - Palette_State == PALETTE_STATE_SIZE`, one
+      SUM; no field's span or offset is compared.
+    - **Mutation, built** (`engine/ram.emp`, two lines, sum kept):
+      `Pal_Variant_Stage:  [u8; 128 * 2 - 8],` and `Pal_Variant_Ptr:    [u32; 4],`.
+      `DEBUG=1 NO_LINT=1 ./build.sh` rc 0, and the full `DEBUG=1 ./build.sh` (both pytest
+      halves: 3836 passed / 3 skipped, needs_build 20 passed / 16 skipped) **rc 0**, ROM crc
+      `515d5b8e` (baseline `198fd717`). Listing: `Pal_Variant_Stage` `$FFFF8E32`,
+      `Pal_Variant_Ptr` `$FFFF8F2A` (= Stage + 248, was + 256), `Palette_State_End`
+      `$FFFF8F4A` unchanged. So slot 1's last 8 bytes (the `slot*128 + line*32 + entry*2`
+      addressing the RAM comment names) now alias `Pal_Variant_Ptr[0..1]`, and every gate on
+      the landing path, sigil included, stayed green. Restored with `git show HEAD:engine/ram.emp`.
+    - **Why not fixed here:** the guard that makes the promise is an engine `ensure`, and the
+      honest repair is there: per-field `ensure`s beside the sum, e.g.
+      `extern("Pal_Variant_Ptr") - extern("Pal_Variant_Stage") == 128 * PAL_MAX_VARIANTS` and
+      `extern("Pal_Cycle_Script") - extern("Pal_Variant_Ptr") == 4 * PAL_MAX_VARIANTS` (the
+      same `extern` difference form line 92 already uses, so zero bytes). A tools-only check
+      would have to restate `palette.emp`'s layout in Python, which is the proxy shape this
+      audit exists to remove. This parcel lands no engine file, so it is booked for an engine
+      parcel.
 
 ## THREE INSTRUMENTS, THREE WAYS OF BEING WRONG — 2026-09-19
 
