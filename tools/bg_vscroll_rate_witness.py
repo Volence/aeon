@@ -65,6 +65,11 @@ WHAT IS ASSERTED (exit 1 on any failure):
   A6  THE ONE-PLANE DISCRIMINATOR (leg X, 2026-09-27). The same warp in a ONE-PLANE row reaches
       the position-clamped target in ONE Parallax_Update invocation — exactly one step over the
       bound and no run at it. Red with (b0) reverted (the ratchet comes back).
+  A8  THE BOOT PRIME (leg B, BOOT-TALL-VSCROLL-RATCHET 2026-09-28). A DEBUG boot-position
+      override into a TALL row, deep enough that its target is above VSCROLL_BG_MAX: the scroll
+      Section_RedrawPlanes reads for the init's prime is the target under that row's ceiling,
+      and no Parallax_Update store after it moves off target (no slide). Red with the boot
+      ladder's crossing below its prime (MUTATIONS (e)).
   A5  THE POSITION DISCRIMINATOR (leg S, a PATCHED ROM COPY, in leg X's one-plane row). With the chosen row's
       rg_bg_span patched to SPAN_TEST (derived from THAT region's own reach, so
       SPAN_TEST - SCREEN_HEIGHT is strictly below VSCROLL_BG_MAX and at least one
@@ -145,6 +150,7 @@ TICK_MAX_FRAMES = 8          # run_to ceiling for one logic tick (a lag tick spa
 WARP_MAX_FRAMES = 240        # the warp tick alone: a synchronous window refill + plane redraw
 LEG_MAX_TICKS = 900          # a ceiling on any one leg; running out is SETUP, never a skip
 SETTLE_TICKS = 40            # ticks held after a jump before the value must have settled
+BOOT_MARGIN = 4              # leg B: invocations graded past the longest slide the row allows
 
 
 class SetupError(Exception):
@@ -1441,6 +1447,104 @@ async def run(args) -> int:
                     "snap test dead (see MUTATIONS (d)).")
         await run_leg("P", _legP)
 
+        # ---- leg B: A BOOT DEEP IN A TALL MAP PRIMES THE PLANE FROM ITS TARGET SCROLL -------
+        # BOOT-TALL-VSCROLL-RATCHET (2026-09-28). The boot ladder (GameState_OJZScroll_Init) ran
+        # Parallax_Init's tail Update and the plane prime while Region_Current was still NULL,
+        # so Step 5 read the act-default ceiling VSCROLL_BG_MAX, the window was seeded from a
+        # scroll capped there, and the first frame's crossing (which never snaps on a null
+        # previous row) handed the scroll to the rate clamp: a slide, 16 px an invocation, on
+        # every boot whose target sits above VSCROLL_BG_MAX. MEASURED on the unfixed tree
+        # (DEBUG OJZ crc 8236bc31, a Boot_At into row 11: 288 -> 544 over 16 invocations;
+        # s2_hpz_solo's AUTHORED start, crc eb69092c: 288 -> 446 over 10).
+        #
+        # THE ENTRY IS THE DEBUG BOOT-POSITION OVERRIDE (Aurora's "Build & Run at the cursor",
+        # written at the init breakpoint exactly as tools/boot_override_gate.py does): the one
+        # boot path that reaches a tall row on this act. The target row and camera Y come from
+        # the act's own table (every row the rate clamp applies to, the deepest camera Y whose
+        # centre is inside it); the config is the one the init installed.
+        #
+        # ASSERTED (A8): (i) the scroll Section_RedrawPlanes reads for its init prime equals the
+        # position-clamped target under the TALL row's ceiling (S3K's order: the BG camera, then
+        # the plane drawn from it); (ii) every Parallax_Update store after the prime, for
+        # the row's whole possible slide plus BOOT_MARGIN invocations, equals that target at the camera it read (no slide).
+        # COULD NOT RUN (never a pass) when no tall row's target clears VSCROLL_BG_MAX: then the
+        # act-default ceiling gives the same value and nothing could slide.
+        async def _legB():
+            for nm in ("Boot_At_X", "Boot_At_Y", "Boot_At_Flag", "Section_RedrawPlanes"):
+                if nm not in sym:
+                    raise LegBlocked(f"symbol {nm} is not in the listing")
+            tall = [r for r in rows if rate_applies(r["bg_span"], K)]
+            if not tall:
+                raise LegBlocked("no region row in this act is a map taller than the plane, so "
+                                 "no boot can put the camera where the rate clamp applies")
+            report["B_tried"] = []
+            for r in tall:
+                rec, _cx, _lo, cy_hi = candidate_window(r, K, cam_x_max, cam_y_max)
+                if "verdict" in rec:
+                    report["B_tried"].append({"row": r["index"], "verdict": rec["verdict"]})
+                    continue
+                await _c(b, "emulator/reset", {})
+                got = await _c(b, "emulator/run_to", {"addr": hex(sym["GameState_OJZScroll_Init"]),
+                                                       "maxFrames": BOOT_MAX_FRAMES})
+                if not got.get("reached"):
+                    raise LegBlocked(f"run_to GameState_OJZScroll_Init never reached it: {got}")
+                for nm, v, w in (("Boot_At_X", rec["probe_x"], 2),
+                                 ("Boot_At_Y", cy_hi + K["HALF_H"], 2), ("Boot_At_Flag", 1, 1)):
+                    await _c(b, "emulator/write_memory", {"addr": hex(sym[nm]), "value": v,
+                                                          "width": w})
+                got = await _c(b, "emulator/run_to", {"addr": hex(sym["Section_RedrawPlanes"]),
+                                                       "maxFrames": BOOT_MAX_FRAMES})
+                if not got.get("reached"):
+                    raise LegBlocked(f"the init never reached its plane prime: {got}")
+                prime = await rig.sample("B_prime")
+                await _c(b, "emulator/step", {})
+                # DERIVED: the longest slide this row allows is its whole ceiling above the
+                # act default at BG_VSCROLL_MAX_STEP an invocation; grade that plus a margin.
+                ceil = ceiling_for(r["bg_span"], K["SCREEN_HEIGHT"], K["VSCROLL_BG_MAX"])
+                n = -(-(ceil - K["VSCROLL_BG_MAX"]) // step_max) + BOOT_MARGIN
+                after = await leg_step5(rig, "B", n, WARP_MAX_FRAMES)
+                rig.tick_prev = None
+                cfg = prime["cfg"]
+                want = None if cfg is None else clamp_pos(target_scroll(prime["cam_y"], cfg), ceil)
+                entry = {"row": r["index"], "boot_at": (rec["probe_x"], cy_hi + K["HALF_H"]),
+                         "cam": (prime["cam_x"], prime["cam_y"]), "target": want,
+                         "v_at_prime": prime["v"], "v": [s["v"] for s in after],
+                         "rows": sorted({s["row"] for s in after}, key=str)}
+                report["B_tried"].append(entry)
+                if want is None or want <= K["VSCROLL_BG_MAX"]:
+                    entry["verdict"] = (f"no subject: target {want} is not above VSCROLL_BG_MAX "
+                                        f"{K['VSCROLL_BG_MAX']}")
+                    continue
+                if any(s["region"] != r["addr"] for s in after[1:]):
+                    raise LegBlocked(f"the boot into row {r['index']} did not stay in it: rows "
+                                     f"{entry['rows']} after the prime")
+                wrong = []
+                for k in range(1, len(after)):
+                    src = after[k - 1]
+                    model = clamp_pos(target_scroll(src["cam_y"], src["cfg"]), src["ceiling"])
+                    if after[k]["v"] != model:
+                        wrong.append((k, after[k]["v"], model))
+                report["B"] = entry
+                if prime["v"] != want or wrong:                                  # A8
+                    fails.append(
+                        f"A8: a boot into tall row {r['index']} (camera {entry['cam']}, span "
+                        f"{r['bg_span']}) primed Plane B from scroll {prime['v']} against a target "
+                        f"of {want}, and {len(wrong)} of {len(after) - 1} store(s) after the prime "
+                        f"were off target; scroll {entry['v']}. The boot ladder primes before "
+                        "its region crossing, so the scroll is capped at the act-default ceiling "
+                        "and slides at the rate clamp (BOOT-TALL-VSCROLL-RATCHET).")
+                else:
+                    findings.append(
+                        f"A8: a boot into tall row {r['index']} (camera {entry['cam']}) primed "
+                        f"Plane B from scroll {want} = its target (above VSCROLL_BG_MAX "
+                        f"{K['VSCROLL_BG_MAX']}), and all {len(after) - 1} stores after it sat "
+                        "there: no slide. Red with the boot ladder's crossing below its prime "
+                        "(see MUTATIONS (e)).")
+                return
+            raise LegBlocked("no tall row gives a boot whose target is above VSCROLL_BG_MAX, so "
+                             f"nothing could slide: {report['B_tried']}")
+        await run_leg("B", _legB)
+
         # ---- leg S: the position DISCRIMINATOR — a PATCHED ROM, not a live poke ----------
         #
         # ⚠ THE LIVE POKE IS DEAD, MEASURED. The Rust core refuses every write outside the
@@ -1613,6 +1717,12 @@ def finish(args, report, fails, findings) -> int:
                   f"on a one-plane map (unrated, worst {g['worst_unrated_step']}), "
                   f"{g['modelled_ticks']} "
                   f"modelled ({g['model_mismatches']} mismatched), rows {g['rows_visited']}")
+        g = report.get("B")
+        if g:
+            print(f"  B (boot into tall row {g['row']}, camera {g['cam']}): primed from scroll "
+                  f"{g['v_at_prime']} against target {g['target']}; stores after {g['v']}")
+        elif report.get("B_tried"):
+            print(f"  B: tried {report['B_tried']}")
         g = report.get("P")
         if g and "could_not_run" in g:
             print(f"  P: COULD NOT RUN — {g['could_not_run'].splitlines()[0]}")
@@ -1670,7 +1780,7 @@ def finish(args, report, fails, findings) -> int:
         print("COULD NOT RUN:", file=sys.stderr)
         for n in blocked:
             print(f"  - leg {n['leg']}: {n['why']}", file=sys.stderr)
-        ran = [k for k in ("C", "D", "W", "X", "P", "S")
+        ran = [k for k in ("C", "D", "W", "X", "P", "B", "S")
                if k in report and "could_not_run" not in report[k]]
         print(f"\n  {len(ran)} leg(s) DID run and their assertions held "
               f"({', '.join(ran) or 'none'}), and that is reported above rather than thrown "
@@ -1688,6 +1798,9 @@ def finish(args, report, fails, findings) -> int:
                   "THROUGH A STAGED TRANSITION (PARALLAX-STEP5-SNAP-DEAD). Every other leg "
                   "passes unchanged with Step 5's Parallax_Snap_Pending test dead.",
                   file=sys.stderr)
+        if "B" not in ran:
+            print("  WITHOUT LEG B NOTHING HERE TESTED THAT A BOOT DEEP IN A TALL MAP PRIMES THE "
+                  "PLANE FROM ITS TARGET SCROLL (BOOT-TALL-VSCROLL-RATCHET).", file=sys.stderr)
         if "S" not in ran:
             print("  WITHOUT LEG S NOTHING HERE TESTED THE POSITION CLAMP, AND NOTHING ELSE IN "
                   "THIS TREE CAN. Every shipped region row leaves rg_bg_span at 0, so every "
