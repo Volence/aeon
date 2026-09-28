@@ -131,7 +131,26 @@ EDITOR_ACT = REPO / "games" / "sonic4" / "data" / "editor" / "ojz" / "act1"
 SHAPE_BANK = REPO / "games" / "sonic4" / "data" / "collision" / "base" / "heightmaps.bin"
 SETTLE_FRAMES = 40                    # camera set -> streaming covers the player
 PIN_FRAMES = 8                        # placed and held: y_vel 0, ground speed 0
-LAND_FRAMES = 8                       # released -> feet on the ground, before injection
+#: The landing wait's FLOOR in emulator frames (the importers -- tunnel_run, crossing,
+#: clip_music, s2clip_layer_line, woven_route -- also scale it by 4 for their own waits).
+LAND_FRAMES = 8
+#: LOOP-STEP-OVER-LANDING (2026-09-28). After the last pin write, run LAND_FRAMES emulator
+#: frames as before, then keep running ONE frame at a time while the player is not yet
+#: grounded with y_vel 0; give up (SETUP red) only after LAND_TICK_LIMIT game ticks
+#: (Logic_Tick) since the pin, or LAND_FRAME_LIMIT emulator frames if the loop is not ticking
+#: at all. The old fixed wait of 8 EMULATOR frames had no margin: the 2 px drop from rest
+#: lands on the 7th game tick after the last pin write, and the camera catching up to x 1000
+#: at 16 px a frame (it followed the player back toward his boot x during SETTLE_FRAMES) makes
+#: about one frame in three a lag frame. The pin frame plus 8 frames held 7 ticks on 3db049cd
+#: (DEBUG crc 1000eded) and 6 on 4f3a3ef8 (PERF-PARALLAX-PERBAND Step 4a, crc f9ebb328), whose
+#: per-tick physics is identical (same y and y_vel tick for tick, landing at y 557.281 on the
+#: 7th tick). Keeping the 8-frame floor means a run the old wait landed is driven from exactly
+#: the frame it was driven from before; only a run the old wait called NEVER LANDED changes.
+#: Counted from AFTER the last pin frame, whose own tick is the drop's first, so the drop needs
+#: 6 ticks past the count's start: measured, a limit of 5 is red at the assertion on
+#: 33923201 and 6 is green. 30 is a bound on a stuck landing, not a margin anyone tuned.
+LAND_TICK_LIMIT = 30
+LAND_FRAME_LIMIT = 120                # the tick counter itself stalled: nothing is running
 
 #: THE LAP CHECK (LOOP-EXIT, 2026-09-26). A drive that rides the loop must ride it ONCE and
 #: leave on the far side on plane A at low priority, still moving the way it was driven. Until
@@ -541,23 +560,45 @@ async def drive(sock, syms, equs, gsp, frames, verbose, start_dx=0, direction="r
             await b.write(A_YVEL, 0, 2)
             await b.write(A_GSP, 0, 2)
             await b.frames(1)
-        await b.frames(LAND_FRAMES)
+
+        # 3a. let him land, counted in GAME TICKS (see LAND_TICK_LIMIT): a lag frame runs no
+        #     physics, so a fixed count of emulator frames is a count of luck.
+        A_TICK = syms["Logic_Tick"]
+
+        async def tick():
+            return int.from_bytes(await b.read(A_TICK, 4), "big")
+
+        async def landing():
+            return ((await b.read(A_STATE, 1))[0],
+                    _s16(int.from_bytes(await b.read(A_YVEL, 2), "big")))
+
+        t0, land_frames = await tick(), 0
+        state, yv = await landing()
+        while land_frames < LAND_FRAMES or (
+                (state not in grounded or yv != 0) and land_frames < LAND_FRAME_LIMIT
+                and (await tick()) - t0 < LAND_TICK_LIMIT):
+            await b.frames(1)
+            land_frames += 1
+            state, yv = await landing()
+        land_ticks = (await tick()) - t0
         await b.check_alive("placement")
 
         # 3b. THE PRECONDITION, ASSERTED RATHER THAN ASSUMED: a player who never landed is not
         #     riding anything, and his run has the signature of a missed layer change.
-        state = (await b.read(A_STATE, 1))[0]
-        yv = _s16(int.from_bytes(await b.read(A_YVEL, 2), "big"))
         landed_y = int.from_bytes(await b.read(A_Y, 4), "big") >> 16
+        if verbose:
+            print("    landed after %d frame(s), %d game tick(s): y=%d" % (land_frames, land_ticks,
+                                                                           landed_y))
         if assert_grounded and (state not in grounded or yv != 0):
             raise SystemExit(
                 "loop_step_over_witness: THE PLAYER NEVER LANDED, so this run cannot say "
                 "anything about the loop.\n  placed at (%d, %d) over plane-A ground at y %d "
-                "(derived from %s); after %d landing frames he is at y=%d, y_vel=%d, "
-                "player_state=%d (want a grounded state and y_vel 0). This is a SETUP "
-                "failure, not a loop result. --no-assert-grounded runs anyway."
-                % (x0, feet - radius - 2, feet, EDITOR_ACT.relative_to(REPO), LAND_FRAMES,
-                   landed_y, yv, state))
+                "(derived from %s); after %d game ticks (%d emulator frames; limits %d ticks, "
+                "%d frames) he is at y=%d, y_vel=%d, player_state=%d (want a grounded state "
+                "and y_vel 0). This is a SETUP failure, not a loop result. "
+                "--no-assert-grounded runs anyway."
+                % (x0, feet - radius - 2, feet, EDITOR_ACT.relative_to(REPO), land_ticks,
+                   land_frames, LAND_TICK_LIMIT, LAND_FRAME_LIMIT, landed_y, yv, state))
 
         # 4. the act's layer-line table, out of the RUNNING ROM (the pointer the routine uses)
         act = int.from_bytes(await b.read(syms["Current_Act_Ptr"], 4), "big")

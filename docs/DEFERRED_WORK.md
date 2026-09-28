@@ -46,6 +46,58 @@ against the AS-era tree and cite `.asm` paths and line numbers into files that *
 
 ---
 
+## LOOP-STEP-OVER-LANDING: the loop witness's landing wait counted emulator frames, and a perf change moved the lag frames under it (FIXED 2026-09-28, `fix/loop-step-over-landing`)
+
+**Symptom.** The 2026-09-28 keepalive nightly (origin/master `d4f8c479`): `loop_step_over_witness.py`
+default, `#phase-sweep` and `#fault-drives` exit 1 at SETUP, "THE PLAYER NEVER LANDED ... after 8
+landing frames he is at y=558, y_vel=336, player_state=6". `#no-assert-grounded` and `#stand-reverse`
+passed.
+
+**Bisect, by building** (FAST DEBUG builds, the current witness's default row against each ROM):
+
+| commit | what | DEBUG crc | default row |
+|---|---|---|---|
+| `3db049cd` | master before the parallax branch | `1000eded` | exit 0 |
+| `4584a862` | `33bba0a0`'s first parent | `1000eded` | exit 0 |
+| `4f3a3ef8` | parallax Step 4a (shadow view rebuilt only on a key change; +8 B RAM) | `f9ebb328` | **exit 1** |
+| `33bba0a0` | the perf/parallax-perband merge | `743e3ca2` | exit 1 |
+| `d33fa8d0` | lane-status merge on top (its first parent is `33bba0a0`) | `743e3ca2` | exit 1 |
+| `dad60af5` / `33923201` | origin/master at dispatch / at branch | `3a8a8e5a` | exit 1 |
+
+**Mechanism, MEASURED** (a per-frame probe of the witness's own steps 1-3, by symbol, on `3db049cd` and
+`4f3a3ef8`): the physics is the same tick for tick. After the last pin write both ROMs fall
+555.000 -> 555.219 -> 555.656 -> 556.312 -> 557.188 -> 558.281 and land at y 557.281, y_vel 0,
+player_state 0 on the 7th game tick. What moved is which emulator frames are lag frames: the camera
+followed the player back toward his boot x during SETTLE_FRAMES, so after the placement it catches up
+to x 1000 at 16 px a frame and about one frame in three runs no game tick. The pin frame plus the 8
+landing frames held 7 ticks on `3db049cd` (landed on the last frame, zero margin) and 6 on `4f3a3ef8`
+(red, landed one frame later). `4f3a3ef8` runs MORE ticks overall (Logic_Tick 245 vs 244 at the same
+emulator frame): the perf change is faster, it only shifted the lag phase.
+- (a) a hard-coded RAM address that moved: REFUTED. Every read is by symbol or struct offset and
+  reads the same physics on both ROMs. The hard-coded thing was a FRAME count, `LAND_FRAMES = 8`.
+- (b) a real engine regression: REFUTED. It forbids the player landing on the same tick with the same
+  numbers; he does.
+- (c) placement timing: CONFIRMED, in the form above (lag frames under a fixed emulator-frame wait),
+  not a warp or prime taking longer.
+
+**Fix (witness only; no engine change).** The landing wait keeps its 8-frame floor, then runs one
+frame at a time until the player is grounded with y_vel 0, giving up after `LAND_TICK_LIMIT` (30)
+game ticks by `Logic_Tick`, or `LAND_FRAME_LIMIT` (120) frames if the tick counter stalls. A run the
+old wait landed is driven from the same frame: on `3db049cd` the fixed witness's default-row output is
+byte-identical to the old one's. On `33923201` (crc `3a8a8e5a`) all five rows exit 0.
+`LAND_FRAMES` stays as the floor and as the unit five importing witnesses scale by 4.
+Mutations on disk against `33923201`'s DEBUG ROM, each restored with `git show HEAD:path > path`:
+the pre-fix witness exits 1 (the nightly's exact message); the fixed witness with
+`LAND_TICK_LIMIT = 5` exits 1 at the assertion ("after 5 game ticks (8 emulator frames)"), so the
+landing check still bites; with 6 it exits 0 (the count starts after the pin frame, whose own tick
+is the drop's first).
+
+**Still open, not fixed here.** SETTLE_FRAMES "camera first, then settle" does not hold the camera:
+the camera tracks the player at his boot x through the settle and then scrolls 400+ px to catch up
+after the placement, so every drive starts inside a camera catch-up with lag frames. The drives
+grade per game tick, so this is not a grading error, but the setup is not the steady state the
+header describes. Changing it moves every drive's start and needs its rows re-measured.
+
 ## WOVEN-HPZ-BG-MISALIGNED: after Wing Fortress, every other zone's background bands carried its cloud drift, tearing Hidden Palace's waterfall wall at every band edge (FIXED 2026-09-27, `fix/woven-hpz-bg`)
 
 **Symptom (owner, 2026-09-27, woven DEBUG crc `2a0f1df3`).** Hidden Palace's background had a hard
