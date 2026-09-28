@@ -1,5 +1,5 @@
 {
-  "focus": "Woven-act fixes are in your ROM; the song bank waits on the assembler lane; editing the woven act is your call.",
+  "focus": "Rebooted and up to date. Next up is a small collision fix at the Chemical Plant crossing; editing the woven act is your call.",
   "inFlight": [],
   "blockedOnOwner": [
     {
@@ -226,7 +226,7 @@
       "project": "REGIONS"
     }
   ],
-  "awaiting": "Your pick on making the woven act editable in aurora (card WOVEN-EDITABLE; I recommend freezing a snapshot).",
+  "awaiting": "Your go to start the Chemical Plant crossing fix (and your pick on card WOVEN-EDITABLE when you have a moment).",
   "atBoundary": true,
-  "updatedAt": "2026-09-28T01:55:12Z"
+  "updatedAt": "2026-09-28T01:56:40Z"
 }
