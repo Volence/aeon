@@ -1,0 +1,13 @@
+diff --git a/engine/level/parallax.emp b/engine/level/parallax.emp
+index ae5e3dab..17546def 100644
+--- a/engine/level/parallax.emp
++++ b/engine/level/parallax.emp
+@@ -2233,7 +2233,7 @@ pub proc Parallax_Update () clobbers(d0-d7/a0-a6) preserves(sr.mask) {
+ 
+         // NOTE: Step 5 (Vscroll) runs BEFORE Step 4 (HScroll fill) — the
+         // band rotation in Step 4a needs this frame's Vscroll_BG.
+-        jbra    Parallax_Step5_Vscroll
++        rts
+     .no_config:
+         rts
+ }

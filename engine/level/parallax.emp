@@ -255,7 +255,9 @@ pub const CURVE_FLAG_ACTIVE_BIT = 1   // 1 = this band is a curve layer (authore
 // SET AT RUNTIME BY STEP 4b, ON THE SPLIT ENTRY ONLY, and never present in ROM. It is what
 // tells the fill "seed this band's accumulator from the previous band's parked carry
 // instead of from the base scroll" — i.e. do not re-parametrise the ramp at the split.
-// Every frame's shadow view is re-copied from ROM before Step 4b runs, so the bit cannot
+// The view Step 4b receives is always a pure rotation of ROM, where the bit is never
+// authored: rebuilt this tick, or a cached one Step 4a's key vouches for, and a split drops
+// that key (2026-09-28; until then the view was re-copied every frame). So the bit cannot
 // go stale.
 pub const CURVE_FLAG_CONT_BIT   = 2
 pub struct band_curve (size: 10) {
@@ -298,10 +300,11 @@ pub const BAND_CURVE_N = if (GAME_SCANLINE_CAPS & $0040) != 0 { 1 } else { 0 }  
 // The obvious shape — rate here, accumulator beside it — CANNOT BE BUILT, for two
 // independent reasons, both properties of the shadow view this record also lives in:
 //
-//   (a) THE SHADOW VIEW IS DESTROYED AND REBUILT FROM ROM EVERY FRAME. Step 4a walks every
-//       band and calls copy_band_entry_fwd(), which copies the WHOLE record, tails included.
-//       An accumulator in a shadow tail is overwritten with its ROM image (zero) before it is
-//       ever read. band_curve's two derived words survive only because they are RE-DERIVED
+//   (a) THE SHADOW VIEW IS DESTROYED AND REBUILT FROM ROM. Every frame when this was written;
+//       since 2026-09-28 whenever (config, Vscroll_BG & 511) changes or a split drops Step 4a's
+//       key, which is no better for an accumulator. Step 4a walks every band and calls
+//       copy_band_entry_fwd(), which copies the WHOLE record, tails included. An accumulator in
+//       a shadow tail is overwritten with its ROM image (zero) at each rebuild. band_curve's two derived words survive only because they are RE-DERIVED
 //       after the copy by `.cap_factor_curve_hoist`; a value that must ACCUMULATE has no such
 //       escape.
 //   (b) THE SHADOW VIEW IS ROTATED, so slot index != layer index. Step 4a's `.find_k` starts
@@ -322,7 +325,7 @@ pub const BAND_CURVE_N = if (GAME_SCANLINE_CAPS & $0040) != 0 { 1 } else { 0 }  
 //
 // THE DUAL COST, STATED PLAINLY RATHER THAN HIDDEN (band_curve's own convention for its four
 // dead ROM bytes): THE RATE'S SHADOW COPY IS NEVER READ. Step 4a copies these 4 bytes per band
-// per frame and nothing consumes them. The alternative that avoids it — a parallel ROM rate
+// per rebuild (every frame until 2026-09-28) and nothing consumes them. The alternative that avoids it — a parallel ROM rate
 // array reached through a new parallax_config word — was costed and rejected: it widens the
 // config from 30 to 34 bytes, moves every config record in the tree, pulls engine/system/
 // buffers.emp into the parcel, and invents a per-band data shape that exists for one field.
@@ -520,7 +523,7 @@ pub const BAND_OP_BIT_B = 1
 //
 // Two populations of band_entry exist and they measure their top in different units:
 //   ROM entries (games/.../ojz_scenes.emp, lowered) -> Plane-B LINES 0..511
-//   Parallax_Shadow_Bands (rebuilt each frame)      -> SCREEN LINES 0..224
+//   Parallax_Shadow_Bands (rebuilt when its key moves) -> SCREEN LINES 0..224
 // Both fit the u16, so nothing moves; Step 4a's rebase is where plane lines become
 // screen lines.
 //
@@ -598,8 +601,10 @@ ensure(((sizeof(band_ext) * BAND_EXT_N + sizeof(band_curve) * BAND_CURVE_N + siz
 // rather than a hidden one. It is inside this span for the accumulator's reason — the
 // long-counted Parallax_Init clear zeroes it at level init with no new code.
 // The 104 was 100 until 2026-09-04: EFFECTS-W1 F3 added Parallax_VP_Prev_Cam_X and
-// Parallax_VP_Lean, one long, to the ceiling-independent head of the region.
-const PARALLAX_STATE_LONGS = (104 + 18 * MAX_PARALLAX_BANDS) / 4 + ((sizeof(band_ext) * BAND_EXT_N + sizeof(band_curve) * BAND_CURVE_N + sizeof(band_drift) * BAND_DRIFT_N + sizeof(band_remap) * BAND_REMAP_N) * MAX_PARALLAX_BANDS) / 4 + BAND_CURVE_N + BAND_DRIFT_N * MAX_PARALLAX_BANDS + 2 * BAND_REMAP_N
+// Parallax_VP_Lean, one long, to the ceiling-independent head of the region. It became 112
+// on 2026-09-28 (PERF-PARALLAX-PERBAND): Step 4a's frame-coherence key, two longs
+// (Parallax_Shadow_Key_Config, then the Key_VS/Key_K word pair) at the tail of the region.
+const PARALLAX_STATE_LONGS = (112 + 18 * MAX_PARALLAX_BANDS) / 4 + ((sizeof(band_ext) * BAND_EXT_N + sizeof(band_curve) * BAND_CURVE_N + sizeof(band_drift) * BAND_DRIFT_N + sizeof(band_remap) * BAND_REMAP_N) * MAX_PARALLAX_BANDS) / 4 + BAND_CURVE_N + BAND_DRIFT_N * MAX_PARALLAX_BANDS + 2 * BAND_REMAP_N
 ensure(extern("Parallax_Shadow_Bands") - extern("Parallax_Curve_Carry") == 4 * BAND_CURVE_N,
        "the curve carry reserves {extern(\"Parallax_Shadow_Bands\") - extern(\"Parallax_Curve_Carry\")} bytes, not the {4 * BAND_CURVE_N} this capability needs — set CURVE_CARRY_WORDS in engine/ram.emp (it is derived from BAND_CURVE_BYTES, so the real fault is that derivation, a mask or a size out of step with this file's count). A short reservation makes the fill's cross-band carry alias the shadow band array")
 // The drift accumulator's own reservation, the exact twin of the curve-carry pin above and
@@ -2054,6 +2059,18 @@ pub proc Parallax_Update () clobbers(d0-d7/a0-a6) preserves(sr.mask) {
         // per frame. `moveq #0, d6` still clears the upper word, which the btst needs.
         moveq   #0, d6
         move.w  parallax_config.pcfg_layer_mask(a0), d6            // d6 = layer mask (16 bands)
+        // THE LERP DECISION IS PER FRAME, SO IT IS MADE ONCE HERE (PERF-PARALLAX-PERBAND,
+        // 2026-09-28). "Snap pending, or no transition in flight" picks `.snap_b` for EVERY
+        // band: nothing in this loop (nor in Decode_Factor_A/_B) writes either byte. It was
+        // two `tst.b` of RAM and two branches per band, 42 cycles on the common path; now it
+        // is bit 31 of d6, one `tst.l` + `bpl`, 14. The bit is out of the mask's way: the
+        // mask is bits 0..15 and `btst d5, d6` indexes it with d5 <= 15.
+        tst.b   Parallax_Snap_Pending               // (Parallax_Snap_Pending).w
+        bne     .lerp_decided                       // snap wins over a transition
+        tst.b   Parallax_Transition_Frames          // (Parallax_Transition_Frames).w
+        beq     .lerp_decided                       // no transition — lock to target
+        bset    #31, d6                             // lerp every enabled band this frame
+    .lerp_decided:
         moveq   #0, d5                              // d5 = band index
         move.w  d0, d3                              // d3 = previous-band current_a seed = -camX:
         neg.w   d3                                  //   a disabled band 0 must still hard-lock the
@@ -2082,7 +2099,7 @@ pub proc Parallax_Update () clobbers(d0-d7/a0-a6) preserves(sr.mask) {
 
         // -- factor_a: hard-locked, current_a = target every frame --
         jbsr    Decode_Factor_A                     // out: d2 = -decode(camX, factor_a)
-        move.w  d2, (a2)
+        move.w  d2, (a2)+                           // current_a, and step the cursor
         move.w  d2, d3                              // remember for inheritance
 
         // -- factor_b: lerp during transition, else lock --
@@ -2130,10 +2147,8 @@ pub proc Parallax_Update () clobbers(d0-d7/a0-a6) preserves(sr.mask) {
         .cap_band_drift_accum_end:
         }
 
-        tst.b   Parallax_Snap_Pending               // (Parallax_Snap_Pending).w
-        bne     .snap_b
-        tst.b   Parallax_Transition_Frames          // (Parallax_Transition_Frames).w
-        beq     .snap_b                             // no transition — lock to target
+        tst.l   d6                                  // bit 31: the frame's lerp decision
+        bpl     .snap_b                             //   (made once, above the loop)
         // frames-remaining ramp: step = (target − current) / frames_remaining,
         // so the BG scroll converges EXACTLY by the last window frame
         // (frames_remaining reaches 1 → step = the whole residual). The promote
@@ -2142,10 +2157,12 @@ pub proc Parallax_Update () clobbers(d0-d7/a0-a6) preserves(sr.mask) {
         // at .write_b), so it carries the divisor.
         // §2.1's FOUR POINTS for the divs.w below (restated 2026-09-11, lens item
         // B1-5: points 1 and 2 were here, 3 and 4 were not):
-        //   1. DIVISOR NON-ZERO, STRUCTURALLY. The divide path is reached only past
-        //      the `tst.b Transition_Frames / beq .snap_b` above, and nothing between
-        //      that test and the `move.b` load writes the byte: no call sits between
-        //      them, and its only writers (Parallax_StartTransition's arms and Step 1's
+        //   1. DIVISOR NON-ZERO, STRUCTURALLY. The divide path is reached only when
+        //      d6's bit 31 is set, which the hoist above the loop does only past its
+        //      `tst.b Transition_Frames / beq .lerp_decided` (2026-09-28: the test moved
+        //      there from here, per band -> per frame), and nothing between that test
+        //      and the `move.b` load writes the byte: the loop's only calls are
+        //      Decode_Factor_A/_B, which touch no RAM, and its only writers (Parallax_StartTransition's arms and Step 1's
         //      decrement at the top of this proc) are main-loop code that no interrupt
         //      handler reaches. Step 1 decremented it before this loop and promoted
         //      Target when it hit 0, so frames_remaining is 1..PARALLAX_TRANS_DEFAULT - 1
@@ -2186,19 +2203,18 @@ pub proc Parallax_Update () clobbers(d0-d7/a0-a6) preserves(sr.mask) {
     .snap_b:
         move.w  d2, d1                              // snap: current_b = target
     .write_b:
-        move.w  d1, (a3)
+        move.w  d1, (a3)+                           // current_b, and step the cursor
         move.w  d1, d4
         jbra    .band_done
 
     .band_disabled:
         // inherit previous-band scroll
-        move.w  d3, (a2)
-        move.w  d4, (a3)
+        move.w  d3, (a2)+
+        move.w  d4, (a3)+
 
     .band_done:
-        adda.l  #sizeof(band_record), a1
-        addq.l  #2, a2
-        addq.l  #2, a3
+        // a2/a3 were stepped by their own stores (both arms store each exactly once).
+        lea     sizeof(band_record)(a1), a1
         // BAND DRIFT — step the accumulator cursor. ON BOTH ARMS (this label is where
         // `.band_disabled` joins), because the array is indexed by BAND index and a disabled
         // band still owns its slot. Skipping it here would shift every subsequent band's
@@ -2245,10 +2261,44 @@ proc Parallax_Step4_Fill () clobbers(d0-d7/a0-a6) {
         //
         // At Vscroll_BG = 0 the rotation is still an identity copy plus the clamp, so
         // vertically-locked configs (v_factor_bg = 15, v_offset = 0) are unchanged.
-        // The shadow view is built EVERY frame, even then: the clamp below is load-bearing
+        // The shadow view EXISTS on every frame, even then: the clamp below is load-bearing
         // — a raw plane-space top (e.g. 320, 384) would make the per-line filler emit more
         // than 224 lines and spray past Hscroll_Buffer into the DMA queues (frozen-VDP
         // crash class).
+        //
+        // ---- BUT IT IS BUILT ONLY WHEN ITS INPUTS CHANGE (PERF-PARALLAX-PERBAND, 2026-09-28) ----
+        //
+        // The rotated, rebased records are a PURE FUNCTION of two things: the config's band
+        // bytes and `vs` (Vscroll_BG & 511). The per-band record copy and rebase cost 2.6k
+        // cycles a tick on Emerald Hill's 7-band record (measured, docs/research/
+        // 2026-09-28-parallax-perband.md), every tick, to rewrite the identical bytes: a
+        // vertically locked scene never changes `vs`, and a scrolling one changes it once per
+        // 2^v_factor lines of camera. So the view is rebuilt only when (config, vs) differs
+        // from Parallax_Shadow_Key_Config/_VS, and the scroll WORDS, which change every tick,
+        // are re-rotated every tick from the cached k (`.reorder_scroll`, below).
+        //
+        // WHAT MAKES THE CACHED VIEW STILL EXACT, all four, each one a clause here:
+        //   (1) THE CONFIG'S BYTES CANNOT CHANGE UNDER THE KEY. Only a ROM config is keyed:
+        //       a RAM config (Parallax_InstallScratch's scratch, which an editor pokes in
+        //       place, or a probe fixture in Replay_Record_Buf) leaves the key 0 and is
+        //       rebuilt every tick, exactly as before. The test is the pointer's address
+        //       (ROM is below $400000, work RAM above), not a flag someone must remember.
+        //   (2) NOTHING ELSE WRITES THE VIEW, except two writers that are accounted for.
+        //       Step 4b's anchored split REWRITES it (a shifted-down run, the split entry,
+        //       the overridden shifts, CURVE_FLAG_CONT_BIT) and clears the key the moment it
+        //       starts, so the next tick rebuilds from ROM. The curve hoist rewrites
+        //       bc_step/bc_frac on every tick for every band it reads them for; a band it
+        //       skips (span <= 0) keeps the ROM zero it was built with, and no reader takes
+        //       those words for a band with no lines. Grep-verified: no other store names
+        //       Parallax_Shadow_Bands (the fill and the remap pass only read it).
+        //   (3) THE PER-ACT CLEAR resets it: the key is inside Parallax_State, so
+        //       Parallax_Init's zero loop leaves Key_Config 0, which no config pointer equals.
+        //   (4) THE SCROLL WORDS ARE NOT CACHED. They are the only per-tick input to the
+        //       view, and `.reorder_scroll` rotates them from Parallax_Current_Scroll_A/_B
+        //       every tick, on both paths, from the same k the records were rotated by.
+        // The output is byte-identical to the always-rebuild shape at every tick; the check
+        // is docs/research/2026-09-28-parallax-perband/ (HScroll/VSRAM/factor dumps compared
+        // tick by tick, with the mutant that went RED on it).
         //
         // WHY THE SEARCH STAYS A SEARCH. Thunder Force IV was checked for the arithmetic
         // alternative and does not supply one: its bands are SCREEN-anchored (64 per-band
@@ -2262,6 +2312,14 @@ proc Parallax_Step4_Fill () clobbers(d0-d7/a0-a6) {
         // per frame; see docs/benchmarks/scanline-p3/REGLUE.md.
         move.w  Parallax_Current_Vscroll_BG, d0     // (Parallax_Current_Vscroll_BG).w
         and.w   #PLANE_B_SPAN-1, d0         // d0 = vs, the plane LINE at the screen top
+        // -- the frame-coherence test: is the view already this (config, vs)'s? --
+        cmpa.l  Parallax_Shadow_Key_Config, a0      // (Parallax_Shadow_Key_Config).w
+        bne     .shadow_rebuild
+        cmp.w   Parallax_Shadow_Key_VS, d0          // (Parallax_Shadow_Key_VS).w
+        bne     .shadow_rebuild
+        move.w  Parallax_Shadow_Key_K, d1           // (Parallax_Shadow_Key_K).w — d1 = k
+        jbra    .reorder_scroll
+    .shadow_rebuild:
         // -- find k = the band containing plane line vs --
         // (last band whose top <= vs; tops ascend and band 0 top is 0)
         lea     sizeof(parallax_config)(a0), a1
@@ -2279,31 +2337,36 @@ proc Parallax_Step4_Fill () clobbers(d0-d7/a0-a6) {
         addq.w  #1, d2
         jbra    .find_k
     .found_k:
-        // -- copy all bands starting at k (wrapping) into the shadow view,
-        //    rebasing tops to screen lines and reordering the scroll words --
-        lea     Parallax_Shadow_Bands, a4           // (Parallax_Shadow_Bands).w
-        lea     Parallax_Shadow_Scroll_A, a5        // (Parallax_Shadow_Scroll_A).w
-        lea     Parallax_Shadow_Scroll_B, a6        // (Parallax_Shadow_Scroll_B).w
-        move.w  d7, d6
-        subq.w  #1, d6                      // dbf counter
-        move.w  d1, d2                      // d2 = source band index (starts at k)
-        moveq   #0, d4                      // first-entry flag
-    .copy_band:
-        move.w  d2, d3
-        mul_const.w d3, #sizeof(band_record), d5  // d3 = d2 × sizeof(band_record); d5 trashed
+        // -- copy all bands starting at k (wrapping) into the shadow view, rebasing tops
+        //    to screen lines. A WALKING source cursor: a1 = &band[k] once, then it advances
+        //    with the copy and is reset to &band[0] at the wrap (d2 counts the records left
+        //    before it). Until 2026-09-28 every band re-derived its source address from an
+        //    index (a multiply-by-stride, a lea and an adda) and re-indexed both scroll
+        //    arrays; the scroll words now move in `.reorder_scroll`, below, on every tick. --
+        move.w  d1, d3
+        mul_const.w d3, #sizeof(band_record), d5  // d3 = k × sizeof(band_record); d5 trashed
         lea     sizeof(parallax_config)(a0), a1
-        adda.w  d3, a1
+        adda.w  d3, a1                      // a1 = &band[k]
+        lea     Parallax_Shadow_Bands, a4           // (Parallax_Shadow_Bands).w
+        // band k starts at the screen top: its rebased top is 0 whatever its plane top was
+        copy_band_entry_fwd(a1, a4)
+        clr.w   -sizeof(band_record)(a4)
+        move.w  d7, d2
+        sub.w   d1, d2
+        subq.w  #1, d2                      // d2 = records after k before the wrap (n-1-k)
+        move.w  d7, d6
+        subq.w  #2, d6                      // dbf count over the n-1 entries after band k
+        bmi     .shadow_built               // one band: nothing more to copy
+    .copy_band:
+        subq.w  #1, d2
+        bpl     .no_wrap
+        lea     sizeof(parallax_config)(a0), a1     // past band n-1: continue at band 0
+        moveq   #MAX_PARALLAX_BANDS, d2             // ...and never wrap again this build
+    .no_wrap:
         copy_band_entry_fwd(a1, a4)
         // rebase the copied entry's top: PLANE LINES -> SCREEN LINES
         move.w  -sizeof(band_record)(a4), d3
         sub.w   d0, d3
-        tst.w   d4
-        bne     .not_first
-        moveq   #0, d3                      // band k starts at the screen top
-        moveq   #1, d4
-        jbra    .write_top
-    .not_first:
-        tst.w   d3
         bgt     .clamp_top
         addi.w  #PLANE_B_SPAN, d3           // wrapped past the plane bottom
     .clamp_top:
@@ -2318,19 +2381,48 @@ proc Parallax_Step4_Fill () clobbers(d0-d7/a0-a6) {
         // this pipeline counts cells any more (the per-cell filler, the last thing that
         // did, was deleted 2026-08-26).
         move.w  d3, -sizeof(band_record)(a4)
-        // reorder the matching scroll words
-        move.w  d2, d3
+        dbf     d6, .copy_band
+    .shadow_built:
+        // -- publish the key: this view now belongs to (a0, vs), with rotation k.
+        //    A RAM config is never keyed (clause 1 of the banner): its bytes can change under
+        //    the same pointer, so it keeps the rebuild-every-tick behaviour it always had.
+        //    Unsigned: ROM is $000000-$3FFFFF, and work RAM reads as $FFxxxx or $FFFFxxxx
+        //    depending on how the pointer was formed; both are at or above $400000. --
+        clr.l   Parallax_Shadow_Key_Config          // (Parallax_Shadow_Key_Config).w
+        cmpa.l  #$400000, a0
+        bhs     .reorder_scroll
+        move.l  a0, Parallax_Shadow_Key_Config
+        move.w  d0, Parallax_Shadow_Key_VS          // (Parallax_Shadow_Key_VS).w
+        move.w  d1, Parallax_Shadow_Key_K           // (Parallax_Shadow_Key_K).w
+    .reorder_scroll:
+        // -- the scroll words, EVERY tick, on both paths: slot i of the view gets config
+        //    band (k + i) mod n's current scroll, as two runs (k..n-1, then 0..k-1) so no
+        //    per-slot wrap test is paid. In: d1 = k (0..n-1), d7 = n. --
+        move.w  d1, d3
         add.w   d3, d3
         lea     Parallax_Current_Scroll_A, a1       // (Parallax_Current_Scroll_A).w
-        move.w  (a1,d3.w), (a5)+
-        lea     Parallax_Current_Scroll_B, a1       // (Parallax_Current_Scroll_B).w
-        move.w  (a1,d3.w), (a6)+
-        addq.w  #1, d2
-        cmp.w   d7, d2
-        blo     .no_wrap
-        moveq   #0, d2
-    .no_wrap:
-        dbf     d6, .copy_band
+        adda.w  d3, a1
+        lea     Parallax_Current_Scroll_B, a2       // (Parallax_Current_Scroll_B).w
+        adda.w  d3, a2
+        lea     Parallax_Shadow_Scroll_A, a5        // (Parallax_Shadow_Scroll_A).w
+        lea     Parallax_Shadow_Scroll_B, a6        // (Parallax_Shadow_Scroll_B).w
+        move.w  d7, d2
+        sub.w   d1, d2
+        subq.w  #1, d2                      // dbf count for bands k..n-1 (>= 0: k < n)
+    .reorder_hi:
+        move.w  (a1)+, (a5)+
+        move.w  (a2)+, (a6)+
+        dbf     d2, .reorder_hi
+        move.w  d1, d2
+        subq.w  #1, d2                      // dbf count for bands 0..k-1
+        bmi     .reorder_done               // k = 0: the first run was all of them
+        lea     Parallax_Current_Scroll_A, a1       // (Parallax_Current_Scroll_A).w
+        lea     Parallax_Current_Scroll_B, a2       // (Parallax_Current_Scroll_B).w
+    .reorder_lo:
+        move.w  (a1)+, (a5)+
+        move.w  (a2)+, (a6)+
+        dbf     d2, .reorder_lo
+    .reorder_done:
 
         // ============ THE CURVE HOIST (P3 Task 10, design section 2 / 4.1) ============
         //
@@ -2529,7 +2621,7 @@ proc Parallax_Step4_Fill () clobbers(d0-d7/a0-a6) {
         divu.w  d4, d2                              // d2.w = ceil(rem * 65536 / span)
         move.w  d2, band_curve_frac(a1)
     .curve_next:
-        adda.w  #sizeof(band_record), a1
+        lea     sizeof(band_record)(a1), a1
         addq.l  #2, a3
         addq.w  #1, d5
         dbf     d6, .curve_band
@@ -2673,6 +2765,11 @@ proc Parallax_Step4_Fill () clobbers(d0-d7/a0-a6) {
         cmp.w   d7, d3
         blo     .anchor_find_k
     .anchor_have_k:
+        // FROM HERE THE SHADOW VIEW IS REWRITTEN (the shift-down, the split entry, the shift
+        // override, CURVE_FLAG_CONT_BIT), so it is no longer the pure rotation Step 4a's key
+        // vouches for: drop the key and the next tick rebuilds from ROM (clause 2 of the
+        // Step 4a banner). Every path below mutates; none returns the view to the key's.
+        clr.l   Parallax_Shadow_Key_Config          // (Parallax_Shadow_Key_Config).w
 
         // --- shift entries (k+1 .. n-1) down one slot, from the END backwards ---
         // The shadow view has room for exactly one more entry; hdr()'s
@@ -2770,8 +2867,9 @@ proc Parallax_Step4_Fill () clobbers(d0-d7/a0-a6) {
         // UNCONDITIONAL, AND CORRECT FOR A NON-CURVE PARENT TOO: the fill reads this bit
         // only after the band's ACTIVE bit says it is a curve at all, so setting it on a
         // flat split is inert. Testing the parent first would cost a branch to save nothing.
-        // It cannot go stale either — Step 4a re-copies the whole shadow view from ROM,
-        // where the bit is never authored, before this overlay runs.
+        // It cannot go stale either: the view this overlay receives is a pure ROM rotation,
+        // where the bit is never authored, because the `clr.l` at `.anchor_have_k` above
+        // drops Step 4a's key on every split and the next tick rebuilds from ROM.
     if (Game.SCANLINE_CAPS & CAP_FACTOR_CURVE) != 0 {
     .cap_factor_curve_split_begin:
         bset    #CURVE_FLAG_CONT_BIT, band_curve_flags(a5)
@@ -3696,24 +3794,25 @@ proc Parallax_Fill_PerLine () clobbers(d0-d6/a1-a6) preserves(a0/d7) {
         // register assignment (item 10b's banner, above Parallax_Set_Roles_Swapped).
         // ONCE PER BAND, not per line: the five line loops below all consume this same
         // d0 without re-reading (a2)/(a3), so one check here covers every line they emit.
+    //
+    // THE CURSORS STEP HERE (2026-09-28, PERF-PARALLAX-PERBAND): the pack is the ONE read of
+    // (a2)/(a3) per band and every path to `.band_done` passes through it, so the two
+    // post-increments replace `.band_done`'s two `addq.l #2`. The line loops never touch
+    // a2/a3, which is the cross-loop contract above.
+    //
+    // THE SWAPPED PACK IS THE NORMAL PACK SWAPPED: BG<<16 | FG is `swap` of FG<<16 | BG, so
+    // the swapped arm is one `swap` after the common three moves instead of a second copy of
+    // them behind a `jbra` (22 cycles a band on the normal path, from 30).
+        move.w  (a2)+, d0                           // FG (already negated)
+        swap    d0
+        move.w  (a3)+, d0                           // BG → d0 = FG<<16 | BG
     if (Game.SCANLINE_CAPS & CAP_ROLE_SWAP) != 0 {
     .cap_role_swap_pack_begin:
         tst.b   Parallax_Roles_Swapped
-        bne     .pack_swapped
-        move.w  (a2), d0                            // FG (already negated)
-        swap    d0
-        move.w  (a3), d0                            // BG → d0 = FG<<16 | BG
-        jbra    .packed
-    .pack_swapped:
-        move.w  (a3), d0                            // BG (already negated)
-        swap    d0
-        move.w  (a2), d0                            // FG → d0 = BG<<16 | FG
+        beq     .packed
+        swap    d0                                  // swapped roles → d0 = BG<<16 | FG
     .packed:
     .cap_role_swap_pack_end:
-    } else {
-        move.w  (a2), d0                            // FG (already negated)
-        swap    d0
-        move.w  (a3), d0                            // BG → d0 = FG<<16 | BG
     }
 
         // ---- THE FIFTH LINE LOOP: a curve layer's ramping BG scroll (P3 Task 10) ----
@@ -4280,9 +4379,7 @@ proc Parallax_Fill_PerLine () clobbers(d0-d6/a1-a6) preserves(a0/d7) {
         dbf     d2, .fl_rem
 
     .band_done:
-        lea     sizeof(band_record)(a1), a1
-        addq.l  #2, a2
-        addq.l  #2, a3
+        lea     sizeof(band_record)(a1), a1         // (a2/a3 stepped at the pack)
         tst.w   d7
         bne     .next_band
 

@@ -1,0 +1,4 @@
+leg            lag/frames before         after  ticks       parallax cyc/tick  path                        output identity
+cdebug_anchor_right       0 / 60           0 / 60         60      14686 ->    14314    0 ticks off (dx 0, dy 0)  0 of 60 ticks differ (0 cam-mismatch skipped)
+cdebug_anchor_down       0 / 60           0 / 60         60      15352 ->    14843    0 ticks off (dx 0, dy 0)  0 of 60 ticks differ (0 cam-mismatch skipped)
+finished=1 differing_ticks=0 legs_missing_or_empty=0

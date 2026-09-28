@@ -1,0 +1,15 @@
+leg            lag/frames before         after  ticks       parallax cyc/tick  path                        output identity
+plain_run           0 / 1201         0 / 1201     1201      12157 ->    11697    0 ticks off (dx 0, dy 0)  0 of 1196 ticks differ (5 cam-mismatch skipped)
+plain_spin          1 / 1244         1 / 1244     1243      12159 ->    11699    0 ticks off (dx 0, dy 0)  0 of 1240 ticks differ (3 cam-mismatch skipped)
+debug_run           6 / 1207         6 / 1207     1201      12274 ->    11814    1 ticks off (dx 0, dy 1)  0 of 1201 ticks differ (0 cam-mismatch skipped)
+debug_spin          5 / 1248         5 / 1248     1243      12276 ->    11816    0 ticks off (dx 0, dy 0)  0 of 1243 ticks differ (0 cam-mismatch skipped)
+debug_diag         20 / 1100        20 / 1100     1080      10405 ->    10055    0 ticks off (dx 0, dy 0)  0 of 1080 ticks differ (0 cam-mismatch skipped)
+              Emerald Hill band (cam y < 1024): 16/72 -> 16/72; parallax seg0 12133 -> 11679
+debug_right         0 / 1100         0 / 1100     1100      10131 ->     9784    0 ticks off (dx 0, dy 0)  0 of 1100 ticks differ (0 cam-mismatch skipped)
+debug_down          0 / 400          0 / 400       400      12319 ->    11858    0 ticks off (dx 0, dy 0)  0 of 400 ticks differ (0 cam-mismatch skipped)
+cdebug_diag        12 / 700         12 / 700       688       8462 ->     8200    0 ticks off (dx 0, dy 0)  0 of 688 ticks differ (0 cam-mismatch skipped)
+cdebug_right        0 / 700          0 / 700       700       7787 ->     7532    0 ticks off (dx 0, dy 0)  0 of 700 ticks differ (0 cam-mismatch skipped)
+cdebug_down         0 / 700          0 / 700       700       8008 ->     7751    0 ticks off (dx 0, dy 0)  0 of 700 ticks differ (0 cam-mismatch skipped)
+cplain_run          0 / 1800         0 / 1800     1800       8468 ->     8154    0 ticks off (dx 0, dy 0)  0 of 1800 ticks differ (0 cam-mismatch skipped)
+cdebug_run          0 / 1800         0 / 1800     1800       8585 ->     8270    0 ticks off (dx 0, dy 0)  0 of 1800 ticks differ (0 cam-mismatch skipped)
+finished=1 differing_ticks=0 legs_missing_or_empty=0

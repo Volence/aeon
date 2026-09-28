@@ -1,0 +1,26 @@
+plain_run: plain.bin crc=69873061 bytes=929590 motion lag 0/1201 ticks 1201  (inclusive/self cycles per tick)
+  whole ticks=1201: Parallax_Update=14344/12803  Decode_Factor_A=669/669  Decode_Factor_B=710/710  Parallax_Set_Roles_Swapped=161/123  Parallax_CheckBoundary=137/137
+plain_spin: plain.bin crc=69873061 bytes=929590 motion lag 1/1244 ticks 1243  (inclusive/self cycles per tick)
+  whole ticks=1243: Parallax_Update=14346/12806  Decode_Factor_A=669/669  Decode_Factor_B=711/711  Parallax_Set_Roles_Swapped=161/123  Parallax_CheckBoundary=137/137
+debug_run: debug.bin crc=69340439 bytes=956402 motion lag 6/1207 ticks 1201  (inclusive/self cycles per tick)
+  whole ticks=1201: Parallax_Update=14461/12825  Decode_Factor_A=669/669  Decode_Factor_B=710/710  Parallax_Set_Roles_Swapped=257/171  Parallax_CheckBoundary=137/137
+debug_spin: debug.bin crc=69340439 bytes=956402 motion lag 5/1248 ticks 1243  (inclusive/self cycles per tick)
+  whole ticks=1243: Parallax_Update=14464/12827  Decode_Factor_A=669/669  Decode_Factor_B=711/711  Parallax_Set_Roles_Swapped=257/171  Parallax_CheckBoundary=137/137
+debug_diag: debug.bin crc=69340439 bytes=956402 motion lag 23/1021 ticks 998  (inclusive/self cycles per tick)
+  whole ticks=1077: Parallax_Update=12127/10795  Decode_Factor_A=523/523  Decode_Factor_B=554/554  Parallax_Set_Roles_Swapped=254/169  Parallax_CheckBoundary=144/138
+  seg0 cx 0 ticks=58: Parallax_Update=14293/12678  Decode_Factor_A=660/660  Decode_Factor_B=702/702  Parallax_Set_Roles_Swapped=254/169  Parallax_CheckBoundary=136/136
+debug_right: debug.bin crc=69340439 bytes=956402 motion lag 0/998 ticks 998  (inclusive/self cycles per tick)
+  whole ticks=1100: Parallax_Update=11814/10493  Decode_Factor_A=518/518  Decode_Factor_B=549/549  Parallax_Set_Roles_Swapped=254/169  Parallax_CheckBoundary=144/138
+debug_down: debug.bin crc=69340439 bytes=956402 motion lag 0/363 ticks 363  (inclusive/self cycles per tick)
+  whole ticks=400: Parallax_Update=14512/12872  Decode_Factor_A=670/670  Decode_Factor_B=712/712  Parallax_Set_Roles_Swapped=257/172  Parallax_CheckBoundary=138/138
+cdebug_diag: cdebug.bin crc=1000eded bytes=856982 motion lag 12/375 ticks 363  (inclusive/self cycles per tick)
+  whole ticks=688: Parallax_Update=9727/8631  Decode_Factor_A=405/405  Decode_Factor_B=417/417  Parallax_Set_Roles_Swapped=256/170  Parallax_CheckBoundary=159/141
+  seg0 cx 0 ticks=58: Parallax_Update=10060/8715  Decode_Factor_A=472/472  Decode_Factor_B=499/499  Parallax_Set_Roles_Swapped=254/169  Parallax_CheckBoundary=136/136
+cdebug_right: cdebug.bin crc=1000eded bytes=856982 motion lag 0/358 ticks 358  (inclusive/self cycles per tick)
+  whole ticks=700: Parallax_Update=9062/7984  Decode_Factor_A=396/396  Decode_Factor_B=407/407  Parallax_Set_Roles_Swapped=256/171  Parallax_CheckBoundary=153/139
+cdebug_down: cdebug.bin crc=1000eded bytes=856982 motion lag 0/363 ticks 363  (inclusive/self cycles per tick)
+  whole ticks=700: Parallax_Update=9233/8146  Decode_Factor_A=399/399  Decode_Factor_B=410/410  Parallax_Set_Roles_Swapped=258/172  Parallax_CheckBoundary=146/139
+cplain_run: cplain.bin crc=d2c5842a bytes=829987 motion lag 0/1800 ticks 1800  (inclusive/self cycles per tick)
+  whole ticks=1800: Parallax_Update=10000/8743  Decode_Factor_A=474/474  Decode_Factor_B=502/502  Parallax_Set_Roles_Swapped=160/123  Parallax_CheckBoundary=136/136
+cdebug_run: cdebug.bin crc=1000eded bytes=856982 motion lag 0/1800 ticks 1800  (inclusive/self cycles per tick)
+  whole ticks=1800: Parallax_Update=10117/8765  Decode_Factor_A=474/474  Decode_Factor_B=502/502  Parallax_Set_Roles_Swapped=255/170  Parallax_CheckBoundary=136/136

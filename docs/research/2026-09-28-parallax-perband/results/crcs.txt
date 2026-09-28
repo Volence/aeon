@@ -1,0 +1,24 @@
+== base
+cdebug.bin 1000eded 856982
+cplain.bin d2c5842a 829987
+debug.bin 69340439 956402
+plain.bin 69873061 929590
+3db049cddac3d842d48892323a80e3c4aff3e322
+== decomp
+cdebug.bin 8cd67061 856962
+cplain.bin 4e1e64d3 829955
+debug.bin bfcb199f 956382
+plain.bin c01c9ef3 929560
+3db049cddac3d842d48892323a80e3c4aff3e322
+== s1
+cdebug.bin f9ebb328 857142
+cplain.bin 8c575974 830143
+debug.bin ee64b808 956564
+plain.bin ab90f7a4 929751
+3db049cddac3d842d48892323a80e3c4aff3e322
+== s2
+cdebug.bin 743e3ca2 857170
+cplain.bin fb86e15e 830169
+debug.bin d7f19db3 956590
+plain.bin 116ab256 929777
+3db049cddac3d842d48892323a80e3c4aff3e322
