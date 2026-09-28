@@ -580,8 +580,8 @@ pub vars upper_ram {
     // rotation. While it is non-zero the key vouches for "the rotation, split at this slot":
     // a split of a ROM config whose view has no curve layer keeps the key, and the next tick
     // with the same key and the anchor line still inside the same band only retops the split
-    // entry and re-shifts the scroll words. Step 4a's rebuild and the per-act clear leave it
-    // 0. The second word is padding. Zero bytes under no CAP_ANCHORS.
+    // entry and re-shifts the scroll words. Step 4a's rebuild, Step 4b's restart and the
+    // per-act clear leave it 0. The second word is padding. Zero bytes under no CAP_ANCHORS.
     Parallax_Shadow_Split:       [u32; SHADOW_SPLIT_LONGS],
     // THE CURVE HOIST'S WALK (PPB-5, 2026-09-28): [0] the first shadow slot whose band is a
     // curve layer, [1] how many slots from it the hoist walks (0 = no curve layer in the view).
@@ -594,10 +594,9 @@ pub vars upper_ram {
     // down-counter), and it is 0 exactly when that slot takes `.lp_flat` with no remap mark.
     // Parallax_Band_Sel_Valid (its first byte) says the array describes the current view:
     // Step 4a's rebuild and the per-act clear leave it 0, and the selection pass before the
-    // fill sets it. A split that keeps the key clears it too, so the pass derives the split
-    // view's own bytes once and the kept ticks reuse them (PPB-4); a split that drops the key
-    // sets every byte to $FF (non-zero claims nothing) and the flag with it. Zero bytes under
-    // no CAP_DEFORM. Placed BEFORE
+    // fill sets it. Step 4b's split sets every byte to $FF (non-zero claims nothing) and the
+    // flag with it, and a split kept under the key (PPB-4) keeps both. Zero bytes under no
+    // CAP_DEFORM. Placed BEFORE
     // Parallax_Curve_Walk so that pin, against the end mark, stays an adjacent difference.
     Parallax_Band_Sel:           [u8; BAND_SEL_BYTES],
     Parallax_Band_Sel_Valid:     [u32; BAND_SEL_LONGS],

@@ -2909,6 +2909,7 @@ proc Parallax_Step4_Fill () clobbers(d0-d7/a0-a6) {
         cmp.w   band_top_line_next(a5), d0          // L against the successor's top
         bhs     .anchor_restart                     // at or below it: a later band holds L
     .anchor_kept:
+        // The fill's selection bytes are the split's $FF run, still valid: `.anchor_have_k`.
         subq.w  #1, d1                              // d1 = k, what the scroll tail takes
         jbra    .anchor_scroll
     .anchor_no_split:
@@ -2924,8 +2925,20 @@ proc Parallax_Step4_Fill () clobbers(d0-d7/a0-a6) {
         // both are as it left them: nothing above has pushed, and d7 grows only in the tail.
         // Costs a second Step 4a on the one tick the line crosses a band edge under an
         // unchanged key, and the key-hit ticks between pay nothing for it.
+        // THE SLOT IS CLEARED HERE TOO, not only by the rebuild, because this is a loop: a
+        // rebuild that ever stopped clearing it would bring every anchored tick back here
+        // forever, a hung game rather than a wrong picture (measured: a build without the
+        // rebuild's clear froze the canonical run at 0 logic ticks). Clearing it on the way
+        // out makes the second pass through this overlay a fresh split by construction.
         clr.l   Parallax_Shadow_Key_Config          // (Parallax_Shadow_Key_Config).w
+        clr.w   Parallax_Shadow_Split               // (Parallax_Shadow_Split).w
         jbra    .step4a
+    .anchor_drop:
+        // A split that cannot be kept (`.anchor_have_k`, below): drop the key, and the next
+        // tick rebuilds from ROM, as every split did before PPB-4. Out of line so the kept
+        // case, the common one, falls straight through.
+        clr.l   Parallax_Shadow_Key_Config          // (Parallax_Shadow_Key_Config).w
+        jbra    .anchor_split_records
     .anchor_fresh:
         // --- find k = the last shadow band whose top <= L (the band being split) ---
         lea     Parallax_Shadow_Bands, a4
@@ -2945,8 +2958,32 @@ proc Parallax_Step4_Fill () clobbers(d0-d7/a0-a6) {
         blo     .anchor_find_k
     .anchor_have_k:
         // FROM HERE THE SHADOW VIEW IS REWRITTEN (the shift-down, the split entry, the shift
-        // override, CURVE_FLAG_CONT_BIT), so it is no longer the pure rotation. Two ways to
-        // stay exact (clause 2 of the Step 4a banner):
+        // override, CURVE_FLAG_CONT_BIT), so it is no longer the pure rotation.
+        //
+        // THE FILL'S CACHED LOOP SELECTION goes first, on every split: the split adds a slot
+        // and overrides the deform shifts below the line, which is exactly what the selection
+        // reads (PPB-3). It is NOT re-derived here: every byte is marked "the fill's inline
+        // tests decide" ($FF) and the flag is left set, so the selection pass is skipped. A
+        // non-zero byte is always correct, because it claims nothing: the fill then makes
+        // every decision itself, as it did before the cache. The run is one constant run of
+        // longs, and a KEPT split keeps it with the flag, so its kept ticks skip the pass too.
+        //   WHY NOT DERIVE THE SPLIT VIEW'S OWN BYTES (measured, PPB-4, 2026-09-28): the pass
+        //   costs ~150 cycles a slot, and a split made on this tick is usually made again on
+        //   the next, because an anchored region scrolling vertically moves vs, so Step 4a
+        //   rebuilds and this path runs again. Deriving here measured +465 cycles a tick on
+        //   the anchored down leg. Deriving once, on a kept split's first kept tick, bought
+        //   94 a tick on the anchored right leg (12,127 -> 12,033), and cost a marker for
+        //   the provisional bytes plus a split view whose cache no forced rebuild reproduces
+        //   (a fresh split marks $FF), which the shadow-key witness then cannot compare.
+    if (Game.SCANLINE_CAPS & CAP_DEFORM) != 0 {
+    .cap_deform_sel_split_begin:
+        lea     Parallax_Band_Sel, a5               // (Parallax_Band_Sel).w
+        moveq   #-1, d3
+        fill_band_sel_longs(a5, d3)
+        st      Parallax_Band_Sel_Valid             // (Parallax_Band_Sel_Valid).w
+    .cap_deform_sel_split_end:
+    }
+        // THE KEY: KEEP IT OR DROP IT (clause 2 of the Step 4a banner).
         //   KEEP (PPB-4, 2026-09-28): the key is live, so this is a ROM config's view, and the
         //     view has no curve layer. Record the split's slot in Parallax_Shadow_Split and
         //     keep the key: the next tick with the same key and L still in this band only
@@ -2959,7 +2996,7 @@ proc Parallax_Step4_Fill () clobbers(d0-d7/a0-a6) {
         //   DROP: a RAM config (never keyed, so there is nothing to keep) or a view with a
         //     curve layer. Clear the key, and the next tick rebuilds from ROM, as before PPB-4.
         tst.l   Parallax_Shadow_Key_Config          // (Parallax_Shadow_Key_Config).w
-        beq     .anchor_drop                        // a RAM config: never keyed
+        beq     .anchor_split_records               // a RAM config: never keyed, nothing to drop
     if (Game.SCANLINE_CAPS & CAP_FACTOR_CURVE) != 0 {
     .cap_factor_curve_split_keep_begin:
         tst.w   Parallax_Curve_Walk+2               // (Parallax_Curve_Walk+2).w — curve slots
@@ -2969,34 +3006,6 @@ proc Parallax_Step4_Fill () clobbers(d0-d7/a0-a6) {
         move.w  d1, d2
         addq.w  #1, d2
         move.w  d2, Parallax_Shadow_Split           // (Parallax_Shadow_Split).w — s = k+1
-        // The fill's cached loop selection described the unsplit view: drop it, and the
-        // selection pass derives THIS split view's bytes, once, for every kept tick to reuse.
-    if (Game.SCANLINE_CAPS & CAP_DEFORM) != 0 {
-    .cap_deform_sel_split_keep_begin:
-        clr.b   Parallax_Band_Sel_Valid             // (Parallax_Band_Sel_Valid).w
-    .cap_deform_sel_split_keep_end:
-    }
-        jbra    .anchor_split_records
-    .anchor_drop:
-        clr.l   Parallax_Shadow_Key_Config          // (Parallax_Shadow_Key_Config).w
-        // ...and the fill's cached loop selection with it: the split adds a slot and overrides
-        // the deform shifts below the line, which is exactly what the selection reads (PPB-3).
-    if (Game.SCANLINE_CAPS & CAP_DEFORM) != 0 {
-    .cap_deform_sel_split_begin:
-        // A split that is not kept does NOT re-derive the selection: it marks every slot "the
-        // fill's inline tests decide" ($FF) and leaves the flag set, so the selection pass is
-        // skipped. A non-zero byte is always correct, because it claims nothing: the fill then
-        // makes every decision itself, as it did before the cache. Re-deriving would cost the
-        // selection pass (~150 cycles a slot) on every tick such a split is on screen, where
-        // Step 4a rebuilds every tick anyway (the key is dropped), to save ~84 on the few flat
-        // slots such a view has; this costs one constant run of longs. The next tick's
-        // rebuild clears the flag and the pass re-derives exact bytes.
-        lea     Parallax_Band_Sel, a5               // (Parallax_Band_Sel).w
-        moveq   #-1, d3
-        fill_band_sel_longs(a5, d3)
-        st      Parallax_Band_Sel_Valid             // (Parallax_Band_Sel_Valid).w
-    .cap_deform_sel_split_end:
-    }
     .anchor_split_records:
 
         // --- shift entries (k+1 .. n-1) down one slot, from the END backwards ---
@@ -3125,13 +3134,12 @@ proc Parallax_Step4_Fill () clobbers(d0-d7/a0-a6) {
         // Step 4a's rebuild (the view was replaced) and Parallax_Init's clear. Its inputs are
         // the view and the config pointer, and the config is half of Step 4a's key, so on a key
         // hit the bytes still describe the view. The one other writer of the view is Step 4b's
-        // split. A split it KEEPS under the key (PPB-4) clears the flag, so this pass derives
-        // the split view's own bytes once, and every kept tick after it (same key, same split
-        // slot, so the same records and shifts; only the split entry's top moves, which no
-        // byte reads) reuses them. A split it DROPS sets every byte to $FF ("the inline tests
-        // decide", true of any view) and the flag with it, so this pass is skipped on that
-        // tick, and the next tick rebuilds and comes back here. A RAM config is never keyed,
-        // so it re-selects every tick, as it rebuilds every tick.
+        // split, and it sets every byte to $FF ("the inline tests decide", true of any view)
+        // and the flag with it, so this pass is skipped on a split tick. A split Step 4b
+        // DROPS the key for is rebuilt on the next tick, which comes back here; a split it
+        // KEEPS (PPB-4) keeps the $FF run with it, so its kept ticks skip this pass too (why
+        // it does not derive the split view's own bytes: `.anchor_have_k`). A RAM config is
+        // never keyed, so it re-selects every tick, as it rebuilds every tick.
         //
         // THE BYTE FOR SLOT i IS STORED AT INDEX n-1-i, the fill's own down-counter after its
         // `subq.w #1, d7`, so the fill reads it with the register it already has. d6 here is
