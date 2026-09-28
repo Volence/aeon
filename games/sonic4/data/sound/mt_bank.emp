@@ -58,7 +58,7 @@
 // must re-verify it (the `MT_PITCHTAB_OFFSET` ensure below is the CI-visible tripwire).
 // ===========================================================================
 
-module games.sonic4.mt_bank_blob
+module games.sonic4.mt_bank
 
 // --- the six stream blobs (generated .bin). Bound to `const` first
 // so each `.len` is a readable comptime int (the `data K = embed(...)`
