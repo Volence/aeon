@@ -1,12 +1,6 @@
 {
-  "focus": "Metropolis's song for the woven act is in progress. Real levels are proven safe from running out of art room.",
-  "inFlight": [
-    {
-      "what": "Metropolis plays its own song in the woven act",
-      "where": "branch parcel/woven-mtz-song",
-      "agent": true
-    }
-  ],
+  "focus": "Metropolis, Wing Fortress and Oil Ocean songs are all in the woven act. Building you fresh listening ROMs.",
+  "inFlight": [],
   "blockedOnOwner": [
     {
       "id": "SP6-MODULATION-DIVERGENCE",
@@ -37,14 +31,6 @@
       "state": "blocked",
       "size": "S",
       "blockedBy": "owner: retest aeon/s4.s2clip.debug.bin (crc 0b8c65d7) and say which emulator",
-      "project": "REGIONS"
-    },
-    {
-      "id": "WOVEN-MTZ-SONG",
-      "title": "Woven act: Metropolis plays its own song like every other zone",
-      "state": "doing",
-      "size": "S",
-      "blockedBy": null,
       "project": "REGIONS"
     },
     {
@@ -161,9 +147,16 @@
       "state": "next",
       "size": "S",
       "blockedBy": null
+    },
+    {
+      "id": "WOVEN-ROUTE-WITNESS-P2-XSPAN",
+      "title": "The woven act's route checker misreads which tunnel you're in when two are stacked; fix its test to use height too",
+      "state": "open",
+      "size": "S",
+      "blockedBy": null
     }
   ],
   "awaiting": "your retest of the woven act's start music on the fresh ROM (aeon/s4.s2clip.debug.bin, crc 0b8c65d7), and which emulator you heard it in",
   "atBoundary": false,
-  "updatedAt": "2026-09-28T19:57:22Z"
+  "updatedAt": "2026-09-28T20:20:30Z"
 }

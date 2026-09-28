@@ -44245,3 +44245,7 @@ K9 print it as-is. K1's hedge "or an earlier corridor" is gone because the label
 Pinned by `test_a_reused_id_names_its_real_owner` (clip->corridor, corridor->corridor,
 clip->shaft, corridor->shaft, shaft->shaft, exact label) and `test_a_reused_clip_id_names_both_clips`
 in `tools/test_clip_manifest.py`. Message text only: no build output changes.
+
+## WOVEN-ROUTE-WITNESS-P2-XSPAN: the route witness's default route is RED once Metropolis names a song (OPEN, booked 2026-09-28, `parcel/woven-mtz-song`)
+
+- `tools/woven_route_witness.py` with no `--route` takes every corridor in x order, which adds `hpz_to_ooz`. Its P2 check treats a corridor's no-music zone as the corridor's x span only, so the song-4 request made while the player is placed in Metropolis west at (4583, 2859) is flagged: x 4583 is inside `hpz_to_ooz`'s span although that tunnel is about 1,800 px lower. The request is correct (Metropolis west names SONG_S2_MTZ since `parcel/woven-mtz-song`). The flaw predates that parcel and could not show while Metropolis named no song. Fix: P2 tests the corridor's rectangle (x and y), not its x span. The recorded route (`ehz_to_mtz,mtz_to_cpz,cpz_to_mtz,mtz_to_ooz`) is GREEN; the keepalive uses it.
