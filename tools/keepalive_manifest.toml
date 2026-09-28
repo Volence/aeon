@@ -150,7 +150,17 @@ PLANE. GREEN on the new lines (DEBUG crc f0a35f5a, plain crc f1c2ae37): exit 0, 
 graded, 24 crossings, 0 disagree, 5 drives one lap and out on A; right 16 px/frame NOT
 MEASURED (stops dead on the right arc at angle $E0 before any lap, the same on both line
 sets: a slope fault). LOOP-COLLISION (2026-09-27, crc 037eff9d): exit 0, 6 drives, 27
-crossings, 0 disagree, all 6 one lap and out on A (right 16 px/frame now rides it)."""
+crossings, 0 disagree, all 6 one lap and out on A (right 16 px/frame now rides it).
+LOOP-STEP-OVER-LANDING (2026-09-28): the 2026-09-28 nightly (origin/master d4f8c479) had this
+row, #phase-sweep and #fault-drives at the SETUP red again ("after 8 landing frames he is at
+y=558, y_vel=336"). A WITNESS defect, not a physics one: the landing wait was 8 EMULATOR frames
+and the 2 px drop takes 7 GAME TICKS; with the camera catching up about one frame in three is
+a lag frame, so the wait held 7 ticks on 3db049cd (crc 1000eded, green) and 6 from 4f3a3ef8
+(PERF-PARALLAX-PERBAND Step 4a, crc f9ebb328, red), with the per-tick trajectory identical. The
+wait now keeps its 8-frame floor and then waits for the landing counted in Logic_Tick (bound
+LAND_TICK_LIMIT). On 3db049cd the fixed witness's output is byte-identical to the old one's;
+on origin/master 33923201 (DEBUG crc 3a8a8e5a) all five rows exit 0 (default: 6 drives, 27
+crossings, 0 disagree, all 6 one lap and out on A)."""
 
 [wired."loop_step_over_witness.py#no-assert-grounded"]
 args = ["--rom", "{rom}", "--lst", "{lst}", "--no-assert-grounded"]
