@@ -1,9 +1,9 @@
 {
-  "focus": "Two background warp fixes landed. Next: checking whether starting a level inside a tall area shows the same slide.",
+  "focus": "Three background fixes landed today. Next: making sure the woven act's nightly test drive actually runs.",
   "inFlight": [
     {
-      "what": "Measure (and fix if real) a background slide when a level starts deep inside a tall area",
-      "where": "branch fix/boot-tall-ratchet",
+      "what": "Check the woven act's nightly test drive finds the ROM it expects",
+      "where": "branch fix/woven-nightly-rom-name",
       "agent": true
     }
   ],
@@ -29,7 +29,7 @@
       "since": "2026-09-28"
     }
   ],
-  "nextBoundary": "When the level-start check returns, is reviewed and landed (or booked as not real).",
+  "nextBoundary": "When the nightly-name check returns and is landed.",
   "queue": [
     {
       "id": "WOVEN-EDITABLE-IN-AURORA",
@@ -64,8 +64,8 @@
     },
     {
       "id": "BOOT-TALL-VSCROLL-RATCHET",
-      "title": "Check whether starting a level deep inside a tall area shows the same background slide the warp had (suspected, not measured)",
-      "state": "doing",
+      "title": "Background slide when a level starts in a tall area: real (Hidden Palace test level too), fixed",
+      "state": "open",
       "size": "S",
       "blockedBy": null,
       "project": "REGIONS"
@@ -73,6 +73,14 @@
     {
       "id": "WOVEN-NIGHTLY-ROM-NAME",
       "title": "Make sure the nightly test drive of the woven act really runs: a file name it expects may not match what the build writes",
+      "state": "doing",
+      "size": "S",
+      "blockedBy": null,
+      "project": "REGIONS"
+    },
+    {
+      "id": "BOOT-ENTRY-PICTURE-LEG",
+      "title": "Add a test drive that checks the first picture when a level starts in Hidden Palace, not only the scroll number",
       "state": "next",
       "size": "S",
       "blockedBy": null,
@@ -258,5 +266,5 @@
   ],
   "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-09-28T04:58:15Z"
+  "updatedAt": "2026-09-28T05:24:27Z"
 }
