@@ -1,15 +1,10 @@
 {
-  "focus": "13 fixes landed overnight; landing a 14th now. Metropolis's song and another parallax saving are in progress.",
+  "focus": "14 fixes landed since last night. Metropolis's song and another parallax saving are in progress.",
   "inFlight": [
     {
       "what": "Song bank 2 with Metropolis's song: finishing and checking it on every Sonic 2 test level",
       "where": "branch parcel/song-bank-2-step3",
       "agent": true
-    },
-    {
-      "what": "Landing the fixed sprite art-load pairing check",
-      "where": "branch fix/gpp-dplc-pairing",
-      "agent": false
     },
     {
       "what": "Parallax: keep the background view across a split region (RAM measured first)",
@@ -159,5 +154,5 @@
   ],
   "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-09-28T13:20:34Z"
+  "updatedAt": "2026-09-28T13:28:35Z"
 }
