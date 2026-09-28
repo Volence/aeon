@@ -122,6 +122,11 @@ const REMAP_STATE_LONGS     = BAND_REMAP_BYTES / 4
 // checks these two against the linked span.
 const BAND_SEL_BYTES        = if (GAME_SCANLINE_CAPS & $0004) != 0 { MAX_PARALLAX_BANDS } else { 0 }   // CAP_DEFORM
 const BAND_SEL_LONGS        = if (GAME_SCANLINE_CAPS & $0004) != 0 { 1 } else { 0 }                    // CAP_DEFORM
+// SHADOW_SPLIT_LONGS — Step 4b's kept anchored split (Parallax_Shadow_Split, PPB-4,
+// 2026-09-28): one long, whose first word is the shadow slot of the split entry, present only
+// under CAP_ANCHORS, the capability whose overlay is the one writer. parallax.emp's
+// SPLIT_KEEP_N is pinned against CAP_ANCHORS, and its reservation guard checks this.
+const SHADOW_SPLIT_LONGS    = if (GAME_SCANLINE_CAPS & $0008) != 0 { 1 } else { 0 }                    // CAP_ANCHORS
 // WATERLINE_ART_BYTES — the row remap's ART half (EFFECTS-W1 item 9d): the staging buffer
 // Waterline_Art_Update row-gathers into before its single DMA. A SIXTH mirror for the same
 // reason as the five above — it sizes an array here and is DERIVED there, and the two must
@@ -560,26 +565,39 @@ pub vars upper_ram {
     // records above are a pure function of (the config's ROM bytes, Vscroll_BG & 511), so
     // Step 4a rebuilds them only when that pair changes; the per-frame scroll words are
     // re-rotated every frame regardless. Key_Config is the config the view was built from,
-    // and 0 means "no valid view": Parallax_Init's clear, Step 4b's split (it rewrites the
-    // view) and a RAM-resident config (the scratch, a probe's fixture: its bytes can change
-    // under the same pointer) all leave it 0. engine/level/parallax.emp's Step 4a banner has
+    // and 0 means "no valid view": Parallax_Init's clear, a Step 4b split that cannot be kept
+    // (a view with a curve layer; PPB-4 below) and a RAM-resident config (the scratch, a
+    // probe's fixture: its bytes can change under the same pointer) all leave it 0. A split
+    // that CAN be kept leaves it live and records itself in Parallax_Shadow_Split, below.
+    // engine/level/parallax.emp's Step 4a banner has
     // the whole argument. INSIDE the span so the per-act clear resets it; AFTER the
     // Shadow_Bands/Scroll pins, which are adjacent-symbol differences it must not split.
     Parallax_Shadow_Key_Config:  u32,   // ROM parallax_config* the shadow view is valid for; 0 = none
     Parallax_Shadow_Key_VS:      u16,   // the plane line (Vscroll_BG & PLANE_B_SPAN-1) it was rotated at
     Parallax_Shadow_Key_K:       u16,   // the rotation's start band k at that line
+    // THE KEPT ANCHORED SPLIT (PPB-4, 2026-09-28): the first word is the shadow slot of the
+    // entry Step 4b's split manufactured (k+1, so never 0), and 0 means the view is the pure
+    // rotation. While it is non-zero the key vouches for "the rotation, split at this slot":
+    // a split of a ROM config whose view has no curve layer keeps the key, and the next tick
+    // with the same key and the anchor line still inside the same band only retops the split
+    // entry and re-shifts the scroll words. Step 4a's rebuild and the per-act clear leave it
+    // 0. The second word is padding. Zero bytes under no CAP_ANCHORS.
+    Parallax_Shadow_Split:       [u32; SHADOW_SPLIT_LONGS],
     // THE CURVE HOIST'S WALK (PPB-5, 2026-09-28): [0] the first shadow slot whose band is a
     // curve layer, [1] how many slots from it the hoist walks (0 = no curve layer in the view).
     // Derived by Step 4a's REBUILD path from the view it just built, so it is exactly as valid
-    // as that view: a key hit keeps both. Step 4b's split runs after the hoist and drops the
-    // key, so the walk never describes a split view. Zero words under no CAP_FACTOR_CURVE.
+    // as that view: a key hit keeps both. Step 4b's split runs after the hoist, and keeps the
+    // key only when this walk is empty (no curve layer to hoist); otherwise it drops the key,
+    // so the hoist never walks a split view. Zero words under no CAP_FACTOR_CURVE.
     // THE FILL'S CACHED LOOP SELECTION (PPB-3, 2026-09-28): Parallax_Band_Sel holds one byte
     // per shadow slot, stored REVERSED (the byte for slot i is at index n-1-i, the fill's own
     // down-counter), and it is 0 exactly when that slot takes `.lp_flat` with no remap mark.
     // Parallax_Band_Sel_Valid (its first byte) says the array describes the current view:
     // Step 4a's rebuild and the per-act clear leave it 0, and the selection pass before the
-    // fill sets it. Step 4b's split sets every byte to $FF (non-zero claims nothing) and the
-    // flag with it. Zero bytes under no CAP_DEFORM. Placed BEFORE
+    // fill sets it. A split that keeps the key clears it too, so the pass derives the split
+    // view's own bytes once and the kept ticks reuse them (PPB-4); a split that drops the key
+    // sets every byte to $FF (non-zero claims nothing) and the flag with it. Zero bytes under
+    // no CAP_DEFORM. Placed BEFORE
     // Parallax_Curve_Walk so that pin, against the end mark, stays an adjacent difference.
     Parallax_Band_Sel:           [u8; BAND_SEL_BYTES],
     Parallax_Band_Sel_Valid:     [u32; BAND_SEL_LONGS],
