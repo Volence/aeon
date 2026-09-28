@@ -41362,8 +41362,8 @@ repaired three instruments, and wiring one of them into a lane is a different pr
 with different accounting.
 
 **`EVICT-WITNESS-SITE`: the SETUP half is FIXED 2026-09-28 (`fix/evict-witness-site`). The
-witness's Phase 1 is now a GENUINE FAIL, and that half stays OPEN (`EVICT-WITNESS-PHASE1-PREMISE`
-below).** Found by the 2026-09-28 nightly (origin/master `514c3546`): `FAIL: SETUP — 2 cmpi.w
+witness's Phase 1 is now a GENUINE FAIL, and that half was OPEN until the same day
+(`EVICT-WITNESS-PHASE1-PREMISE` below, now CLOSED by the re-aim).** Found by the 2026-09-28 nightly (origin/master `514c3546`): `FAIL: SETUP — 2 cmpi.w
 #imm,d6 site(s) in the 64 bytes at Level_LoadArt`. **The nightly did not pass the night before.**
 `nightly.log` records 09-27 at `3238fb47` as `EVICTION WITNESS FAILED` too, and a rebuild of
 `3238fb47` (crc32 `e33c856f`) gives the same SETUP refusal. The 09-26 build failed. So the leg
@@ -41383,7 +41383,10 @@ sites, a missing or duplicate label, or disagreeing immediates are all the same 
 refusal. The `.lst` has no per-instruction source text, so the labels are the structural anchor.
 No engine edit.
 
-**`EVICT-WITNESS-PHASE1-PREMISE` (OPEN, found by the fix above).** With the locator fixed, the
+**`EVICT-WITNESS-PHASE1-PREMISE`: CLOSED 2026-09-28 (`fix/evict-witness-phase1`, base
+`bb2d11a1`). The witness is re-aimed at a derived camera flight; the P-1 famine it had to route
+around is measured and stays OPEN as an engine call (`P1-FAMINE-PINNED-CAPACITY`, below).** The
+entry as it was opened, kept: with the locator fixed, the
 witness gives a genuine FAIL at `787a9980`, `3238fb47` and `6e1f6cca` (crc32 `93bd2a52`): `no
 eviction proven — distinct resident pages [0..8] (= 9) never exceeded the 9-frame clamp (868
 samples)`. This is not an engine bug. Phase 1's premise ("the init load itself evicts") is what
@@ -41392,6 +41395,70 @@ samples)`. This is not an engine bug. Phase 1's premise ("the init load itself e
 post-init stimulus, such as a scroll or warp that demands page 9+ (Phase 2 hits the known P-1
 famine today). That is a change to the witness's design, and the witness owner has to decide
 it. Until then the nightly's STRESS_EVICT witness leg stays red for this reason.
+
+*The re-aim (tools only, no engine edit).* On the base, `s4.stress.bin` crc32 `7e677683`, the old
+witness exits 1 with the message above (868 samples). `tools/evict_witness.py` now flies DEBUG
+free flight along the camera's own row after a 300-frame settle, to targets DERIVED from the
+build: the act's page field (`fg_working_set.load_page_grid`, after a byte-for-byte check that
+each section's block blob, dict length and local map is what the cart's act descriptor points
+at), the tile-cache window (`fg_page_order.window_for_camera`), the initial resident set
+(`Page_Table` after the settle) and the pinned set (`pm_flags` read out of ROM).
+* OUT: the first camera x whose window names a page outside the initial set. Derived: x 1800
+  at y 144, window cols 205..284 x rows 2..61, pages [7, 8, 9]; page 9 is outside [0..8].
+* BACK: the first x back to the left whose window names an evicted page, with every window on
+  the way SERVICEABLE (`|pages ∪ resident pinned pages| <= clamp`). Derived: x 1432, pages
+  [0, 2, 4, 7]; the most any window on the way needs is 7 of 9 frames.
+
+No route, no flight, or a field the cart does not carry gives exit 2. What is graded: a
+pigeonhole (distinct pages > clamp) plus an observed resident->absent transition; the outside
+page admitted into a frame an evicted page held; the settled window's pages all resident; the
+evicted page re-loaded; and after every settle, each resident page's VRAM frame equal to its art
+decoded from the ROM's own blob (`tools/bin/salvador` for ZX0), with `pf_page` naming it back.
+The same art check on the initial set runs first, as the control on the reference. On
+`7e677683` it exits 0 in 3 of 3 byte-identical runs (about 2 s each). Page 2 is evicted at +397
+and page 9 admitted into frame 2 at +399. Coming back, at x 1408, page 2 is re-loaded into frame
+3 at +452 (pages 3, 5, 6 evicted in turn), and the art is clean after both legs.
+
+Red-first. Each mutation was quoted from disk, rebuilt as `STRESS_EVICT=1 ./build.sh`, and
+restored by writing the committed file back over it (`git show HEAD:<path> > <path>`):
+* `page_cache.emp` `PageCache_PickVictim`, `move.w #$FFFF, d0` inserted at `.done:` (never a
+  victim): crc32 `c2d52e0d`, exit 1. The OUT leg halts on `PageCache_AllocFrame: no
+  free/evictable frame (thrash bug)` while demanding page 9, with the cache naming only frames
+  [7, 8].
+* `page_in.emp`, `tst.b PageIn_Bulk_Drain / bne .mut_bulk / addi.w #32, d2` ahead of `move.w
+  d2, PageIn_Cur_Dest` (a gameplay landing lands one tile late; the bookkeeping stays right):
+  crc32 `d5867f77`, exit 1. `page 9 in frame 2: VRAM $1001 (tile 0) differs from the page's
+  art`. Nothing but the art check could see this one: the bookkeeping and the DEBUG audit are
+  both clean.
+Restored and rebuilt: exit 0 (numbers in the merge evidence).
+
+**`P1-FAMINE-PINNED-CAPACITY` (OPEN: an engine call, the owner's; measured 2026-09-28 on
+`7e677683`, no engine edit).** This is the "known P-1 famine" (the 2026-08-09 lens adjudication:
+"STRESS_EVICT reference famine on reversal", all dynamic frames referenced at once), and it is
+now characterised as a pure CAPACITY bound, predicted exactly from the baked data. The OJZ act 1
+bake pins pages {0, 1, 7, 8, 9} (`PIN_SECTION_FRACTION` 0.75 in `ojz_strip_gen.py`; `pm_flags`
+bit 0). A pinned page is never a victim, so once page 9 has been demanded (the OUT leg above),
+5 of the fixture's 9 frames are permanent and only 4 are evictable. Section 0's windows need
+all 5 unpinned pages: at camera x 1376 (y 144) the window names [0, 2, 3, 4, 5, 6, 7], which with
+the resident pinned set makes 10 pages for 9 frames. The witness predicts that x from the field,
+and `--famine-probe` flies it: it HALTS at camera (1376,144) with `PageCache_AllocFrame: no
+free/evictable frame (thrash bug)` on a DEMAND for page 5. At the halt, frames 0/1/2/7/8 hold
+pinned pages 0/1/9/7/8, frames 3..6 hold 2/4/3/6, and `Tile_Cache_Nametable` names frames
+[0, 3, 4, 5, 6, 7]. Every unpinned frame is named, and the three unnamed frames (1, 2, 8) are
+all pinned. Frames 9..11 exist but the fixture clamps them off. Before page 9 is resident the
+same windows fit, because only 4 pinned pages are resident then. That is why the OUT leg passes
+through x 768..1344 and the way back cannot.
+
+Why it is not the witness's to fix: the bound is `|pinned| + max unpinned pages in any window
+<= frames`, and on this fixture it is 5 + 5 > 9. On the canonical shape (12 frames, a 10-page
+pool) the act is fully resident and nothing can famine. The questions are the owner's: whether
+the pin rule should respect the clamp (or a streaming act's frame budget), whether the
+AllocFrame DEBUG raise is a bug or a policy outcome for a demand (in release it returns
+`PAGE_NOT_RESIDENT` and the demand re-queues, which is the camera-hold path P-1 asked about),
+and whether C4-3 ("the famine capacity fix", the floor of 640 tiles / 10 frames in `vram.toml`)
+is this bound. `tools/fg_working_set.py`'s `peak_including_pinned` is the same quantity (window
+pages ∪ every pinned page), taken over the whole act. The witness's BACK leg stops short of this window by derivation,
+so the leg stays green while this entry is open; `--famine-probe` reproduces the famine.
 
 **`PARALLAX-ANCHOR-COEFFS-REPUBLISH`: `effects_budget_model.toml` has no record for today's
 fit.** Its own standing rule is that a parcel touching a `Parallax_*` routine re-measures; this

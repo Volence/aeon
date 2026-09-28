@@ -302,7 +302,10 @@ esac
 # legs, the tree. tools/evict_witness.py is the instrument that fixture exists for. It boots
 # the STRESS_EVICT ROM in a headless emulator it spawns itself and proves the residency cache
 # evicts (more distinct act-art pages pass through Page_Table than the ROM's clamp has
-# frames). It runs right after the STRESS_EVICT build, and ONLY when that build exited 0: on
+# frames), re-uses the evicted frame and re-loads the evicted page with its art intact. Since
+# EVICT-WITNESS-PHASE1-PREMISE (2026-09-28) the eviction comes from a camera flight to a
+# window the witness derives from the build, not from the init load, which 787a9980 stopped
+# from evicting. It runs right after the STRESS_EVICT build, and ONLY when that build exited 0: on
 # a failed build there is nothing to grade, the build leg's FAILED already carries the
 # verdict, and the witness log says NOT RUN rather than being left stale from the night
 # before. Its exit is mapped like the two emulator lanes at the top (the gates and the lab
