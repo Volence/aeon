@@ -43293,7 +43293,34 @@ frames over the same tick span):
   untouched.
 - Unchanged: `engine/structs.emp`, `engine/effects/*`, the record and config formats.
 
-**Landing evidence.** LANDING-EVIDENCE-PLACEHOLDER
+**Landing evidence.** These are full (non-FAST) builds at `01561098`, the last code/tool
+commit; the commits after it are docs and the research tool `final_verify.sh`. The assembler was
+sigil `d39ed4c3`, md5(SIGIL_BUILD) `60cd7cc7`.
+- `tools/landing_build.sh`: **exit 0, `finished=0`**, land-gate stamp written.
+  - pre-build pytest: 3825 passed, 3 skipped, 36 deselected;
+  - needs_build: 35 passed, 1 EXEMPTED (`test_deb2_appendix[demo.bin]`).
+  - Two earlier runs were red, and both reds were real:
+    - `test_citation_form`: two stale `parallax.emp:LINE` citations landed on blank lines. They
+      now cite by name.
+    - `demo_specialization_witness`: the `Parallax_Fill_PerLine` pin went 94 -> 102. PPB-6 is
+      ungated; the change is re-derived instruction by instruction in the tool's log.
+- `S2CLIP=s2_ehz_cpz ./build.sh` rc 0 and `DEBUG=1 S2CLIP=s2_ehz_cpz ./build.sh` rc 0.
+- **Effects-gates ritual** (`tools/effects_gates.py --rom s4.debug.bin --lst s4.debug.lst`):
+  rc 0. All 23 scheduled gates produced a complete row set over 22 segments, every segment PASS,
+  42 result rows, 0 FAIL.
+- `tools/parallax_shadow_key_witness.py` (extended) on the landing `s4.debug.bin`: GREEN (hit 81,
+  vs-moved 10, split 99, 0 differ).
+
+| ROM | CRC32 | bytes |
+|---|---|---|
+| `s4.bin` | `26525a48` | 830,827 |
+| `s4.debug.bin` | `c426c836` | 857,856 |
+| `demo.debug.bin` | `ccb8bc2c` | 106,981 |
+| `s4.s2clip.bin` | `64b26b08` | 930,437 |
+| `s4.s2clip.debug.bin` | `43d6def7` | 957,250 |
+
+These are the same builds every measurement used (the PPB-6 row of the research note's referent
+table).
 
 **Open riders.**
 - **PPB-4 is worth more now.** Keeping the view across an anchored split (+528 B at MAX 16) would

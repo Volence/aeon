@@ -1,0 +1,19 @@
+land-gate: start HEAD=01561098ad291c5110edeec8b2a10885e521feed key=73147fd0aff904ba
+3825 passed, 3 skipped, 36 deselected, 12 warnings, 156 subtests passed in 275.89s (0:04:35)
+12 passed, 24 skipped, 3828 deselected, 40 subtests passed in 6.62s
+layer sensor arm: plane select Collision_GetType; carriers (d3 passed through): Collision_ProbeDown, Collision_ProbeLeft, Collision_ProbeRight, Collision_ProbeUp; through a register: Player_SensorPair (a2)
+EXIT_s4=0 size=830827 secs=476
+20 passed, 16 skipped, 3828 deselected in 9.82s
+layer sensor arm: plane select Collision_GetType; carriers (d3 passed through): Collision_ProbeDown, Collision_ProbeLeft, Collision_ProbeRight, Collision_ProbeUp; through a register: Player_SensorPair (a2)
+EXIT_s4.debug=0 size=857856 secs=30
+2 passed, 34 skipped, 3828 deselected in 0.61s
+EXIT_demo.debug=0 size=106981 secs=4
+    (a deferral caused ONLY by these is EXEMPTED and named below, never passed;
+35 passed, 1 skipped, 3828 deselected, 40 subtests passed in 35.94s
+  EXEMPTED  tools.test_deb2_appendix::test_deb2_appendix_is_in_the_rom_and_carries_the_marks[demo.bin]  — deferred only on demo.bin, demo.lst, written only by a shape this caller does not build
+OK — all 35 marked test(s) this caller's shapes can reach ran and passed; 1 EXEMPTED above.
+  EXEMPTED is not passed: those cases need a shape this caller does not build,
+EXIT_needs_build=0
+land-gate: STAMP WRITTEN key=73147fd0aff904ba head=01561098ad29 -> /home/volence/sonic_hacks/aeon/.git/aeon-land-gate/73147fd0aff904baa7ae9e55e1b1d53345392c76e8a19233d7274714363344cd.json
+finished=0
+LANDDONE=0

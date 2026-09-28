@@ -209,6 +209,18 @@ The four new `ensure`s were each refused by the build on a mutation
 | `BAND_SEL_N` folds the retired `$0001` bit | "BAND_SEL_N is 0 but this game's Game.SCANLINE_CAPS & CAP_DEFORM is 4 …" |
 | `MAX_PARALLAX_BANDS` 18 | "MAX_PARALLAX_BANDS is 18, not a multiple of 4 …" |
 
+## Landing evidence
+
+Full builds at `01561098`, sigil `d39ed4c3`:
+
+- `tools/landing_build.sh` exit 0, `finished=0`.
+- Both S2CLIP builds rc 0.
+- The effects-gates ritual rc 0: 23 gates, 22 segments PASS, 42 rows, 0 FAIL.
+- The extended witness is GREEN on the landing `s4.debug.bin`.
+- The ROMs are byte-identical to the FAST PPB-6 builds measured above. The details are in
+  `docs/DEFERRED_WORK.md` PERF-PARALLAX-PERBAND-2, and `final_verify.sh` is the post-landing
+  script.
+
 ## PPB-7: the walker model
 
 - **How it was fitted before.** `[parallax.cost_model]` in `tools/effects_budget_model.toml` is
@@ -278,5 +290,7 @@ unchanged, for two reasons:
   witness.
 - `witness_runs2.sh` runs the extended witness over several ROMs.
 - `collect.sh` and `collect_mutants.sh` gather the results into `results/`.
+- `final_verify.sh` runs both S2CLIP builds and the effects-gates ritual after the landing
+  build.
 - Round 1's `build4.sh`, `build_decomp.sh`, `legs.sh`, `pxsum.py` and `cmptable.py` were used
   unchanged.
