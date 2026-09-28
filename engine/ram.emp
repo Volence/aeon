@@ -494,8 +494,10 @@ pub vars upper_ram {
     // WOVEN-TALL-ENTRY (2026-09-27): nonzero = the crossing THIS frame changed the effective
     // background layout, so Parallax_Step5_Vscroll stores the BG scroll's target outright
     // instead of rate-clamping toward it (the plane is about to be repainted whole, so the
-    // clamp's reason, bounded streamer rows, is moot). Set by Parallax_CheckBoundary, cleared
-    // by Step 5 on every frame. Inside the span, so Parallax_Init's clear resets it per act.
+    // clamp's reason, bounded streamer rows, is moot). Set by Parallax_CheckBoundary, and by
+    // the DEBUG warp around its own Parallax_Update, whose synchronous prime follows it
+    // (WARP-VSCROLL-PRIME, 2026-09-28); cleared by Step 5 on every frame (and by the warp
+    // after its one Update). Inside the span, so Parallax_Init's clear resets it per act.
     Parallax_BG_Snap:            u8,
     // The second of two bytes that held Parallax_Prev_Sec_X/Y until painted-regions v1
     // replaced the section-grid crossing with a region-rectangle one (the region cache lives

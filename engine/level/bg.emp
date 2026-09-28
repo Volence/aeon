@@ -510,12 +510,13 @@ pub proc BG_UploadTiles (a1: *u8) clobbers(d1/a1-a2) {
 // `Parallax_Current_Vscroll_BG`, seeds `BG_Plane_Top` to it and blits the window as
 // two runs, so this proc finds the tracker already where the scroll wants it and
 // moves nothing. The number it needs is live on both ladders because
-// `Parallax_Init` now stands ABOVE the boot `st Section_Plane_Dirty` pair; the warp
-// ladder needed no change, since the rate clamp deliberately holds the scroll near
-// its pre-warp value across a teleport. WHAT IS STILL OPEN AND IS NOT THIS: the
-// scroll itself ratchets to its post-warp target at BG_VSCROLL_MAX_STEP a frame with
-// no prime exemption ON A TALL MAP (BG-RATE-PRIME-EXEMPTION; a one-plane map snaps), and the parallax BANDS alias against
-// plane space on a taller map (BG-BAND-PLANE-ANCHOR). Neither is the nametable.
+// `Parallax_Init` stands ABOVE the boot `st Section_Plane_Dirty` pair, and because the
+// warp ladder runs its parallax crossing ABOVE its prime with the scroll stored at its
+// post-warp target (`st Parallax_BG_Snap` around its Parallax_Update; WARP-VSCROLL-PRIME,
+// 2026-09-28, which closed BG-RATE-PRIME-EXEMPTION: until then the warp primed from the
+// PRE-warp scroll and the rate clamp ratcheted it to its target at BG_VSCROLL_MAX_STEP a
+// frame on a tall map). WHAT IS STILL OPEN AND IS NOT THIS: the parallax BANDS alias
+// against plane space on a taller map (BG-BAND-PLANE-ANCHOR). That is not the nametable.
 // ===========================================================================
 
 // One nametable row in pixels. Taken from parallax rather than re-spelled: the
