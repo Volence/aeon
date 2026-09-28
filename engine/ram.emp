@@ -1136,7 +1136,6 @@ pub vars upper_ram {
     Cache_H_Pfx_Dir:        u16,        // latched H prefetch direction (0=none, +1=right, -1=left)
     Cache_H_Pfx_Accum:      u16,        // net opposite-motion px accumulator (>=0) for the hysteresis flip
     Cache_H_Pfx_Run:        u16,        // px moved WITH the latch since it was set/flipped, 0..H_PFX_ARM (arming run)
-    Cache_V_Pfx_Run:        u16,        // signed rows moved one way since the last vertical reversal, +-V_PFX_ARM
     Cache_Pfx_Row_Target:   u16,        // this-frame vertical prefetch target row ($FFFF = none) — corner input
     Cache_Pfx_Col_Target:   u16,        // this-frame horizontal prefetch target col ($FFFF = none) — corner input
     Cache_Pfx_Skip_Armed:   u16,        // 1 = prefetch skipped last frame (bound: never skip two running)

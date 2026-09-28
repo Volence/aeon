@@ -4,7 +4,7 @@
 WHAT IT GATES (perf/oscillation-thrash, 2026-09-28; docs/research/2026-09-28-oscillation-thrash.md).
 The tile cache's speculative scans stage the block one past the cache edge in the direction of
 motion, and every staging claim evicts one of BLOCK_STAGE_SLOTS round-robin slots. Before the
-arming run (H_PFX_ARM / V_PFX_ARM in engine/system/constants.emp), a camera oscillating by one
+arming run (H_PFX_ARM in engine/system/constants.emp), a camera oscillating by one
 block re-aimed the scans at every reversal: measured on OJZ, 450 decodes in the 600 ticks after
 warm-up, every one of them a block decoded before, and each wasted claim evicted an edge block
 the demand fill then decoded again.
