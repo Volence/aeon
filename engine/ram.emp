@@ -114,6 +114,14 @@ const BAND_REMAP_BYTES      = if (GAME_SCANLINE_CAPS & $0800) != 0 { 8 } else { 
 // 8, so the division is by 8 and the two-value pin below is what keeps that honest.
 ensure(BAND_REMAP_BYTES == 0 || BAND_REMAP_BYTES == 8, "BAND_REMAP_BYTES is {BAND_REMAP_BYTES}, which is neither 0 (no remap tail) nor sizeof(band_remap) = 8 — REMAP_STATE_LONGS below divides it, and parallax.emp's reservation guard is what checks the 8")
 const REMAP_STATE_LONGS     = BAND_REMAP_BYTES / 4
+// BAND_SEL_BYTES / BAND_SEL_LONGS — the fill's cached per-slot loop selection (PPB-3,
+// 2026-09-28): one byte per shadow slot (Parallax_Band_Sel) plus a validity long
+// (Parallax_Band_Sel_Valid), present only under CAP_DEFORM, the capability whose per-band
+// tests the cache exists to skip. Mirrors a capability bit with a literal mask like the tails
+// above; parallax.emp's BAND_SEL_N is pinned against CAP_DEFORM, and its reservation guard
+// checks these two against the linked span.
+const BAND_SEL_BYTES        = if (GAME_SCANLINE_CAPS & $0004) != 0 { MAX_PARALLAX_BANDS } else { 0 }   // CAP_DEFORM
+const BAND_SEL_LONGS        = if (GAME_SCANLINE_CAPS & $0004) != 0 { 1 } else { 0 }                    // CAP_DEFORM
 // WATERLINE_ART_BYTES — the row remap's ART half (EFFECTS-W1 item 9d): the staging buffer
 // Waterline_Art_Update row-gathers into before its single DMA. A SIXTH mirror for the same
 // reason as the five above — it sizes an array here and is DERIVED there, and the two must
@@ -565,6 +573,16 @@ pub vars upper_ram {
     // Derived by Step 4a's REBUILD path from the view it just built, so it is exactly as valid
     // as that view: a key hit keeps both. Step 4b's split runs after the hoist and drops the
     // key, so the walk never describes a split view. Zero words under no CAP_FACTOR_CURVE.
+    // THE FILL'S CACHED LOOP SELECTION (PPB-3, 2026-09-28): Parallax_Band_Sel holds one byte
+    // per shadow slot, stored REVERSED (the byte for slot i is at index n-1-i, the fill's own
+    // down-counter), and it is 0 exactly when that slot takes `.lp_flat` with no remap mark.
+    // Parallax_Band_Sel_Valid (its first byte) says the array describes the current view:
+    // Step 4a's rebuild and the per-act clear leave it 0, and the selection pass before the
+    // fill sets it. Step 4b's split sets every byte to $FF (non-zero claims nothing) and the
+    // flag with it. Zero bytes under no CAP_DEFORM. Placed BEFORE
+    // Parallax_Curve_Walk so that pin, against the end mark, stays an adjacent difference.
+    Parallax_Band_Sel:           [u8; BAND_SEL_BYTES],
+    Parallax_Band_Sel_Valid:     [u32; BAND_SEL_LONGS],
     Parallax_Curve_Walk:         [u16; CURVE_WALK_WORDS],
     mark Parallax_State_End,
 

@@ -505,6 +505,17 @@ ensure(BAND_DRIFT_N == ((Game.SCANLINE_CAPS & CAP_BAND_DRIFT) / CAP_BAND_DRIFT),
 ensure(BAND_REMAP_N == ((Game.SCANLINE_CAPS & CAP_ROW_REMAP) / CAP_ROW_REMAP),
        "BAND_REMAP_N is {BAND_REMAP_N} but this game's Game.SCANLINE_CAPS & CAP_ROW_REMAP is {Game.SCANLINE_CAPS & CAP_ROW_REMAP}: the remap tail no longer follows the capability, so the gated per-band mark would read the record base as a ROM pointer, or every band would pay a tail and a frame mark nothing writes. BAND_REMAP_N must stay the fold of GAME_SCANLINE_CAPS, never a literal")
 
+// BAND_SEL_N — 1 in a game whose SCANLINE_CAPS include CAP_DEFORM, else 0: the fill's cached
+// per-slot loop selection (Parallax_Band_Sel, PPB-3, 2026-09-28) exists only there. Folded
+// from GAME_SCANLINE_CAPS for BAND_EXT_N's reason (a RAM-layout count cannot read Game.*), and
+// engine/ram.emp's BAND_SEL_BYTES / BAND_SEL_LONGS mirror the same bit. The selection skips
+// the deform tests, which are the largest per-band decision (64 of the ~116 cycles a flat band
+// spent deciding it was flat), so CAP_DEFORM is its one capability: a game with curves or a
+// remap but no deform keeps the inline tests it had.
+pub const BAND_SEL_N = if (GAME_SCANLINE_CAPS & $0004) != 0 { 1 } else { 0 }   // CAP_DEFORM
+ensure(BAND_SEL_N == ((Game.SCANLINE_CAPS & CAP_DEFORM) / CAP_DEFORM),
+       "BAND_SEL_N is {BAND_SEL_N} but this game's Game.SCANLINE_CAPS & CAP_DEFORM is {Game.SCANLINE_CAPS & CAP_DEFORM}: the fill's cached loop selection no longer follows the capability that gates its code, so the gated pass would write past a zero-length Parallax_Band_Sel, or a game would reserve bytes nothing reads. BAND_SEL_N must stay the fold of GAME_SCANLINE_CAPS, never a literal")
+
 // THE SHADOW RESERVATION IS HELD TO THE RECORD. engine/ram.emp derives its tail sizes from the
 // same define with its own copies of the four masks (the contract-blind RAM harvest cannot
 // import this module's counts). It reserves BAND_ENTRY_LEN plus those tails per band; this
@@ -607,7 +618,14 @@ ensure(((sizeof(band_ext) * BAND_EXT_N + sizeof(band_curve) * BAND_CURVE_N + siz
 // The curve term is `2 * BAND_CURVE_N` since PPB-5 (2026-09-28): the carry's long plus
 // Parallax_Curve_Walk's (the hoist's remembered [first slot, slot count] word pair), after
 // the key at the tail of the region.
-const PARALLAX_STATE_LONGS = (112 + 18 * MAX_PARALLAX_BANDS) / 4 + ((sizeof(band_ext) * BAND_EXT_N + sizeof(band_curve) * BAND_CURVE_N + sizeof(band_drift) * BAND_DRIFT_N + sizeof(band_remap) * BAND_REMAP_N) * MAX_PARALLAX_BANDS) / 4 + 2 * BAND_CURVE_N + BAND_DRIFT_N * MAX_PARALLAX_BANDS + 2 * BAND_REMAP_N
+// `+ BAND_SEL_N * (MAX_PARALLAX_BANDS / 4 + 1)` is the fill's cached loop selection (PPB-3,
+// 2026-09-28): a byte per shadow slot plus the validity long, under CAP_DEFORM only.
+const PARALLAX_STATE_LONGS = (112 + 18 * MAX_PARALLAX_BANDS) / 4 + ((sizeof(band_ext) * BAND_EXT_N + sizeof(band_curve) * BAND_CURVE_N + sizeof(band_drift) * BAND_DRIFT_N + sizeof(band_remap) * BAND_REMAP_N) * MAX_PARALLAX_BANDS) / 4 + 2 * BAND_CURVE_N + BAND_DRIFT_N * MAX_PARALLAX_BANDS + 2 * BAND_REMAP_N + BAND_SEL_N * (MAX_PARALLAX_BANDS / 4 + 1)
+ensure(MAX_PARALLAX_BANDS % 4 == 0,
+       "MAX_PARALLAX_BANDS is {MAX_PARALLAX_BANDS}, not a multiple of 4: Parallax_Band_Sel (a byte per slot) would leave Parallax_State a non-whole number of longs, which Parallax_Init's long-counted clear under-clears")
+// The cached selection's own reservation, the adjacent-symbol twin of the pins above.
+ensure(extern("Parallax_Curve_Walk") - extern("Parallax_Band_Sel") == BAND_SEL_N * (MAX_PARALLAX_BANDS + 4),
+       "the fill's cached loop selection reserves {extern(\"Parallax_Curve_Walk\") - extern(\"Parallax_Band_Sel\")} bytes, not the {BAND_SEL_N * (MAX_PARALLAX_BANDS + 4)} this capability needs (a byte per shadow slot, then the validity long) — set BAND_SEL_BYTES / BAND_SEL_LONGS in engine/ram.emp. A short reservation makes the selection pass write a slot's byte over the validity flag or the curve walk")
 // The hoist walk's own reservation, pinned for the curve carry's reason (a short one is named,
 // not just summed). It is the LAST field of the span, so the pin is against the end mark.
 ensure(extern("Parallax_State_End") - extern("Parallax_Curve_Walk") == 4 * BAND_CURVE_N,
@@ -1155,6 +1173,15 @@ comptime fn copy_band_entry_back(cur: Reg) -> Code {
     return tail ++ (0..copy_run_longs() |> fold(asm {}, |acc, _i| acc ++ asm {
         move.l  -({cur}), sizeof(band_record)({cur})
     }))
+}
+
+// fill_band_sel_longs — {val} into every long of Parallax_Band_Sel, from {dst} (its base) up:
+// MAX_PARALLAX_BANDS / 4 unrolled `move.l`s, whatever the view's slot count (the slots past it
+// are never read). Step 4b's split uses it to mark the whole selection "decide inline" (PPB-3).
+comptime fn fill_band_sel_longs(dst: Reg, val: Reg) -> Code {
+    return 0..(MAX_PARALLAX_BANDS / 4) |> fold(asm {}, |acc, _i| acc ++ asm {
+        move.l  {val}, ({dst})+
+    })
 }
 
 // ----------------------------------------------------------------------
@@ -2327,6 +2354,13 @@ proc Parallax_Step4_Fill () clobbers(d0-d7/a0-a6) {
         move.w  Parallax_Shadow_Key_K, d1           // (Parallax_Shadow_Key_K).w — d1 = k
         jbra    .reorder_scroll
     .shadow_rebuild:
+        // The fill's cached loop selection described the view about to be replaced; drop it,
+        // and the selection pass before the fill re-derives it from the new one (PPB-3).
+    if (Game.SCANLINE_CAPS & CAP_DEFORM) != 0 {
+    .cap_deform_sel_rebuild_begin:
+        clr.b   Parallax_Band_Sel_Valid             // (Parallax_Band_Sel_Valid).w
+    .cap_deform_sel_rebuild_end:
+    }
         // -- find k = the band containing plane line vs --
         // (last band whose top <= vs; tops ascend and band 0 top is 0)
         lea     sizeof(parallax_config)(a0), a1
@@ -2835,6 +2869,24 @@ proc Parallax_Step4_Fill () clobbers(d0-d7/a0-a6) {
         // vouches for: drop the key and the next tick rebuilds from ROM (clause 2 of the
         // Step 4a banner). Every path below mutates; none returns the view to the key's.
         clr.l   Parallax_Shadow_Key_Config          // (Parallax_Shadow_Key_Config).w
+        // ...and the fill's cached loop selection with it: the split adds a slot and overrides
+        // the deform shifts below the line, which is exactly what the selection reads (PPB-3).
+    if (Game.SCANLINE_CAPS & CAP_DEFORM) != 0 {
+    .cap_deform_sel_split_begin:
+        // The split does NOT re-derive the selection: it marks every slot "the fill's inline
+        // tests decide" ($FF) and leaves the flag set, so the selection pass is skipped. A
+        // non-zero byte is always correct, because it claims nothing: the fill then makes
+        // every decision itself, as it did before the cache. Re-deriving would cost the
+        // selection pass (~150 cycles a slot) on every tick an anchored split is on screen,
+        // where Step 4a rebuilds every tick anyway (the split drops its key), to save ~84
+        // on the few flat slots such a view has; this costs one constant run of longs.
+        // The next tick's rebuild clears the flag and the pass re-derives exact bytes.
+        lea     Parallax_Band_Sel, a5               // (Parallax_Band_Sel).w
+        moveq   #-1, d3
+        fill_band_sel_longs(a5, d3)
+        st      Parallax_Band_Sel_Valid             // (Parallax_Band_Sel_Valid).w
+    .cap_deform_sel_split_end:
+    }
 
         // --- shift entries (k+1 .. n-1) down one slot, from the END backwards ---
         // The shadow view has room for exactly one more entry; hdr()'s
@@ -2943,6 +2995,106 @@ proc Parallax_Step4_Fill () clobbers(d0-d7/a0-a6) {
     .cap_anchors_overlay_end:
     }
     .bands_ready:
+
+        // ============ THE FILL'S LOOP SELECTION, CACHED (PPB-3, 2026-09-28) ============
+        //
+        // Which line loop each shadow slot takes is a pure function of the view (the slot's
+        // shifts, curve flag and remap ladder, and, per game, its own table pointers) and of
+        // the config's two deform table pointers. On a key hit none of those moved, yet the
+        // fill re-decided every band every tick: a flat band paid the remap `tst.l`, the curve
+        // `btst` and the deform tests, ~116 cycles, to arrive at `.lp_flat` again. This pass
+        // records one byte per slot, and the fill's first test on it sends a zero byte straight
+        // to `.lp_flat`. Any other byte takes the inline tests exactly as before, so the only
+        // new claim is "zero means flat and unmarked", which is the byte's definition below.
+        //
+        // WHEN IT RUNS. Only while Parallax_Band_Sel_Valid is 0, which two things leave it:
+        // Step 4a's rebuild (the view was replaced) and Parallax_Init's clear. Its inputs are
+        // the view and the config pointer, and the config is half of Step 4a's key, so on a key
+        // hit the bytes still describe the view. The one other writer of the view is Step 4b's
+        // split, and it sets every byte to $FF ("the inline tests decide", true of any view)
+        // and the flag with it, so this pass is skipped on a split tick; the split drops the
+        // key, so the next tick rebuilds and comes back here. A RAM config is never keyed, so
+        // it re-selects every tick, as it rebuilds every tick.
+        //
+        // THE BYTE FOR SLOT i IS STORED AT INDEX n-1-i, the fill's own down-counter after its
+        // `subq.w #1, d7`, so the fill reads it with the register it already has. d6 here is
+        // the same number: the dbf count over the view counts n-1 .. 0.
+        //
+        // In: a0 = config, a1 = &shadow band[0], d7 = slots in the view (after any split).
+        // Preserves a0-a3 and d7 for the fill; clobbers d1/d2/d6/a4/a5.
+    if (Game.SCANLINE_CAPS & CAP_DEFORM) != 0 {
+    .cap_deform_band_sel_begin:
+        tst.b   Parallax_Band_Sel_Valid             // (Parallax_Band_Sel_Valid).w
+        bne     .band_sel_ready
+        // d2 = the planes with a deform table at all, config-wide (the fill's `cmpa.w #0`):
+        // bit 0 FG, bit 1 BG
+        moveq   #0, d2
+        tst.l   parallax_config.pcfg_deform_table_fg(a0)
+        beq     .sel_no_fg_table
+        addq.b  #1, d2
+    .sel_no_fg_table:
+        tst.l   parallax_config.pcfg_deform_table_bg(a0)
+        beq     .sel_no_bg_table
+        addq.b  #2, d2
+    .sel_no_bg_table:
+        movea.l a1, a4                              // a4 = the slot's record
+        lea     Parallax_Band_Sel, a5               // (Parallax_Band_Sel).w
+        move.w  d7, d6
+        subq.w  #1, d6                              // dbf count = this slot's stored index
+    .sel_band:
+        // A game with per-layer tables reads THIS band's pair, as the fill does
+        // (`.cap_multi_deform_table_band`): the config's pair above is then dead.
+    if (Game.SCANLINE_CAPS & CAP_MULTI_DEFORM_TABLE) != 0 {
+    .cap_multi_deform_table_sel_begin:
+        moveq   #0, d2
+        tst.l   band_ext_table_a(a4)
+        beq     .sel_no_own_fg
+        addq.b  #1, d2
+    .sel_no_own_fg:
+        tst.l   band_ext_table_b(a4)
+        beq     .sel_no_own_bg
+        addq.b  #2, d2
+    .sel_no_own_bg:
+    .cap_multi_deform_table_sel_end:
+    }
+        // Each test that finds a reason for the inline path leaves at once: the byte is a
+        // yes/no, and a non-zero byte hands the whole decision back to the fill's own tests.
+    if (Game.SCANLINE_CAPS & CAP_ROW_REMAP) != 0 {
+    .cap_row_remap_sel_begin:
+        tst.l   band_remap_ladder(a4)
+        bne     .sel_inline                         // the fill must mark it
+    .cap_row_remap_sel_end:
+    }
+    if (Game.SCANLINE_CAPS & CAP_FACTOR_CURVE) != 0 {
+    .cap_factor_curve_sel_begin:
+        btst    #CURVE_FLAG_ACTIVE_BIT, band_curve_flags(a4)
+        bne     .sel_inline                         // `.lp_curve`
+    .cap_factor_curve_sel_end:
+    }
+        // FG sampled: a table AND shift_a != 15 (the fill's `.fg_inactive` test, exactly)
+        btst    #0, d2
+        beq     .sel_fg_flat
+        cmpi.b  #15, band_entry.band_deform_shift_a(a4)
+        bne     .sel_inline
+    .sel_fg_flat:
+        // BG sampled: a table AND shift_b != 15
+        btst    #1, d2
+        beq     .sel_flat
+        cmpi.b  #15, band_entry.band_deform_shift_b(a4)
+        bne     .sel_inline
+    .sel_flat:
+        moveq   #0, d1                              // flat and unmarked: `.lp_flat` directly
+        jbra    .sel_store
+    .sel_inline:
+        moveq   #-1, d1                             // the fill's inline tests decide
+    .sel_store:
+        move.b  d1, (a5,d6.w)                       // d6 is word-clean: from d7, 0..15
+        lea     sizeof(band_record)(a4), a4
+        dbf     d6, .sel_band
+        st      Parallax_Band_Sel_Valid             // (Parallax_Band_Sel_Valid).w
+    .band_sel_ready:
+    .cap_deform_band_sel_end:
+    }
 
         // --- Step 4: fill HScroll buffer — per-line, the one filler ---
         //   a1/a2/a3 = band array + scroll arrays (config's own or shadow).
@@ -3823,34 +3975,6 @@ proc Parallax_Fill_PerLine () clobbers(d0-d6/a1-a6) preserves(a0/d7) {
         move.w  band_top_line_next(a1), d5  // band_top+band_entry_len(a1), SCREEN LINES
     .have_end:
 
-        // EFFECTS-W1 item 9 — MARK THIS BAND IF IT CARRIES A LADDER. The remap runs as a
-        // second pass after the loop (the banner's ruling), and the pass needs three things
-        // the loop knows and it does not: WHICH record (for the ladder pointer, the height
-        // and the anchor channel), and the band's TOP and END screen lines. d4 and d5 hold
-        // exactly those two here, before any line loop has moved d4 to the band end.
-        //
-        // A LATER MARK OVERWRITES AN EARLIER ONE, AND THAT IS THE BEHAVIOUR THE ANCHORED
-        // SPLIT NEEDS. Step 4b splits the band containing the anchor by copying the WHOLE
-        // record — tails included, `copy_band_entry_fwd` — so a remapped layer that the
-        // waterline crosses appears as TWO adjacent bands both carrying the ladder. The
-        // second one is the half that starts exactly AT the anchored line, which is S3K's
-        // own window (`HScroll_table+$0DA`, the 96 rows below the surface). Last-wins picks
-        // it without a test.
-        //
-        // TWENTY-SIX CYCLES PER BAND FOR A GAME THAT DECLARES THE BIT AND DOES NOT USE IT
-        // (`tst.l` 16 + `beq` 10), zero for a game that does not declare it — the same
-        // shape, and about a third of the cost, of band drift's measured 68 cyc/band for
-        // declaring ITS bit.
-    if (Game.SCANLINE_CAPS & CAP_ROW_REMAP) != 0 {
-    .cap_row_remap_mark_begin:
-        tst.l   band_remap_ladder(a1)
-        beq     .remap_unmarked                     // this band does not remap
-        move.l  a1, Parallax_Remap_State            // (Parallax_Remap_State).w — the record
-        move.w  d4, Parallax_Remap_State+4          // its top screen line
-        move.w  d5, Parallax_Remap_State+6          // its end screen line
-    .remap_unmarked:
-    .cap_row_remap_mark_end:
-    }
 
         // --- packed base scroll (constant per band) ---
         // EFFECTS-W1 item 10b: swap which array packs into the HIGH word — the table
@@ -3878,6 +4002,52 @@ proc Parallax_Fill_PerLine () clobbers(d0-d6/a1-a6) preserves(a0/d7) {
         swap    d0                                  // swapped roles → d0 = BG<<16 | FG
     .packed:
     .cap_role_swap_pack_end:
+    }
+
+        // ---- THE CACHED SELECTION: a flat, unmarked slot goes straight to `.lp_flat` ----
+        // (PPB-3, 2026-09-28.) Parallax_Step4_Fill's selection pass stored one byte per slot,
+        // at the index this band's `subq.w #1, d7` above just produced, and it is zero exactly
+        // when the inline tests below would all fall through to `.lp_flat` without marking a
+        // remap: no ladder, no curve, no sampled channel. 32 cycles, against the ~116 those
+        // tests cost a flat band. A non-zero byte falls into them unchanged. a0 is free here
+        // (the sampled loops' walk pointer, reloaded by them), and d7 is word-clean (0..15).
+        // WHY IT SITS AFTER THE PACK AND BEFORE THE REMAP MARK: `.lp_flat` consumes d0, and
+        // a zero byte already says there is no mark to make.
+    if (Game.SCANLINE_CAPS & CAP_DEFORM) != 0 {
+    .cap_deform_fill_sel_begin:
+        lea     Parallax_Band_Sel, a0               // (Parallax_Band_Sel).w
+        tst.b   (a0,d7.w)
+        beq     .lp_flat
+    .cap_deform_fill_sel_end:
+    }
+
+        // EFFECTS-W1 item 9 — MARK THIS BAND IF IT CARRIES A LADDER. The remap runs as a
+        // second pass after the loop (the banner's ruling), and the pass needs three things
+        // the loop knows and it does not: WHICH record (for the ladder pointer, the height
+        // and the anchor channel), and the band's TOP and END screen lines. d4 and d5 hold
+        // exactly those two here, before any line loop has moved d4 to the band end.
+        //
+        // A LATER MARK OVERWRITES AN EARLIER ONE, AND THAT IS THE BEHAVIOUR THE ANCHORED
+        // SPLIT NEEDS. Step 4b splits the band containing the anchor by copying the WHOLE
+        // record — tails included, `copy_band_entry_fwd` — so a remapped layer that the
+        // waterline crosses appears as TWO adjacent bands both carrying the ladder. The
+        // second one is the half that starts exactly AT the anchored line, which is S3K's
+        // own window (`HScroll_table+$0DA`, the 96 rows below the surface). Last-wins picks
+        // it without a test.
+        //
+        // TWENTY-SIX CYCLES PER BAND FOR A GAME THAT DECLARES THE BIT AND DOES NOT USE IT
+        // (`tst.l` 16 + `beq` 10), zero for a game that does not declare it — the same
+        // shape, and about a third of the cost, of band drift's measured 68 cyc/band for
+        // declaring ITS bit.
+    if (Game.SCANLINE_CAPS & CAP_ROW_REMAP) != 0 {
+    .cap_row_remap_mark_begin:
+        tst.l   band_remap_ladder(a1)
+        beq     .remap_unmarked                     // this band does not remap
+        move.l  a1, Parallax_Remap_State            // (Parallax_Remap_State).w — the record
+        move.w  d4, Parallax_Remap_State+4          // its top screen line
+        move.w  d5, Parallax_Remap_State+6          // its end screen line
+    .remap_unmarked:
+    .cap_row_remap_mark_end:
     }
 
         // ---- THE FIFTH LINE LOOP: a curve layer's ramping BG scroll (P3 Task 10) ----
