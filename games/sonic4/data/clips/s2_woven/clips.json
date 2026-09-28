@@ -31,7 +31,8 @@
         "w": 6144,
         "h": 1408
       },
-      "unaligned_dst_reason": "woven layout v2.1: placed by the seam rule (see the note)"
+      "unaligned_dst_reason": "woven layout v2.1: placed by the seam rule (see the note)",
+      "music": "SONG_S2_WFZ"
     },
     {
       "id": "ehz_double_loop",
@@ -159,7 +160,8 @@
         "w": 3072,
         "h": 1840
       },
-      "unaligned_dst_reason": "woven layout v2.1: placed by the seam rule (see the note)"
+      "unaligned_dst_reason": "woven layout v2.1: placed by the seam rule (see the note)",
+      "music": "SONG_S2_OOZ"
     }
   ],
   "corridors": [

@@ -38,7 +38,7 @@ pass/fail threshold: this is a measurement, read by a person.
 
 Usage:
     python3 tools/s2_music_balance.py --s2-rom PATH/s2built.bin \\
-        --rom s4.s2clip.bin --lst s4.s2clip.lst [--seconds 60] [--song ehz|cpz|both]
+        --rom s4.s2clip.bin --lst s4.s2clip.lst [--seconds 60] [--song ehz|cpz|mtz|wfz|ooz|both]
         [--wav-dir DIR]   # also write every render as a WAV (listen to them)
 """
 from __future__ import annotations
@@ -60,8 +60,10 @@ CORE = "/usr/lib/libretro/genesis_plus_gx_libretro.so"
 S2_GAME_MODE = 0xFFF600
 S2_GAME_MODE_LEVEL = 0x0C
 S2_MUSIC0 = 0xFFFFE0
-S2_SONG = {"ehz": 0x82, "cpz": 0x8E}           # s2.constants.asm MusID_EHZ / MusID_CPZ
-OUR_SONG_NAME = {"ehz": "SONG_S2_EHZ", "cpz": "SONG_S2_CPZ"}
+# s2.constants.asm MusID_EHZ / MusID_CPZ, and the second song bank's three (2026-09-28):
+# MusID_MTZ / MusID_WFZ / MusID_OOZ
+S2_SONG = {"ehz": 0x82, "cpz": 0x8E, "mtz": 0x85, "wfz": 0x8F, "ooz": 0x84}
+OUR_SONG_NAME = {k: "SONG_S2_" + k.upper() for k in S2_SONG}
 
 RETRO_DEVICE_JOYPAD = 1
 JOYPAD_START = 3
@@ -257,7 +259,7 @@ def render(job):
         if song == "ehz":
             core.wr(cur, 0)                     # the service reposts Music_Want (EHZ)
         else:
-            core.wr(want, _song_id(OUR_SONG_NAME["cpz"]))
+            core.wr(want, _song_id(OUR_SONG_NAME[song]))
     need = int(seconds * core.rate) * 4
     while len(core.audio) < need:
         core.run()
@@ -296,7 +298,7 @@ def main(argv=None):
     ap.add_argument("--rom", required=True, help="our S2CLIP ROM (s4.s2clip*.bin)")
     ap.add_argument("--lst", required=True)
     ap.add_argument("--seconds", type=float, default=60.0)
-    ap.add_argument("--song", choices=("ehz", "cpz", "both"), default="both")
+    ap.add_argument("--song", choices=tuple(S2_SONG) + ("both",), default="both")
     ap.add_argument("--wav-dir")
     ap.add_argument("--jobs", type=int, default=max(1, (os.cpu_count() or 2) // 2))
     # How long EHZ plays before the request. The defaults request the song while EHZ has not

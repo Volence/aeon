@@ -1250,10 +1250,13 @@ from song_packer import NoteFill
 _S2_MUSIC = suite_path("s2disasm", "sound", "music")
 _S2_EHZ = str(_S2_MUSIC / "82 - EHZ.asm")
 _S2_CPZ = str(_S2_MUSIC / "8E - CPZ.asm")
-# Metropolis converts through the declared tables (its drums are readings of the ruling, see
-# test_s2_dac_map_is_the_s3k_drums_ruling) but is NOT embedded: it does not fit the sound
-# bank (woven first screen s2_mtz_cpz, 2026-09-27; docs/DEFERRED_WORK.md S2CLIP-MTZ-SONG-BANK).
+# Metropolis, Wing Fortress and Oil Ocean convert through the declared tables (their extra
+# drums are readings of the ruling, see test_s2_dac_map_is_the_s3k_drums_ruling) and live in
+# the second song bank (docs/DEFERRED_WORK.md S2CLIP-MTZ-SONG-BANK, 2026-09-28).
 _S2_MTZ = str(_S2_MUSIC / "85 - MTZ.asm")
+_S2_WFZ = str(_S2_MUSIC / "8F - WFZ.asm")
+_S2_OOZ = str(_S2_MUSIC / "84 - OOZ.asm")
+_S2_SHIPPED = (_S2_EHZ, _S2_CPZ, _S2_MTZ, _S2_WFZ, _S2_OOZ)
 
 
 def _s2_song(body_by_label, psg_voice="$00", start="2", tempo="$9E"):
@@ -1622,15 +1625,19 @@ def test_s2_generator_refuses_and_writes_nothing_with_empty_tables(tmp_path):
 
 
 def test_s2_generator_writes_both_songs_given_declared_maps(tmp_path):
-    # (all three songs since song bank 2: MTZ's three extra drums take the declared
-    # table's readings, docs/decisions.jsonl S2CLIP-MUSIC-DRUMS-MTZ; the probe map above
-    # was measured for EHZ/CPZ only.)
+    # (every song since song bank 2: MTZ's three extra drums and WFZ's two timpani take the
+    # declared table's readings, docs/decisions.jsonl S2CLIP-MUSIC-DRUMS-MTZ / -WFZ, and OOZ's
+    # fTone_0C the declared envelope; the probe maps above were measured for EHZ/CPZ only.)
     gen = _load_s2_generator()
-    dac = dict(_PROBE_DAC_BY_NAME, **{n: _si.S2_DAC_MAP[n] for n in ("dLowTom", "dClap", "dScratch")})
-    written = gen.generate(out_dir=str(tmp_path), dac_map=dac, ftone_map=_PROBE_FTONE)
+    dac = dict(_PROBE_DAC_BY_NAME, **{n: _si.S2_DAC_MAP[n] for n in (
+        "dLowTom", "dClap", "dScratch", "dMidTimpani", "dVLowTimpani")})
+    ftone = {**_PROBE_FTONE, 0x0C: _si.S2_FTONE_MAP[0x0C]}
+    written = gen.generate(out_dir=str(tmp_path), dac_map=dac, ftone_map=ftone)
     names = sorted(p.name for p in tmp_path.iterdir())
-    assert names == ["s2_cpz_patches.bin", "s2_ehz_patches.bin", "s2_mtz_patches.bin",
-                     "song_s2_cpz.bin", "song_s2_ehz.bin", "song_s2_mtz.bin"]
+    stems = sorted(stem for stem, _f in gen.SONGS)
+    assert stems == ["cpz", "ehz", "mtz", "ooz", "wfz"]
+    assert names == sorted([f"s2_{t}_patches.bin" for t in stems] +
+                           [f"song_s2_{t}.bin" for t in stems])
     sizes = {os.path.basename(p): n for p, n in written}
     assert sizes["s2_ehz_patches.bin"] == 9 * FMPATCH_LEN
     assert sizes["s2_cpz_patches.bin"] == 6 * FMPATCH_LEN
@@ -1643,9 +1650,10 @@ def test_s2_generator_default_output_is_the_embedded_sound_dir():
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     assert (os.path.relpath(gen.OUT_DIR, root).replace(os.sep, "/")
             == "games/sonic4/data/sound")
-    # EHZ/CPZ live in bank 1 (mt_bank.emp), MTZ in the second song bank (song_bank2.emp);
-    # both spell their embeds from the aeon root (the ROM build places both modules).
-    for module, stems in (("mt_bank.emp", ("ehz", "cpz")), ("song_bank2.emp", ("mtz",))):
+    # EHZ/CPZ live in bank 1 (mt_bank.emp), MTZ/WFZ/OOZ in the second song bank
+    # (song_bank2.emp); both spell their embeds from the aeon root.
+    for module, stems in (("mt_bank.emp", ("ehz", "cpz")),
+                          ("song_bank2.emp", ("mtz", "wfz", "ooz"))):
         text = open(os.path.join(root, "games/sonic4/data/sound", module)).read()
         for stem in stems:
             for name in (f"song_s2_{stem}.bin", f"s2_{stem}_patches.bin"):
@@ -1659,7 +1667,7 @@ def test_s2_committed_songs_are_the_generators_output(tmp_path):
     # regenerated and committed (a regeneration moves ROM bytes).
     gen = _load_s2_generator()
     written = gen.generate(out_dir=str(tmp_path))
-    assert len(written) == 6
+    assert len(written) == 2 * len(gen.SONGS)
     for p, n in written:
         committed = os.path.join(gen.OUT_DIR, os.path.basename(p))
         assert os.path.isfile(committed), f"{committed} is not committed"
@@ -1716,9 +1724,9 @@ def test_s2_env_body_parser_reads_the_driver():
     assert b[1] == [0, 0, 0, 1, 1, 1, 2, 2, 2, 3, 3, 3, 4, 4, 4, 5, 5, 5, 6, 6, 6, 7, 0x80]
 
 
-def test_s2_ftone_map_covers_exactly_what_ehz_cpz_and_mtz_use():
+def test_s2_ftone_map_covers_exactly_what_the_shipped_songs_use():
     used = set()
-    for p in (_S2_EHZ, _S2_CPZ, _S2_MTZ):
+    for p in _S2_SHIPPED:
         ftones, _ = _si.s2_mapping_requirements(open(p).readlines())
         used |= set(ftones)
     assert set(_si.S2_FTONE_MAP) == used
@@ -1757,18 +1765,23 @@ def test_s2_dac_map_is_the_s3k_drums_ruling():
     # MTZ's readings of the same ruling (docs/decisions.jsonl S2CLIP-MUSIC-DRUMS-MTZ): the
     # low tom on the S3K low tom (dLowTomS3 = 4), the clap and the scratch on the snare
     # (dSnareS3 = 1), the carried unpitched sample nearest a noise transient.
+    # WFZ's readings (docs/decisions.jsonl S2CLIP-MUSIC-DRUMS-WFZ): each timpani on the carried
+    # tom at its place in the pitch order, the mid timpani on the mid tom (dMidTomS3 = 3), the
+    # very low on the floor tom (dFloorTomS3 = 5), the lowest carried.
     s3k = {"dKick": HCZ2_DAC_REMAP[6], "dSnare": HCZ2_DAC_REMAP[1],
            "dMidTom": HCZ2_DAC_REMAP[3], "dFloorTom": HCZ2_DAC_REMAP[5],
            "dLowTom": HCZ2_DAC_REMAP[4], "dClap": HCZ2_DAC_REMAP[1],
-           "dScratch": HCZ2_DAC_REMAP[1]}
+           "dScratch": HCZ2_DAC_REMAP[1],
+           "dMidTimpani": HCZ2_DAC_REMAP[3], "dVLowTimpani": HCZ2_DAC_REMAP[5]}
     assert _si.S2_DAC_MAP == s3k
     used = set()
-    for p in (_S2_EHZ, _S2_CPZ, _S2_MTZ):
+    for p in _S2_SHIPPED:
         used |= set(_si.s2_mapping_requirements(open(p).readlines())[1])
     assert set(_si.S2_DAC_MAP) == used
 
 
-@pytest.mark.parametrize("path,nvoices", [(_S2_EHZ, 9), (_S2_CPZ, 6), (_S2_MTZ, 6)])
+@pytest.mark.parametrize("path,nvoices", [(_S2_EHZ, 9), (_S2_CPZ, 6), (_S2_MTZ, 6),
+                                          (_S2_WFZ, 4), (_S2_OOZ, 6)])
 def test_s2_real_song_converts_through_the_declared_tables(path, nvoices):
     # The module defaults, no fixture: every PsgEnv the song emits is 0 or an
     # imported S2 id, every Dac event an S3K drum, and the ids follow the source's
@@ -1777,8 +1790,9 @@ def test_s2_real_song_converts_through_the_declared_tables(path, nvoices):
     song = convert_song(src, None, {v: v for v in range(nvoices)})
     envs = [e.env_id for c in song.channels for e in c.events if isinstance(e, PsgEnv)]
     s2_ids = set(_si.S2_FTONE_MAP.values())
-    assert envs and set(envs) <= s2_ids | {0}
+    assert set(envs) <= s2_ids | {0}
     ftones, dacs = _si.s2_mapping_requirements(src)
+    assert envs or not ftones          # WFZ names no PSG envelope at all
     assert {_si.S2_FTONE_MAP[s] for s in ftones} <= set(envs)
     dac_ids = {e.sample_id for c in song.channels for e in c.events if isinstance(e, Dac)}
     assert dac_ids == {_si.S2_DAC_MAP[n] for n in dacs}
@@ -1790,10 +1804,13 @@ def test_s2_generator_writes_both_songs_with_the_declared_tables(tmp_path):
     written = gen.generate(out_dir=str(tmp_path))
     sizes = {os.path.basename(p): n for p, n in written}
     assert sorted(sizes) == ["s2_cpz_patches.bin", "s2_ehz_patches.bin", "s2_mtz_patches.bin",
-                             "song_s2_cpz.bin", "song_s2_ehz.bin", "song_s2_mtz.bin"]
-    assert sizes["s2_ehz_patches.bin"] == 9 * FMPATCH_LEN
-    assert sizes["s2_cpz_patches.bin"] == 6 * FMPATCH_LEN
-    assert sizes["s2_mtz_patches.bin"] == 6 * FMPATCH_LEN
+                             "s2_ooz_patches.bin", "s2_wfz_patches.bin",
+                             "song_s2_cpz.bin", "song_s2_ehz.bin", "song_s2_mtz.bin",
+                             "song_s2_ooz.bin", "song_s2_wfz.bin"]
+    # each patch bank is the song's own used voices, counted from its source
+    for stem, fname in gen.SONGS:
+        src = open(str(_S2_MUSIC / fname)).readlines()
+        assert sizes[f"s2_{stem}_patches.bin"] == len(_si.song_used_voice_ids(src)) * FMPATCH_LEN
 
 
 # ---- header volume seeds the running volume (S2CLIP volume parcel, 2026-09-26) ------
@@ -1823,6 +1840,31 @@ def test_s2_alter_vol_composes_with_the_header_volume():
     psg1 = next(c for c in song.channels if c.route == CHROUTE_PSG1)
     assert _first_vol_before_note(fm4.events) == _si._fm_atten_to_v0(0x20 - 8)
     assert _first_vol_before_note(psg1.events) == _si._psg_atten_to_v0(0x04 + 2)
+
+
+def test_s2_psg_alter_vol_s2_is_honoured():
+    # _smps2asm_inc.asm:516-522: smpsPSGAlterVolS2 is smpsAlterVol in a SourceDriver 2 song,
+    # which S2's driver ADDS on a PSG track too (cfChangeFMVolume, zSetChanVol returns for
+    # PSG after the add). OOZ uses it (song bank 2, 2026-09-28); it used to be warn-skipped.
+    src = _s2_song({"Tst_FM4": ["\tsmpsSetvoice $00", "\tsmpsPSGAlterVolS2 $F8", "\tdc.b nC4, $0C"],
+                    "Tst_PSG1": ["\tsmpsPSGAlterVolS2 $02", "\tdc.b nC4, $0C"]})
+    song = convert_song(src, None, {0: 0}, dac_map={}, ftone_map={})
+    fm4 = next(c for c in song.channels if c.route == CHROUTE_FM4)
+    psg1 = next(c for c in song.channels if c.route == CHROUTE_PSG1)
+    assert _first_vol_before_note(psg1.events) == _si._psg_atten_to_v0(0x04 + 2)
+    assert _first_vol_before_note(fm4.events) == _si._fm_atten_to_v0(0x20 - 8)
+
+
+def test_s2_shipped_songs_skip_no_mnemonic(capsys):
+    # A mnemonic the converter does not know is warn-skipped, which drops what it does: OOZ's
+    # smpsPSGAlterVolS2 was dropped that way until 2026-09-28 (two PSG volume changes). Every
+    # shipped S2 song must convert with no skip.
+    for path in _S2_SHIPPED:
+        src = open(path).readlines()
+        used = _si.song_used_voice_ids(src)
+        convert_song(src, None, _si.build_patch_remap(used))
+        err = capsys.readouterr().err
+        assert "skip non-channel mnemonic" not in err, (os.path.basename(path), err)
 
 
 def _source_first_note_volume(src, label, kind, header_vol):

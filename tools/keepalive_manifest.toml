@@ -536,6 +536,31 @@ args = ["--rom", "{rom}", "--lst", "{lst}", "--song", "SONG_S2_MTZ", "--duck", "
 expect = 0
 timeout = 600
 
+# Wing Fortress and Oil Ocean joined the second song bank after Metropolis (2026-09-28): the
+# same two measurements per song, from the song's own place in bank 2 (a different window
+# offset from MTZ's, and OOZ carries the imported S2 envelope $4C). RED-FIRST, on a DEBUG
+# build with Sfx_Restore's SndDrv_SongBankIn call removed (the hand-back re-reading the music
+# patch under the SFX bank): all four arms exit 1; GREEN on the restored tree.
+[wired."song_bank_witness.py#wfz"]
+args = ["--rom", "{rom}", "--lst", "{lst}", "--song", "SONG_S2_WFZ"]
+expect = 0
+timeout = 600
+
+[wired."song_bank_witness.py#wfz-duck"]
+args = ["--rom", "{rom}", "--lst", "{lst}", "--song", "SONG_S2_WFZ", "--duck", "16"]
+expect = 0
+timeout = 600
+
+[wired."song_bank_witness.py#ooz"]
+args = ["--rom", "{rom}", "--lst", "{lst}", "--song", "SONG_S2_OOZ"]
+expect = 0
+timeout = 600
+
+[wired."song_bank_witness.py#ooz-duck"]
+args = ["--rom", "{rom}", "--lst", "{lst}", "--song", "SONG_S2_OOZ", "--duck", "16"]
+expect = 0
+timeout = 600
+
 [wired."psg_song_switch_witness.py"]
 args = ["--rom", "{rom}", "--lst", "{lst}"]
 expect = 0

@@ -109,7 +109,8 @@ class Faulted(Exception):
 
 def expected_requests(act, legs, ids):
     """[(corridor id, song id)] the policy expects: entering a zone with a song requests it
-    when it differs from the one playing; a zone with none requests nothing."""
+    when it differs from the one playing (being PLACED in a leg's left zone counts as
+    entering it); a zone with none requests nothing."""
     start = CRB.act_start(act)
     first = legs[0][1]
     playing = ids[first.music] if first.music else None
@@ -121,7 +122,15 @@ def expected_requests(act, legs, ids):
                        and c.dst[1] <= start["y"] < c.dst[1] + c.dst[3]), None)
         playing = ids[holder.music] if holder is not None and holder.music else None
     out = [("boot", playing)] if playing is not None else []
-    for co, _left, right in legs:
+    for co, left, right in legs:
+        # Every leg PLACES the player in its left zone first (the warp mailbox), so a left
+        # zone that names another song requests it there. Until Wing Fortress named its song
+        # (song bank 2, 2026-09-28) no leg's left zone did so except the start's: a drop from
+        # Wing Fortress (wfz_to_ehz) requests WFZ's song on placement, then EHZ's on landing.
+        placed = ids[left.music] if left.music else None
+        if placed is not None and placed != playing:
+            out.append((co.id, placed))
+            playing = placed
         want = ids[right.music] if right.music else None
         if want is not None and want != playing:
             out.append((co.id, want))

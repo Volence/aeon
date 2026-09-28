@@ -372,9 +372,13 @@ _PSG_VOL_ENVS = [
 # "DANGER! ... breaking fades" note); the engine re-applies volume on change, which
 # is S2's FixDriverBugs behaviour.
 #
-# Only the envelopes EHZ and CPZ use ship (fTone_01/02/03/08/0B), as with the S3K
-# set above ("only the sTones our corpus uses"). All 13 would not fit: the head's
-# region is $400 bytes and zPSG_Env12 alone is 128.
+# Only the envelopes the shipped S2 songs use ship, as with the S3K set above ("only the
+# sTones our corpus uses"): fTone_01/02/03/08/0B for EHZ, CPZ and MTZ, and fTone_0C
+# (zPSG_Env12, 128 B) for Oil Ocean (song bank 2, 2026-09-28). The head these tables live
+# in is replicated at the start of EVERY song bank, so each envelope costs its bytes once
+# per bank. (This line used to say all 13 would not fit because the head's region is $400
+# bytes: the head is no longer pinned, and with Env12 it is 1,116 B; sigil's seam-2 still
+# declares that region 0x400 in seam2.rs and did not refuse it, MEASURED 2026-09-28.)
 _S2_ENV_ID_BASE = 0x40
 _S2_PSG_ENV_SRC = {
     # N: zPSG_EnvN body, verbatim (s2.sounddriver.asm line of the label)
@@ -387,6 +391,14 @@ _S2_PSG_ENV_SRC = {
            6, 6, 6, 6, 7, 7, 7, 0x80],                                   # :3770
     0x0B: [4, 4, 4, 3, 3, 3, 2, 2, 2, 1, 1, 1, 1, 1, 1, 1,
            2, 2, 2, 2, 2, 3, 3, 3, 3, 3, 4, 0x80],                       # :3787
+    0x0C: [4, 4, 3, 3, 2, 2, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+           1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2,
+           2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 3, 3,
+           3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3,
+           3, 3, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4,
+           4, 4, 4, 4, 4, 4, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5,
+           5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 6, 6, 6, 6, 6, 6,
+           6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 7, 0x80],           # :3792
 }
 _S2_CTL_HOLD = 0x80
 

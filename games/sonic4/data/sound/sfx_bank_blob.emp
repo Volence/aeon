@@ -76,13 +76,17 @@ const SONG_MOVINGTRUCKS: SongId = 1
 const SONG_S2_EHZ: SongId       = 2
 const SONG_S2_CPZ: SongId       = 3
 const SONG_S2_MTZ: SongId       = 4   // song bank 2
-const SONG_DRUMTEST: SongId     = 5   // DEBUG shape only
-const SONG_HCZ2: SongId         = 6   // DEBUG shape only
-const SONG_COUNT = if DEBUG == 1 { 6 } else { 4 }   // a bound, not a song id
+const SONG_S2_WFZ: SongId       = 5   // song bank 2
+const SONG_S2_OOZ: SongId       = 6   // song bank 2
+const SONG_DRUMTEST: SongId     = 7   // DEBUG shape only
+const SONG_HCZ2: SongId         = 8   // DEBUG shape only
+const SONG_COUNT = if DEBUG == 1 { 8 } else { 6 }   // a bound, not a song id
 ensure(extern("SONG_MOVINGTRUCKS") == SONG_MOVINGTRUCKS, "SONG_MOVINGTRUCKS drifted from games.sonic4.sound_ids: {SONG_MOVINGTRUCKS}")
 ensure(extern("SONG_S2_EHZ") == SONG_S2_EHZ, "SONG_S2_EHZ drifted from games.sonic4.sound_ids: {SONG_S2_EHZ}")
 ensure(extern("SONG_S2_CPZ") == SONG_S2_CPZ, "SONG_S2_CPZ drifted from games.sonic4.sound_ids: {SONG_S2_CPZ}")
 ensure(extern("SONG_S2_MTZ") == SONG_S2_MTZ, "SONG_S2_MTZ drifted from games.sonic4.sound_ids: {SONG_S2_MTZ}")
+ensure(extern("SONG_S2_WFZ") == SONG_S2_WFZ, "SONG_S2_WFZ drifted from games.sonic4.sound_ids: {SONG_S2_WFZ}")
+ensure(extern("SONG_S2_OOZ") == SONG_S2_OOZ, "SONG_S2_OOZ drifted from games.sonic4.sound_ids: {SONG_S2_OOZ}")
 ensure(extern("SONG_DRUMTEST") == SONG_DRUMTEST, "SONG_DRUMTEST drifted from games.sonic4.sound_ids: {SONG_DRUMTEST}")
 ensure(extern("SONG_HCZ2") == SONG_HCZ2, "SONG_HCZ2 drifted from games.sonic4.sound_ids: {SONG_HCZ2}")
 ensure(extern("SONG_COUNT") == SONG_COUNT, "SONG_COUNT drifted from games.sonic4.sound_ids: {SONG_COUNT}")
@@ -94,14 +98,17 @@ data _song_tables_align = if _sfx_active.len % 2 == 1 { byte(0) } else { Data.em
 
 // song id -> SongHeader ROM address, indexed SongTable[id-1].
 pub data SongTable: [*u8; SONG_COUNT] = if DEBUG == 1 {
-    ["Song_MovingTrucks", "Song_S2_EHZ", "Song_S2_CPZ", "Song_S2_MTZ", "Song_DrumTest", "Song_HCZ2"]
+    ["Song_MovingTrucks", "Song_S2_EHZ", "Song_S2_CPZ", "Song_S2_MTZ", "Song_S2_WFZ", "Song_S2_OOZ",
+     "Song_DrumTest", "Song_HCZ2"]
 } else {
-    ["Song_MovingTrucks", "Song_S2_EHZ", "Song_S2_CPZ", "Song_S2_MTZ"]
+    ["Song_MovingTrucks", "Song_S2_EHZ", "Song_S2_CPZ", "Song_S2_MTZ", "Song_S2_WFZ", "Song_S2_OOZ"]
 }
 // The parallel per-song FM patch bank, which must share its song's bank (the Z80 reads
 // both through one window). DrumTest reuses Moving Trucks' bank.
 pub data SongPatchTable: [*u8; SONG_COUNT] = if DEBUG == 1 {
-    ["MovingTrucks_Patches", "S2_EHZ_Patches", "S2_CPZ_Patches", "S2_MTZ_Patches", "MovingTrucks_Patches", "HCZ2_Patches"]
+    ["MovingTrucks_Patches", "S2_EHZ_Patches", "S2_CPZ_Patches", "S2_MTZ_Patches", "S2_WFZ_Patches",
+     "S2_OOZ_Patches", "MovingTrucks_Patches", "HCZ2_Patches"]
 } else {
-    ["MovingTrucks_Patches", "S2_EHZ_Patches", "S2_CPZ_Patches", "S2_MTZ_Patches"]
+    ["MovingTrucks_Patches", "S2_EHZ_Patches", "S2_CPZ_Patches", "S2_MTZ_Patches", "S2_WFZ_Patches",
+     "S2_OOZ_Patches"]
 }
