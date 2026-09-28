@@ -216,6 +216,14 @@ def test_macro_minted_locals_do_not_end_a_routine():
     assert e.extent("W") == (W, W + 4)
 
 
+def test_a_zero_byte_routine_is_recognised_and_a_real_one_is_not():
+    """Debug_Warp_Consume in the release shape: its whole body is under `if DEBUG == 1`,
+    so its head shares an address with the next routine's."""
+    e = ext({"Empty": NEXT, "$m$Empty$x": NEXT})
+    assert e.emits_nothing("Empty") and e.emits_nothing("Next")
+    assert not e.emits_nothing("W")
+
+
 # ---------------------------------------------------------------- the source side
 
 SRC = """\

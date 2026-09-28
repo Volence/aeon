@@ -178,6 +178,16 @@ class Extents:
             return None
         return start, min(above)
 
+    def emits_nothing(self, name):
+        """True when another routine head sits at `name`'s own address: `name` placed
+        zero bytes in this shape (its whole body sits under an `if DEBUG == 1 {}`,
+        e.g. Debug_Warp_Consume in the release shape). Measured, not assumed — and
+        it cannot hide a site: a transfer inside a same-address sibling is attributed
+        to THAT head, which then has to be named by the source or fail on its own."""
+        start = self.syms.get(name)
+        return start is not None and any(
+            a == start and n != name and not is_local(n) for a, n in self.rows)
+
     def name_at(self, addr):
         for a, n in self.rows:
             if a == addr and not is_local(n):

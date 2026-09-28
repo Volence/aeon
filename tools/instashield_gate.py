@@ -1395,7 +1395,11 @@ def pass_walkoff(args, rom, syms, equs, offs):
     src_sites, refused, direct = pw.source_scan(srcs, WRITER_CALLEE)
     unmeasured += refused
     for proc in sorted(set(src_sites) - set(rom_routines)):
-        if proc in syms:
+        if proc in syms and ext.emits_nothing(proc):
+            notes.append("%s calls %s in source but places ZERO bytes in this shape "
+                         "(another routine head shares its address $%06X) — nothing "
+                         "there can install a state" % (proc, WRITER_CALLEE, syms[proc]))
+        elif proc in syms:
             unmeasured.append("%s transfers to %s in source (%s) but no transfer to $%06X "
                               "was found in its built bytes"
                               % (proc, WRITER_CALLEE,
