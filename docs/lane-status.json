@@ -1,9 +1,9 @@
 {
-  "focus": "Three background fixes landed today. Now adding a test drive for the first picture when a level starts.",
+  "focus": "Four background fixes and checks landed today. Now: tall areas whose background layers may repeat every 512 pixels.",
   "inFlight": [
     {
-      "what": "Test drive that checks the first background picture when a level starts in Hidden Palace",
-      "where": "branch parcel/boot-entry-picture",
+      "what": "Re-check and fix background layers repeating in very tall areas",
+      "where": "branch fix/bg-band-plane-anchor",
       "agent": true
     }
   ],
@@ -29,7 +29,7 @@
       "since": "2026-09-28"
     }
   ],
-  "nextBoundary": "When the level-start picture test returns and is landed; after 09:00Z also read the first nightly that builds the woven act.",
+  "nextBoundary": "When the tall-area layer check returns and is landed (or re-scoped if it is bigger than expected).",
   "queue": [
     {
       "id": "WOVEN-EDITABLE-IN-AURORA",
@@ -40,16 +40,8 @@
     },
     {
       "id": "WOVEN-NIGHTLY-ROM-NAME",
-      "title": "Read tonight's first nightly run of the woven act's test drive (05:00 local); the file name is fine, the nightly renames it",
+      "title": "Read the next nightly's first runs of the woven act and Hidden Palace test drives (05:00 local)",
       "state": "open",
-      "size": "S",
-      "blockedBy": null,
-      "project": "REGIONS"
-    },
-    {
-      "id": "BOOT-ENTRY-PICTURE-LEG",
-      "title": "Add a test drive that checks the first picture when a level starts in Hidden Palace, not only the scroll number",
-      "state": "doing",
       "size": "S",
       "blockedBy": null,
       "project": "REGIONS"
@@ -57,7 +49,7 @@
     {
       "id": "BG-BAND-PLANE-ANCHOR",
       "title": "Background layers in a very tall area may repeat every 512 pixels; check it is still live after the band-chain work, then fix",
-      "state": "next",
+      "state": "doing",
       "size": "M",
       "blockedBy": null,
       "project": "REGIONS"
@@ -108,7 +100,7 @@
     {
       "id": "GATE-PREDICATE-VS-PROMISE",
       "title": "Checks guarding something near their subject: 26 landing checks audited, 11 fixed; 13 written up as GPP rows",
-      "state": "open",
+      "state": "next",
       "size": "M",
       "blockedBy": null
     },
@@ -159,5 +151,5 @@
   ],
   "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-09-28T05:47:29Z"
+  "updatedAt": "2026-09-28T06:10:45Z"
 }
