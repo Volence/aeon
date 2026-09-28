@@ -15,11 +15,6 @@
       "what": "Make parallax cheaper in Emerald Hill (14.6k cycles a tick, mostly per-band work), same picture",
       "where": "branch perf/parallax-perband",
       "agent": true
-    },
-    {
-      "what": "Fix the clip list's duplicate-name errors so they name the right owner",
-      "where": "branch fix/clip-manifest-owner-label",
-      "agent": true
     }
   ],
   "blockedOnOwner": [
@@ -58,13 +53,6 @@
       "title": "Parallax still costs 14.6k cycles a tick in Emerald Hill, mostly per-band work: make it cheaper",
       "state": "doing",
       "size": "M",
-      "blockedBy": null
-    },
-    {
-      "id": "CLIP-MANIFEST-OWNER-LABEL",
-      "title": "Duplicate-name errors in the Sonic 2 clip list can name the wrong owner (\"already used by 0\"); aurora shows the text as-is",
-      "state": "doing",
-      "size": "S",
       "blockedBy": null
     },
     {
@@ -179,5 +167,5 @@
   ],
   "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-09-28T07:04:06Z"
+  "updatedAt": "2026-09-28T07:21:21Z"
 }
