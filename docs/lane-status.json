@@ -37,6 +37,14 @@
   "nextBoundary": "When the Metropolis song parcel lands and the art-room measurement returns (any design choice goes to a card).",
   "queue": [
     {
+      "id": "WOVEN-BOOT-AUDIO",
+      "title": "You heard broken music at the woven act's start; the ROM plays Emerald Hill correctly when recorded, so it may be the emulator. Waiting on your retest with the fresh ROM",
+      "state": "blocked",
+      "size": "S",
+      "blockedBy": "owner: retest aeon/s4.s2clip.debug.bin (crc 0b8c65d7) and say which emulator",
+      "project": "REGIONS"
+    },
+    {
       "id": "WOVEN-MTZ-SONG",
       "title": "Woven act: Metropolis plays its own song like every other zone",
       "state": "doing",
@@ -155,12 +163,12 @@
     {
       "id": "MT-BANK-MODULE-NAME",
       "title": "Tidy: the sound-bank file's declared name doesn't match its path, so the assembler warns in every build (zero bytes)",
-      "state": "open",
+      "state": "next",
       "size": "S",
       "blockedBy": null
     }
   ],
-  "awaiting": "your listen to Wing Fortress and Oil Ocean (s4.s2clip.bin, crc ca99b1dc); your WOVEN-TOUCHUPS pick and which covering you meant",
+  "awaiting": "your retest of the woven act's start music on the fresh ROM (aeon/s4.s2clip.debug.bin, crc 0b8c65d7), and which emulator you heard it in",
   "atBoundary": false,
-  "updatedAt": "2026-09-28T19:20:25Z"
+  "updatedAt": "2026-09-28T19:42:59Z"
 }
