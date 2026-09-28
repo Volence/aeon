@@ -36699,7 +36699,7 @@ identifies the map row uniquely — which is the whole reason the marker cell ex
 544 for every camera Y from 4864 to 6143 (4864 is where the raw scroll REACHES 544; the clamp
 first has to CUT at 4872 — two different questions, and the gate table above answers the second),
 and 544 masked into plane space is line 32, so Step 4a
-selects parallax band 0 where the map says band 3 — the horizon snaps. That is
+selects parallax band 0 where the map says band 3 — the horizon snaps (CORRECTED 2026-09-28: it does NOT snap on screen; OJZ_Default's four bands are identical, so the selection is invisible, measured; see that entry's re-derivation). That is
 **BG-BAND-PLANE-ANCHOR** below, it is not the streamer, and the nametable is correct there.
 
 **A warning about reading a pass.** Plane B at boot already holds map rows 0..63 of a blob whose
@@ -36708,7 +36708,20 @@ a dead one produce the same picture. Only camera Y above roughly 2816 (where `to
 more than the lead absorbs, and where the OLD ceiling would have clamped) separates them. **Sample
 at the BOTTOM of the region, not the top.**
 
-## BG-BAND-PLANE-ANCHOR: parallax band tops are PLANE lines, and a map taller than the plane aliases them (found 2026-09-16, `parcel/regions-p2-step5`)
+## BG-BAND-PLANE-ANCHOR: parallax band tops are PLANE lines, and a map taller than the plane aliases them (found 2026-09-16, `parcel/regions-p2-step5`; RE-SCOPED 2026-09-28, `fix/bg-band-plane-anchor`: the MECHANISM is live, NO reachable frame shows it, now guarded)
+
+**2026-09-28 RE-DERIVATION (`fix/bg-band-plane-anchor`, base `29606edb`). Read this before the original below; the original's "the horizon snaps" is WRONG for the picture.**
+
+- **The mechanism is still there, unchanged.** `Parallax_Step4_Fill` Step 4a still does `and.w #PLANE_B_SPAN-1` on `Parallax_Current_Vscroll_BG` and searches the band tops (plane lines) from it. MEASURED headless (`s4.debug.bin` crc `1000eded`, warp mailbox, the harness of `tools/bg_window_gate.py`): in the DEBUG tall region at BG scroll 544 the shadow view puts band 0 at screen line 0 and band 1 at line 32 (a map-space model gives band 3 for the whole screen); at scroll 397 and 472 the lines past map row 511 get bands 0/1 through the wrap.
+- **Who can drive the BG scroll past a plane, enumerated by what writes a non-zero `rg_bg_span`** (the only thing that lifts the ceiling above `VSCROLL_BG_MAX` 288): (1) the hand-authored DEBUG row `OJZ_TALL_BG_ROWS` (act_descriptor.emp, span 768, DEBUG only; `test_bg_tall_map` leg 4 checks release carries none); (2) `clip_rom_bake.py` for a TALL clip zone (`clip_bg_scroll.TALL_RAW`: HPZ and WFZ only). `effects_gen` and the editor emit `rg_bg_span: 0` unconditionally. So the canonical release shape cannot reach the mechanism at all.
+- **Clip acts avoid it BY CONSTRUCTION, not by keeping a layout under a plane span.** `derive_tall` builds every band layout of a chain as a 512-periodic table and keeps it only over the screen tops where that periodic table matches Sonic 2 on every visible line, i.e. it is chosen AGAINST Step 4a's plane-line selection (HPZ's layouts run to scroll 912). It raises when no layout is exact; `vertical_coverage` models the same selection (HPZ 1825/1825, WFZ 1313/1313), and `clip_bg_scroll_witness` reads the ROM (see WINDOWED-BG-VERTICAL-CLAMP). Not re-run by this parcel.
+- **On the DEBUG OJZ row it is invisible.** The row resolves (preset `OJZ_Preset_Plain` binds none) to `ParallaxConfig_OJZ_Default`, whose four band records are byte-identical apart from their tops (same factors, shifts, phase, drift `Rate(-32)`), and the drift accumulators clear on entry (a different layout sets `Parallax_BG_Snap`). MEASURED: `Hscroll_Buffer` holds ONE plane-A and ONE plane-B word over all 224 lines at scrolls 397, 472 and 544. The instrument is not blind: on the same boot, sections 0 and 4 (non-uniform scenes) read 4 and 100+ distinct plane-B words. What the "still visible" hypothesis forbade (one plane-B word at scroll 544) is what was measured.
+- **Counterfactual, measured:** with band 3's drift mutated to `Rate(-48)` (FAST DEBUG build crc `040ffaf3`), scroll 472 shows two plane-B words (F549 / F53E) and scroll 544 shows only F549 where the map-space model says band 3 (F53E): that edit WOULD make the snap visible.
+- **The guard, added:** `tools/test_bg_tall_map.py` `test_a_tall_row_resolves_to_alias_safe_bands` (leg 6, `needs_build` on `s4.debug.bin`, so it runs in `tools/landing_build.sh`'s needs-build lane and the nightly): every OJZ act row with `rg_bg_span > PLANE_B_SPAN` must resolve (Effects_ResolveParallax's ladder) to a config whose band records match band 0 in everything but the top. Header size and stride are derived from `struct parallax_config`'s annotations and the `Parallax_Shadow_Bands` reservation. Red first: the `Rate(-48)` mutation above gave `AssertionError: ... bands [3] differ from band 0`; restored from the committed file.
+- **What stays OPEN (the original's design item, unchanged in size):** map-space band tops. It becomes reachable (and the guard fires) the moment a hand-authored tall row wants a per-band scene, or when step 8's plane shrink makes OJZ_Default's own tops `[0, 64, 320, 384]` exceed a 256-line plane (sized as **8b, M** in `docs/research/2026-09-27-regions-p2-step8-resize.md` section 5). Not built here: it changes the band model, every scene's lowered tops and the anchor interaction.
+
+### The original booking (2026-09-16), kept
+
 
 **Reachable today, in the DEBUG shape, inside step 5's own test region.** Not a defect this parcel
 introduced — `Parallax_Step5_Vscroll`'s Step 4a band rotation has masked with
@@ -36734,7 +36747,7 @@ under `v_center 512 / v_factor 3` — `games/sonic4/data/effects/ojz_scenes.emp`
 | 544 | 32 | 0 |
 
 Band tops are `[0, 64, 320, 384]`. **The selection jumps 3 → 0 as the scroll crosses 512**, which
-on screen is the parallax horizon snapping.
+on screen is the parallax horizon snapping. (CORRECTED 2026-09-28: only for a config whose bands differ; OJZ_Default's do not, and the measured picture does not change. See the re-derivation above.)
 
 **Where it bites right now.** Step 5's DEBUG test region (act 1 row 11, x 5120..6143,
 y 2048..6143, span 768) has a clamp ceiling of 544, and the scroll sits AT 544 for every camera Y

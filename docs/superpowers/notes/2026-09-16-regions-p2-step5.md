@@ -485,7 +485,7 @@ Derived from source (`OJZ_Default`'s four layers at world Y 512/1024/3072/3584 u
 
 **And step 5's own fixture reaches it**: the scroll sits AT its 544 ceiling for camera Y
 4864..6143, so the bottom ~1280 px of the tall region runs with band 0 where the map says band 3.
-The horizon snaps. **This is not the streamer and the nametable is correct there** — the BG-TALL
+The horizon snaps (CORRECTED 2026-09-28: not on screen; OJZ_Default's four bands are identical, so the wrong selection shows the same words. MEASURED, see DEFERRED_WORK BG-BAND-PLANE-ANCHOR). **This is not the streamer and the nametable is correct there** — the BG-TALL
 procedure carries the same warning so the foreground runner does not misattribute it.
 
 It predates this parcel (the mask is older than regions) but step 5 is the first thing that can
