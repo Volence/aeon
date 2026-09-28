@@ -5,6 +5,11 @@
       "what": "Second song bank: which build shape our sound data needs, so the assembler lane can size its side",
       "where": "branch research/song-bank-shape",
       "agent": true
+    },
+    {
+      "what": "How far the woven act is from being editable in aurora: sizing our side (aurora asked for theirs)",
+      "where": "branch research/woven-editable",
+      "agent": true
     }
   ],
   "blockedOnOwner": [
@@ -28,10 +33,10 @@
   "queue": [
     {
       "id": "WOVEN-EDITABLE-IN-AURORA",
-      "title": "Make the woven act a level you can touch up in aurora (today every build regenerates it from Sonic 2, so edits wouldn't stick)",
-      "state": "open",
+      "title": "Make the woven act editable in aurora: sizing both sides now (you asked how far off it is)",
+      "state": "doing",
       "size": "M",
-      "blockedBy": "owner: do you want it made editable?"
+      "blockedBy": null
     },
     {
       "id": "WOVEN-CROSSING-PATH",
@@ -227,7 +232,7 @@
       "project": "REGIONS"
     }
   ],
-  "awaiting": "New woven ROM with every fix so far: s4.woven.debug.bin (crc d6ce40fb). Also: do you want the woven act made editable in aurora?",
+  "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-09-28T01:36:20Z"
+  "updatedAt": "2026-09-28T01:47:13Z"
 }
