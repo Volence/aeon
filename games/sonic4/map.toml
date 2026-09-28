@@ -141,6 +141,9 @@ order = [
   # ── The Z80 banks: AFTER the data region, at the rule-derived bank-aligned LMAs ──
   "Dac_Temp_Blip", "SoundTablesZ80_Head",
   "Song_MovingTrucks", "Sfx_33",
+  # The second song bank (song_bank2.emp): walk-rounded to the next window after bank 1,
+  # declared by the `song_bank_2` anchor below.
+  "SongBank2_Head",
   # ── The tail: the two test game states, the replay fixture, the fault island ──
   "GameState_ObjectTest_Init", "GameState_OJZScroll_Init",
   "__align$games.sonic4.replay_fixture$0", "Replay_OJZ_Fixture",
@@ -358,6 +361,35 @@ when = "sound_on"
 name = "sound_bank"      # SoundTablesZ80_Head — the MT/SFX phase bank (vma $8000), bank $17
 at = 0xB8000
 vma = 0x8000
+when = "sound_on"
+
+# The SECOND SONG BANK (S2CLIP-MTZ-SONG-BANK, 2026-09-28): `SongBank2_Head`
+# (games/sonic4/data/sound/song_bank2.emp), bank $18. RULE: song_bank_2 = sound_bank +
+# 0x8000 (= dac_banks + 0x18000; tools/bganim_room.py SONG_BANK_2_OFFSET checks it and
+# tools/clip_anchors.py derives it for a clip's overlay).
+#
+# THIS ANCHOR PLACES NOTHING AND DEPENDS ON BANK 1's CONTENT. Sigil's walk rounds the
+# section up to the next 0x8000 after bank 1's last byte (a `section_align` row, no frozen
+# row), and this row only DECLARES the island that leaves: sigil infers an island where a
+# section starts more than 0x400 past the previous section's end, and refuses an inferred
+# island with no anchor (`[map.undeclared-island]`). So the build stays green only while
+# bank 1 (head + Moving-Trucks bank + SFX block + the song tables after it) ends MORE than
+# 0x400 below this address:
+#   * bank 1 grows to within 0x400 of 0xC0000: no island is inferred, and this declared
+#     anchor fires `[map.anchor-absent]`;
+#   * bank 1 grows past 0xC0000: bank 2 rounds to 0xC8000 and that island is refused.
+# Both are loud. The REMEDY is to put the next song in THIS bank, not bank 1: this bank is
+# what the room is for.
+# MEASURED GAP, 2026-09-28 (sigil d39ed4c3; bank 1 now ends at the song tables, which
+# follow the SFX block): plain bank 1 ends at 0xBDBCC, gap 9,268 B, growth left 8,244 B;
+# DEBUG ends at 0xBF624, gap 2,524 B, growth left 1,500 B (DEBUG binds). One table entry
+# (a new song id, in either bank) costs 8 B of it. Re-measure from the listings
+# (`SongPatchTable` + 4 * SONG_COUNT) whenever bank 1 changes.
+# A clip with its own anchor overlay carries this row too, at its own sound_bank + 0x8000
+# (games/sonic4/data/clips/<id>/anchors.toml, derived by tools/clip_anchors.py).
+[[anchor]]
+name = "song_bank_2"     # SongBank2_Head — the second song bank, bank $18
+at = 0xC0000
 when = "sound_on"
 
 # ── Holes (declared as data now; boot_data enforcement rides K2) ──

@@ -43,7 +43,8 @@
       "zone": "MTZ",
       "src_rect": { "x": 0, "y": 0, "w": 1520, "h": 2048 },
       "dst_rect": { "x": 0, "y": 448, "w": 1520, "h": 2048 },
-      "unaligned_dst_reason": "y: Metropolis is lowered 448 px so its walkway (y 640, flush at its east edge x 1519) meets the tunnel floor at 1088, which is Chemical Plant's middle track at y 0; see the note's point 1. 448 is a multiple of R12's 16-px collision quantum, so art and collision move together."
+      "unaligned_dst_reason": "y: Metropolis is lowered 448 px so its walkway (y 640, flush at its east edge x 1519) meets the tunnel floor at 1088, which is Chemical Plant's middle track at y 0; see the note's point 1. 448 is a multiple of R12's 16-px collision quantum, so art and collision move together.",
+      "music": "SONG_S2_MTZ"
     },
     {
       "id": "cpz_loop_cluster",
@@ -60,7 +61,8 @@
       "zone": "MTZ",
       "src_rect": { "x": 1520, "y": 0, "w": 1488, "h": 2048 },
       "dst_rect": { "x": 4656, "y": 448, "w": 1488, "h": 2048 },
-      "unaligned_dst_reason": "x: Metropolis east starts where the second tunnel ends (4656 = 4176 + 480). y: the same 448-px lowering as Metropolis west (SC0: one paste offset per zone); its west edge x 1520 is flush on the walkway at 640. It names no music: Sonic 2's Metropolis song converts, but does not fit the sound bank (DEFERRED_WORK S2CLIP-MTZ-SONG-BANK), so Metropolis leaves the music alone."
+      "unaligned_dst_reason": "x: Metropolis east starts where the second tunnel ends (4656 = 4176 + 480). y: the same 448-px lowering as Metropolis west (SC0: one paste offset per zone); its west edge x 1520 is flush on the walkway at 640. Metropolis plays Sonic 2's Metropolis song (SONG_S2_MTZ, the first song in the second Z80 song bank, S2CLIP-MTZ-SONG-BANK 2026-09-28).",
+      "music": "SONG_S2_MTZ"
     }
   ],
   "corridors": [
