@@ -38,6 +38,11 @@ region service's own two bytes); play FRAMES frames; queue the FM SFX (SFX_NAME)
 SFX ring at +SFX_AT[0] and +SFX_AT[1] frames after the request. Three runs: SUBJECT, CONTROL,
 and SUBJECT without the SFX (a premise, below).
 
+--duck N (FIXTURE): no shipped SFX ducks the music (every sfh_duck is 0, measured), so
+Sfx_DuckRamp's music walk, which re-applies each keyed FM channel's volume through its patch,
+only runs under this: the SFX's sfh_duck byte is set to N in BOTH ROM copies, and a fourth run
+(the unpatched SUBJECT) must differ from the ducked one (premise: the duck engaged).
+
 PREMISES (unmet = COULD NOT RUN, exit 2, never a pass): each run's watches recorded Z80 YM and
 PSG writes with no lost hit; each run observed the music request; the SUBJECT keyed at least
 MIN_KEYONS notes after it; every queued SFX left the ring; the SFX run's FM stream differs from
@@ -130,6 +135,36 @@ def static_checks(rom: bytes, labs: dict, song_id: int) -> dict:
             "song_bank": song >> 15, "patch_bank": patch >> 15, "sfx_bank": sfx_bank_base >> 15,
             "head_len": head_len, "head_ok": head_ok,
             "song_len": len(blobs[song_name]), "patch_len": len(blobs[patch_name])}
+
+
+def _field_offset(struct, field):
+    """A field's byte offset, summed from the struct's own field list in
+    engine/sound/sound_constants.emp (the authority; `offsetof` is not something
+    emp_consts evaluates). Only u8/u16 fields are understood; anything else refuses."""
+    import re
+    text = Path(SOUND_CONSTANTS).read_text()
+    m = re.search(r"pub struct %s \{(.*?)\n\}" % struct, text, re.S)
+    if not m:
+        raise CouldNotRun(f"no `pub struct {struct}` in {SOUND_CONSTANTS}")
+    off = 0
+    for name, ty in re.findall(r"^\s*(\w+)\s*:\s*(\w+)\s*,", m.group(1), re.M):
+        if name == field:
+            return off
+        if ty not in ("u8", "u16"):
+            raise CouldNotRun(f"{struct}.{name} is {ty}; this reader sizes only u8/u16")
+        off += 1 if ty == "u8" else 2
+    raise CouldNotRun(f"{struct} has no field {field}")
+
+
+def with_duck(rom: bytes, labs: dict, sfx_id: int, duck: int) -> bytes:
+    """`rom` with the SFX's header duck byte set to `duck`. Only the SFX block's head blob
+    (the one labelled `Sfx_33`) is located from the listing; any other SFX is refused."""
+    if sfx_id != 0x33:
+        raise CouldNotRun("--duck locates the SFX blob by the listing's Sfx_33 label, so it "
+                          "needs the default SFX (id $33)")
+    out = bytearray(rom)
+    out[labs["Sfx_33"] + _field_offset("SfxHeader", "sfh_duck")] = duck
+    return bytes(out)
 
 
 def control_fixture(rom: bytes, labs: dict, song_id: int, st: dict) -> bytes:
@@ -318,6 +353,10 @@ def main(argv=None) -> int:
     ap.add_argument("--control-rom")
     ap.add_argument("--control-lst")
     ap.add_argument("--sfx", default=SFX_NAME)
+    ap.add_argument("--duck", type=int, default=0,
+                    help="fixture: write this sfh_duck depth into the SFX's header in BOTH "
+                         "ROM copies (no shipped SFX ducks, so Sfx_DuckRamp's music walk "
+                         "only runs under this fixture); the ROMs on disk are untouched")
     a = ap.parse_args(argv)
     tmp = None
     try:
@@ -344,11 +383,29 @@ def main(argv=None) -> int:
             fails.append("the song and its patch bank are in different banks")
         if not st["head_ok"]:
             fails.append(f"bank ${st['song_bank']:02X} does not begin with the engine-table head")
+        subj_path = a.rom
+        if a.duck:
+            rom = with_duck(rom, labs, sfx_id, a.duck)
+            fd, dtmp = tempfile.mkstemp(suffix=".bin", prefix="song_bank_duck_")
+            os.write(fd, rom)
+            os.close(fd)
+            subj_path, tmps = dtmp, [dtmp]
+            print(f"DUCK FIXTURE: {a.sfx} sfh_duck := {a.duck} in both ROM copies")
+        else:
+            tmps = []
         if a.control_rom:
             if not a.control_lst:
                 raise CouldNotRun("--control-rom needs --control-lst")
             c_path, c_lst = a.control_rom, a.control_lst
             c_syms, c_equs = RMW.parse_lst(c_lst)
+            if a.duck:
+                cb = with_duck(Path(c_path).read_bytes(), dict(RRD.listing_labels(Path(c_lst))),
+                               sfx_id, a.duck)
+                fd, ctmp = tempfile.mkstemp(suffix=".bin", prefix="song_bank_duck_c_")
+                os.write(fd, cb)
+                os.close(fd)
+                c_path = ctmp
+                tmps.append(ctmp)
             cst = static_checks(Path(c_path).read_bytes(), dict(RRD.listing_labels(Path(c_lst))),
                                 song_id)
             print(f"CONTROL {c_path} ({crc(Path(c_path).read_bytes())}): the same song "
@@ -365,9 +422,9 @@ def main(argv=None) -> int:
             print(f"CONTROL fixture ({crc(fixture)}): the song + patch bank copied over "
                   f"Moving Trucks at {labs['Song_MovingTrucks']:#x} (bank ${st['sfx_bank']:02X}), "
                   f"table entries repointed; the ROM on disk is untouched")
-        subj = run_one(a.rom, a.lst, syms, equs, song_id, sfx_id, True)
+        subj = run_one(subj_path, a.lst, syms, equs, song_id, sfx_id, True)
         ctrl = run_one(c_path, c_lst, c_syms, c_equs, song_id, sfx_id, True)
-        bare = run_one(a.rom, a.lst, syms, equs, song_id, sfx_id, False)
+        bare = run_one(subj_path, a.lst, syms, equs, song_id, sfx_id, False)
         ks = keyons_after(subj)
         s_subj, s_ctrl, s_bare = stream(subj), stream(ctrl), stream(bare)
         print(f"runs: request at frame {subj['req_frame']} (boot song {subj['boot_song']}); "
@@ -376,6 +433,14 @@ def main(argv=None) -> int:
               f"SUBJECT without SFX {len(s_bare)}")
         if ks < MIN_KEYONS:
             raise CouldNotRun(f"the SUBJECT keyed {ks} notes (< {MIN_KEYONS}): no song played")
+        if a.duck:
+            undecked = stream(run_one(a.rom, a.lst, syms, equs, song_id, sfx_id, True))
+            extra = len(s_subj) - len(undecked)
+            print(f"  duck premise: the ducked SFX run makes {extra:+d} chip writes against the "
+                  f"same run with the SFX's own duck ({len(undecked)})")
+            if s_subj == undecked:
+                raise CouldNotRun(f"--duck {a.duck} changed no chip write: the duck never "
+                                  "engaged, so Sfx_DuckRamp's music walk did not run")
         ups = patch_uploads(s_bare, s_subj)
         print(f"  patch uploads only the SFX run makes: {ups} (a steal and a hand-back per "
               f"SFX = {2 * len(SFX_AT)})")
@@ -396,8 +461,8 @@ def main(argv=None) -> int:
         print("finished=1")
         return 2
     finally:
-        if tmp:
-            os.unlink(tmp)
+        for t in ([tmp] if tmp else []) + (tmps if "tmps" in locals() else []):
+            os.unlink(t)
     for m in fails:
         print(f"FAIL: {m}")
     print("VERDICT:", "RED" if fails else "GREEN")
