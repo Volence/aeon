@@ -40847,6 +40847,58 @@ for every gate; it is not the proxy/subject shape.
    a design choice.
 4. **GPP-FG-WINDOW-MODEL** (`fg_page_order.py`, doubtful, unmeasured). The camera-window arithmetic
    is a Python transcription of `Tile_Cache_Fill`, and only its constants are read from source.
+
+   **MEASURED, then FIXED 2026-09-28 (`fix/gpp-unmeasured`, base origin/master `c76c9f90`).**
+   - **Promise** (docstring): the committed placed act never needs more than `PAGE_FRAMES`
+     pages "over every distinct tile-cache window a camera in the act can hold".
+     **Predicate:** pages counted over COLS x ROWS windows at `(left, top)` from
+     `window_for_camera`; the engine enters only through its constants.
+   - **The model against the ROM, first (headless, no MCP):** a scratch probe booted
+     `s4.debug.bin` (crc `198fd717`) in a spawned `oracle-aether`, flew the DEBUG camera
+     through 10 legs and at 11 settled stops compared `window_for_camera` with
+     `Cache_Left_Col/Head_Col/Top_Row/Bottom_Row`. **Left and top matched at all 11**
+     (e.g. cam (3824,2608): L458 R537 T310 B369 both). Right differed at ONE stop, the boot
+     position cam (96,144): ROM R79, model R72. At the act's left edge the ROM holds one
+     full 80-column window (the init fill), while the model's right is `desired_right`.
+     `check` does not use the model's right or bottom (it counts full COLS x ROWS from
+     `(left, top)`), so its count matched the ROM at every stop. The narrower right DOES
+     reach `evict_witness.py` (`Route.pages` uses the model's `r`), which under-states
+     the page set of a window near the left edge. Booked there, below.
+   - **`evict_witness.py` was not a check of this:** it takes `window_for_camera` as given
+     to choose its stimulus, and grades that the settled window's pages are resident, which
+     a model window narrower than the held one also passes.
+   - **Mutation, built:** `engine/level/tile_cache.emp:1328` (Tile_Cache_Fill `.no_pending`)
+     `subi.w  #TILE_CACHE_MARGIN_H, d0` -> `subi.w  #TILE_CACHE_MARGIN_H+8, d0`.
+     `DEBUG=1 NO_LINT=1 ./build.sh` **rc 0**, ROM crc `1c82de32`, `$66FA` = `subi.w #$1c`.
+     `fg_page_order.py check`: **exit 0** ("FG page budget OK ... worst window needs 10").
+     The probe on that ROM: **0 of 11 stops match**, every held window 8 columns left of the
+     model (cam (688,144): ROM L58 R137, model L66 R145). Restored with `git show HEAD:`.
+   - **Fix (tools only):** new post-sigil mode `fg_page_order.py rom-window --lst --rom
+     --built-after`, wired `gate strict` in build.sh's sonic4 post-sigil block after
+     `collision_consistency --rom-tables`. It decodes (capstone) the ROM from
+     `Tile_Cache_Fill$no_pending` to `$h_clamp_ok` and from `$v_section` to `$v_clamp_ok`
+     and requires exactly the model's instructions: `Camera_X`/`Camera_Y` from the listing,
+     `subi.w #MARGIN`, the clamp-at-0 `bpl`/`moveq #0`, the vertical `andi.w #$fffe`, the
+     reach and margin `addi.w`s and the `addi.w #COLS-1 / ROWS-1` span clamp, with every
+     immediate from the same `load_budget_constants()` the model and `check` use. Exit 1
+     names the instruction; exit 2 on a missing label, an undecodable block or a stale pair.
+     Registered in `test_provenance_consumers.py` (GATES + a mode-first LEAD) and
+     `test_cli_dispatch_refuses.py`; +4 synthetic rows in `test_fg_page_order.py`.
+   - **Red:** the same mutation, `DEBUG=1 NO_LINT=1 ./build.sh` **rc 1** at the arm: "h #4
+     $66FA: `subi.w #$1c, d0`, the model wants `subi.w #$14, d0`". **Green:** restored tree,
+     full `DEBUG=1 ./build.sh` rc 0, crc `198fd717` (= baseline), arm OK; release `s4.bin`
+     arm OK (Camera_X `$FFA6E2`).
+   - **Not covered (named):** the arm pins the DESIRED window. That the held window equals
+     it (the fill reaches it; never fewer than COLS x ROWS) is runtime behaviour the probe
+     measured at 11 stops on this base and nothing on the landing path re-measures; the top
+     edge (cam_y < 128) was not visited. Who calls Tile_Cache_Fill, and the camera's range,
+     are not checked. The probe itself was a scratch script, not committed.
+   - **BOOKED, not fixed (another lane's nightly tool):** `window_for_camera`'s right/bottom
+     at the act's left/top edge. The ROM holds `left + COLS - 1` there (measured once, at
+     boot); the model returns the unclamped `desired_right`. Only `evict_witness.py`'s
+     `Route.pages` and the megaact research tools read it. Changing it moves
+     evict_witness's derived stimulus, so it belongs to that tool's owner, with a probe stop
+     at the top edge first.
 5. **GPP-COLLISION-ROM-TABLES** (`collision_consistency.py`, measured). It runs pre-sigil over the
    three `.bin` files. `AngleTable = _solidity` in `collision_data.emp` gave exit 0 (both blobs are
    256 B). The odd-angle exemption also rests on `player_sensors.emp`'s `btst #0` being there.

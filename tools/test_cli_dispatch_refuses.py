@@ -142,7 +142,8 @@ _FIXED = [
     # nothing, but it is a BUILD GATE (build.sh + regenerate-level.sh), and a fall-through
     # that reached it on a typo'd mode would print a verdict nobody asked for; `check` is
     # the handler's work.
-    ("fg_page_order", ["check"]),
+    # GPP-FG-WINDOW-MODEL (2026-09-28) added `rom-window`; rom_window_check is its work.
+    ("fg_page_order", ["check", "rom_window_check"]),
     # CACHE-WINDOW-HOLD-MEASURE (2026-09-17): born in the table form. `run --out PATH` boots
     # an emulator and writes the run JSON; `analyze --out PATH` writes a summary. run_probe
     # and analyze_runs are the two handlers; neither may be reachable from an unknown mode.
