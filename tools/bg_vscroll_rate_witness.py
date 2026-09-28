@@ -269,7 +269,8 @@ def pcfg_offsets() -> dict[str, int]:
                              f"ends at ${prev_off + prev_w:02X}")
         out[nm] = off
         prev_off, prev_w = off, w
-    for need in ("pcfg_v_factor_bg", "pcfg_v_center_y", "pcfg_v_offset", "pcfg_bob"):
+    for need in ("pcfg_v_factor_bg", "pcfg_v_center_y", "pcfg_v_offset", "pcfg_bob",
+                 "pcfg_transition"):
         if need not in out:
             raise SetupError(f"parallax_config declares no `{need} ... // $XX` — the model "
                              "below would be reading guessed bytes")
@@ -564,7 +565,8 @@ class Rig:
                 "v_factor": g(o["pcfg_v_factor_bg"], 1),
                 "v_center": g(o["pcfg_v_center_y"], 2),
                 "v_offset": g(o["pcfg_v_offset"], 2),
-                "bob": g(o["pcfg_bob"], 1)}
+                "bob": g(o["pcfg_bob"], 1),
+                "transition": g(o["pcfg_transition"], 1)}
 
     async def sample(self, tag: str) -> dict:
         b, sym = self.b, self.sym
@@ -994,7 +996,7 @@ async def run(args) -> int:
                     "BG_TALL_MAP_MIN_SPAN",
                     "VSCROLL_BG_MAX", "SCREEN_HEIGHT", "PLANE_B_SPAN", "PLANE_B_CELL_ROWS",
                     "PARALLAX_LERP_SHIFT", "CAM_SCREEN_HALF_W", "CAM_SCREEN_HALF_H",
-                    "PLAYER_DEBUG_FLY_SPEED"])
+                    "PLAYER_DEBUG_FLY_SPEED", "PARALLAX_TRANS_DEFAULT"])
     K["HALF_W"], K["HALF_H"] = K["CAM_SCREEN_HALF_W"], K["CAM_SCREEN_HALF_H"]
     K["pcfg"] = pcfg_offsets()
     step5_shape_check()
@@ -1314,6 +1316,131 @@ async def run(args) -> int:
                     "to outrun. This is the leg that is red with the one-plane arm reverted.")
         await run_leg("X", _legX)
 
+        # ---- leg P: A WARP THAT STAGES A TRANSITION STILL SNAPS THE WHOLE-PLANE SCROLL -----
+        # PARALLAX-STEP5-SNAP-DEAD (2026-09-28). The DEBUG warp sets Parallax_Snap_Pending, then
+        # runs the destination's crossing, which STAGES a smooth transition when the destination
+        # row's live config differs from the origin's and declares pcfg_transition == 0. Until
+        # this parcel Step 3 cleared the byte before its tail jump into Step 5, so Step 5's
+        # `tst.b Parallax_Snap_Pending` was dead: the bands snapped and the whole-plane BG scroll
+        # LERPED from the pre-warp value (1/2^PARALLAX_LERP_SHIFT of the gap an invocation) for
+        # the whole transition, then popped the residual on the promote frame. Parallax_BG_Snap
+        # does not cover it: that byte skips the RATE clamp, which runs after the lerp.
+        #
+        # THE PAIR IS CHOSEN FROM THE ACT, ASKING THE ENGINE, never typed: every row the camera
+        # can centre in is warped to and settled, and its LIVE config read out of RAM (the
+        # plan_vertical_leg rule: Effects_ResolveParallax's rungs are not restated here). The
+        # pair is an origin row and a destination row whose configs differ, the destination's
+        # smooth (pcfg_transition 0, read from the ROM) with no bob (the model has none), and
+        # the destination's derived target at least 2^PARALLAX_LERP_SHIFT px from the origin's
+        # settled scroll, so a lerp cannot land on it by rounding. The largest such gap wins.
+        #
+        # ASSERTED (A7), per Parallax_Update invocation from the warp consumer's own: the subject
+        # is present (the warp's own Step 5 runs with Transition_Frames > 0 and the destination
+        # config as Target, else COULD NOT RUN: a warp that staged nothing cannot fail), and
+        # EVERY store for PARALLAX_TRANS_DEFAULT + 4 invocations equals the position-clamped
+        # target at the camera that invocation read: no lerp frame, no promote pop.
+        async def _legP():
+            half_h = K["HALF_H"]
+            shift = K["PARALLAX_LERP_SHIFT"]
+            live = []
+            for r in rows:
+                rec, _cx, cy_lo, cy_hi = candidate_window(r, K, cam_x_max, cam_y_max)
+                if "verdict" in rec:
+                    continue
+                # BOTH ENDS, AND THE CAMERA Y THE WARP ACTUALLY LANDS ON: the warp clamps the
+                # PLAYER into the act, so a request at the act's floor lands short (MEASURED on
+                # DEBUG OJZ row 11: camera Y 5920 requested, 5808 landed). The landed value is
+                # the one the plan requests again, and the one it is graded at.
+                got = []
+                for want_cy in (cy_lo, cy_hi):
+                    await warp_to(b, sym, rig, rec["probe_x"], want_cy + half_h)
+                    for _ in range(SETTLE_TICKS):
+                        await rig.tick(WARP_MAX_FRAMES)
+                    got.append(await rig.sample(f"P_probe{r['index']}_{want_cy}"))
+                s = got[0]
+                if (any(g["region"] != r["addr"] or g["trans"] for g in got)
+                        or s["cfg"] is None or got[1]["cfg"] is None
+                        or got[1]["cfg"]["ptr"] != s["cfg"]["ptr"]):
+                    continue
+                live.append({"row": r, "x": rec["probe_x"],
+                             "cy": tuple(sorted({g["cam_y"] for g in got})), "s": s})
+            best = None
+            for a in live:
+                for d in live:
+                    ca, cd = a["s"]["cfg"], d["s"]["cfg"]
+                    if ca["ptr"] == cd["ptr"] or cd["transition"] != 0 or cd["bob"]:
+                        continue
+                    ceil = ceiling_for(d["row"]["bg_span"], K["SCREEN_HEIGHT"],
+                                       K["VSCROLL_BG_MAX"])
+                    for cy in d["cy"]:
+                        want = clamp_pos(target_scroll(cy, cd), ceil)
+                        gap = abs(want - a["s"]["v"])
+                        if gap >= (1 << shift) and (best is None or gap > best[0]):
+                            best = (gap, a, d, cy, want)
+            report["P_rows_probed"] = [
+                {"row": x["row"]["index"], "cfg": hex(x["s"]["cfg"]["ptr"]),
+                 "transition": x["s"]["cfg"]["transition"], "bob": x["s"]["cfg"]["bob"],
+                 "v": x["s"]["v"]} for x in live]
+            if best is None:
+                raise LegBlocked(
+                    "no (origin, destination) row pair in this act qualifies: it needs two "
+                    "rows with different live configs, the destination's smooth "
+                    f"(pcfg_transition 0) with no bob, and a derived gap >= {1 << shift} px. "
+                    f"Rows probed: {report['P_rows_probed']}")
+            gap, a, d, cy, want = best
+            await warp_to(b, sym, rig, a["x"], a["cy"][0] + half_h)
+            for _ in range(SETTLE_TICKS):
+                await rig.tick(WARP_MAX_FRAMES)
+            here = await rig.sample("P_origin")
+            if here["region"] != a["row"]["addr"] or here["trans"]:
+                raise LegBlocked(f"the origin warp did not settle in row {a['row']['index']} "
+                                 f"(row {here['row']}, Transition_Frames {here['trans']})")
+            await warp_to(b, sym, rig, d["x"], cy + half_h, tick=False)
+            n = K["PARALLAX_TRANS_DEFAULT"] + 4
+            legP = await leg_step5(rig, "P", n, WARP_MAX_FRAMES)
+            s0 = legP[0]
+            if (s0["region"] != d["row"]["addr"] or s0["cam_y"] != cy or not s0["trans"]
+                    or s0["cfg"] is None or s0["cfg"]["ptr"] != d["s"]["cfg"]["ptr"]):
+                raise LegBlocked(
+                    f"the subject is absent: the warp's own Step 5 ran in row {s0['row']} at "
+                    f"camera Y {s0['cam_y']} with Transition_Frames {s0['trans']} and config "
+                    f"{hex(s0['cfg']['ptr']) if s0['cfg'] else None}; the plan was row "
+                    f"{d['row']['index']}, camera Y {cy}, a STAGED transition to "
+                    f"{hex(d['s']['cfg']['ptr'])}. A warp that stages nothing cannot fail.")
+            wrong = []
+            for k in range(1, len(legP)):
+                src = legP[k - 1]
+                model = clamp_pos(target_scroll(src["cam_y"], src["cfg"]), src["ceiling"])
+                if legP[k]["v"] != model:
+                    wrong.append((k, legP[k]["v"], model, src["trans"]))
+            report["P"] = {"origin_row": a["row"]["index"], "dest_row": d["row"]["index"],
+                           "origin_cfg": hex(a["s"]["cfg"]["ptr"]),
+                           "dest_cfg": hex(d["s"]["cfg"]["ptr"]), "cam_y": cy,
+                           "v_before": s0["v"], "target": want, "derived_gap": gap,
+                           "trans_at_warp": s0["trans"], "invocations": len(legP) - 1,
+                           "v": [x["v"] for x in legP], "wrong": wrong}
+            if wrong:                                                            # A7
+                k, got, model, tr = wrong[0]
+                fails.append(
+                    f"A7: a DEBUG warp from row {a['row']['index']} to row "
+                    f"{d['row']['index']} staged a smooth transition (Transition_Frames "
+                    f"{s0['trans']} on the warp's own Step 5), and {len(wrong)} of "
+                    f"{len(legP) - 1} Parallax_Update store(s) were not at the target: first at "
+                    f"invocation {k}, {got} against {model} (Transition_Frames {tr}); scroll "
+                    f"{[x['v'] for x in legP]}. The whole-plane BG scroll LERPED through a "
+                    "warp: Step 5's Parallax_Snap_Pending test is dead again "
+                    "(PARALLAX-STEP5-SNAP-DEAD).")
+            else:
+                findings.append(
+                    f"A7: a DEBUG warp from row {a['row']['index']} "
+                    f"({hex(a['s']['cfg']['ptr'])}, scroll {s0['v']}) to row "
+                    f"{d['row']['index']} ({hex(d['s']['cfg']['ptr'])}, smooth) staged a "
+                    f"transition (Transition_Frames {s0['trans']} on the warp's own Step 5), "
+                    f"and every one of {len(legP) - 1} stores sat at the target ({want}, a "
+                    f"{gap} px jump): the whole-plane scroll snapped through it. Red with the "
+                    "snap test dead (see MUTATIONS (d)).")
+        await run_leg("P", _legP)
+
         # ---- leg S: the position DISCRIMINATOR — a PATCHED ROM, not a live poke ----------
         #
         # ⚠ THE LIVE POKE IS DEAD, MEASURED. The Rust core refuses every write outside the
@@ -1486,6 +1613,15 @@ def finish(args, report, fails, findings) -> int:
                   f"on a one-plane map (unrated, worst {g['worst_unrated_step']}), "
                   f"{g['modelled_ticks']} "
                   f"modelled ({g['model_mismatches']} mismatched), rows {g['rows_visited']}")
+        g = report.get("P")
+        if g and "could_not_run" in g:
+            print(f"  P: COULD NOT RUN — {g['could_not_run'].splitlines()[0]}")
+        elif g:
+            print(f"  P (warp through a staged transition, per Parallax_Update): row "
+                  f"{g['origin_row']} ({g['origin_cfg']}) -> row {g['dest_row']} ({g['dest_cfg']}), "
+                  f"camera Y {g['cam_y']}, Transition_Frames {g['trans_at_warp']} at the warp, "
+                  f"scroll {g['v_before']} -> target {g['target']}; {len(g['wrong'])} of "
+                  f"{g['invocations']} store(s) off target; scroll {g['v']}")
         for key in ("W", "X"):
             for r in report.get(f"{key}_scan", []):
                 print(f"  {key} scan row {r['row']} {r['x']}x{r['y']} "
@@ -1534,7 +1670,7 @@ def finish(args, report, fails, findings) -> int:
         print("COULD NOT RUN:", file=sys.stderr)
         for n in blocked:
             print(f"  - leg {n['leg']}: {n['why']}", file=sys.stderr)
-        ran = [k for k in ("C", "D", "W", "X", "S")
+        ran = [k for k in ("C", "D", "W", "X", "P", "S")
                if k in report and "could_not_run" not in report[k]]
         print(f"\n  {len(ran)} leg(s) DID run and their assertions held "
               f"({', '.join(ran) or 'none'}), and that is reported above rather than thrown "
@@ -1547,6 +1683,11 @@ def finish(args, report, fails, findings) -> int:
             print("  WITHOUT LEG X NOTHING HERE TESTED THE ONE-PLANE ARM (the rate clamp is "
                   "skipped on a map the plane holds whole). A tree with that arm reverted "
                   "passes W, C and D unchanged.", file=sys.stderr)
+        if "P" not in ran:
+            print("  WITHOUT LEG P NOTHING HERE TESTED THAT A WARP SNAPS THE WHOLE-PLANE SCROLL "
+                  "THROUGH A STAGED TRANSITION (PARALLAX-STEP5-SNAP-DEAD). Every other leg "
+                  "passes unchanged with Step 5's Parallax_Snap_Pending test dead.",
+                  file=sys.stderr)
         if "S" not in ran:
             print("  WITHOUT LEG S NOTHING HERE TESTED THE POSITION CLAMP, AND NOTHING ELSE IN "
                   "THIS TREE CAN. Every shipped region row leaves rg_bg_span at 0, so every "
