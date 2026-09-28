@@ -4250,8 +4250,16 @@ sequencer frame. Two rules make a song bank other than the SFX bank safe:
   `games/sonic4/data/sound/mt_bank.emp`, which sigil's seam-2 also lowers to predict the SFX
   block's base (the fold gate refuses a disagreement), so its embeds are spelled from the
   aeon root and `Song_MovingTrucks` stays its first item.
-The second bank itself (`SongBank2_Head`, anchored at 0xC0000) is the remaining step; see
-`docs/DEFERRED_WORK.md` `## S2CLIP-MTZ-SONG-BANK`.
+- **Every music patch read on the SFX path runs under the song's bank**: `Sfx_Restore`'s whole
+  FM hand-back (upload, volume re-apply, re-key), `Sfx_DuckRamp`'s music walk and
+  `Sfx_UnpauseRestore`. `Fm_SetVolume` re-reads the channel's patch through the window, so it
+  counts as a patch read. `tools/song_bank_witness.py` holds this: a song played from its own
+  bank must write the chip exactly as a copy of it in the SFX bank does.
+**The second bank** is `SongBank2_Head` (`games/sonic4/data/sound/song_bank2.emp`): the head
+replica, then Sonic 2's Metropolis. Sigil's walk rounds it to the window after bank 1; the map's
+`song_bank_2` anchor (`sound_bank + 0x8000`) only declares that island, so bank 1 must end more
+than 0x400 below it (the map.toml comment carries the measured margin). See
+`docs/DEFERRED_WORK.md` `## S2CLIP-MTZ-SONG-BANK` for what is open (clip overlays, WFZ/OOZ).
 
 ### 6.5 Distance-Based Sound Attenuation (NOVEL) — DEFERRED, DEMOTED (2026-07-03)
 
