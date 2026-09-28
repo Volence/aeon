@@ -1,9 +1,9 @@
 {
-  "focus": "Adding Sonic 2's Wing Fortress and Oil Ocean songs so those zones play their music. Your woven answers still wait.",
+  "focus": "Wing Fortress and Oil Ocean songs landed. Fixing the Sonic 2 test builds, which fail since this morning, so you can listen.",
   "inFlight": [
     {
-      "what": "Wing Fortress and Oil Ocean songs into the second sound bank",
-      "where": "branch parcel/song-bank-wfz-ooz",
+      "what": "Sonic 2 test-level builds exit with an error since this morning's check change; fixing it",
+      "where": "branch fix/bganim-room-zero-length",
       "agent": true
     }
   ],
@@ -29,8 +29,15 @@
       "since": "2026-09-28"
     }
   ],
-  "nextBoundary": "When the two-songs parcel returns and lands (tell sigil first: it moves sound bank bytes).",
+  "nextBoundary": "When the Sonic 2 build fix lands; then a listening ROM for the two new songs.",
   "queue": [
+    {
+      "id": "CLIP-BUILD-BGANIM-ROOM",
+      "title": "Sonic 2 test-level builds report an error since this morning's background-animation check; fix in progress",
+      "state": "doing",
+      "size": "S",
+      "blockedBy": null
+    },
     {
       "id": "WOVEN-TOUCHUPS",
       "title": "Woven act: you can't reach most of it from the start; a clip-list route fix is measured and ready (no freeze needed), your pick",
@@ -40,8 +47,8 @@
     },
     {
       "id": "S2CLIP-MTZ-SONG-BANK",
-      "title": "Sonic 2 zone songs: Metropolis plays from bank 2 (landed; your listen). Wing Fortress and Oil Ocean songs still refuse to convert",
-      "state": "doing",
+      "title": "Sonic 2 zone songs: Wing Fortress and Oil Ocean landed beside Metropolis (your listen once the test build is fixed). Hidden Palace still refuses",
+      "state": "open",
       "size": "M",
       "blockedBy": null,
       "project": "REGIONS"
@@ -142,5 +149,5 @@
   ],
   "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-09-28T16:43:53Z"
+  "updatedAt": "2026-09-28T17:52:51Z"
 }
