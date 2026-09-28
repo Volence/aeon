@@ -1,0 +1,48 @@
+== r2_base
+cdebug.bin dd3cf064 857247
+cplain.bin 76835839 830244
+debug.bin 2a3eda50 956667
+plain.bin 5a25334f 929852
+e76dcea92fe088ccb93a60f576516da555dd640e
+== r2_p5
+cdebug.bin 08a6f881 857410
+cplain.bin a51bd515 830405
+debug.bin caab8dec 956828
+plain.bin d5637cb3 930013
+e76dcea92fe088ccb93a60f576516da555dd640e
+== r2_p3
+cdebug.bin 21df68fc 857810
+cplain.bin 3f3d318d 830781
+debug.bin 5e731cf2 957204
+plain.bin 802d6be3 930389
+c8971d36d9a0a9dba5b729503991d31ef2dfca39
+== r2_p3b
+cdebug.bin ca37c52e 857856
+cplain.bin c0da08f7 830807
+debug.bin e200256e 957250
+plain.bin 3d8eb944 930417
+c8971d36d9a0a9dba5b729503991d31ef2dfca39
+== r2_p6
+cdebug.bin c426c836 857856
+cplain.bin 26525a48 830827
+debug.bin 43d6def7 957250
+plain.bin 64b26b08 930437
+e33390b4a1d922af087ab499410d87fa7964c1fd
+== r2_p6c
+cdebug.bin c426c836 857856
+cplain.bin 26525a48 830827
+debug.bin 43d6def7 957250
+plain.bin 64b26b08 930437
+e33390b4a1d922af087ab499410d87fa7964c1fd
+== r2_decomp_base
+cdebug.bin 92725132 857247
+cplain.bin 0bb2fb5d 830214
+debug.bin e4131ece 956647
+plain.bin 24332378 929822
+e76dcea92fe088ccb93a60f576516da555dd640e
+== r2_decomp_final
+cdebug.bin 81056d77 857825
+cplain.bin bb871a6d 830797
+debug.bin e070a91a 957230
+plain.bin e1ee6af4 930405
+73773349eb94e827bb11fbdc2f197e2547812858

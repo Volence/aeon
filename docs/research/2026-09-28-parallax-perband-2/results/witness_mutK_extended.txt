@@ -1,0 +1,20 @@
+anchored region 5 x 4096..5119 y 2048..4095, world anchor 2272
+  spawn down    samples   60  hit   60  vs-moved    0  split    0  DIFFER 60
+  anchor right  samples   60  hit    1  vs-moved    0  split   58  DIFFER 2
+  anchor down   samples   60  hit   20  vs-moved   10  split   41  DIFFER 19
+  total         samples  180  hit   81  vs-moved   10  split   99  DIFFER 81
+  spawn down: sample 1 (pre-key cfg $01487E vs 0, now vs 0) first difference at Parallax_Band_Sel byte 0
+  spawn down: sample 2 (pre-key cfg $01487E vs 0, now vs 0) first difference at Parallax_Band_Sel byte 0
+  spawn down: sample 3 (pre-key cfg $01487E vs 0, now vs 0) first difference at Parallax_Band_Sel byte 0
+  spawn down: sample 4 (pre-key cfg $01487E vs 0, now vs 0) first difference at Parallax_Band_Sel byte 0
+  spawn down: sample 5 (pre-key cfg $01487E vs 0, now vs 0) first difference at Parallax_Band_Sel byte 0
+  anchor right: sample 59 (pre-key cfg $000000 vs 203, now vs 203) first difference at Parallax_Band_Sel byte 0
+  anchor right: sample 60 (pre-key cfg $0134F8 vs 203, now vs 203) first difference at Parallax_Band_Sel byte 0
+  anchor down: sample 1 (pre-key cfg $0134F8 vs 159, now vs 159) first difference at Parallax_Band_Sel byte 0
+  anchor down: sample 2 (pre-key cfg $0134F8 vs 159, now vs 159) first difference at Parallax_Band_Sel byte 0
+  anchor down: sample 3 (pre-key cfg $0134F8 vs 159, now vs 159) first difference at Parallax_Band_Sel byte 0
+  anchor down: sample 4 (pre-key cfg $0134F8 vs 159, now vs 161) first difference at Parallax_Band_Sel byte 0
+  anchor down: sample 5 (pre-key cfg $0134F8 vs 161, now vs 163) first difference at Parallax_Band_Sel byte 0
+VERDICT: RED — the cached shadow view is not the view a rebuild makes
+finished=1
+exit=1

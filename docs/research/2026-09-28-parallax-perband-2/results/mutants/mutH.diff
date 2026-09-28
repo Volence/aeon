@@ -1,0 +1,13 @@
+diff --git a/engine/ram.emp b/engine/ram.emp
+index 645fb823..5ce3212d 100644
+--- a/engine/ram.emp
++++ b/engine/ram.emp
+@@ -120,7 +120,7 @@ const REMAP_STATE_LONGS     = BAND_REMAP_BYTES / 4
+ // tests the cache exists to skip. Mirrors a capability bit with a literal mask like the tails
+ // above; parallax.emp's BAND_SEL_N is pinned against CAP_DEFORM, and its reservation guard
+ // checks these two against the linked span.
+-const BAND_SEL_BYTES        = if (GAME_SCANLINE_CAPS & $0004) != 0 { MAX_PARALLAX_BANDS } else { 0 }   // CAP_DEFORM
++const BAND_SEL_BYTES        = if (GAME_SCANLINE_CAPS & $0004) != 0 { MAX_PARALLAX_BANDS - 4 } else { 0 }   // CAP_DEFORM
+ const BAND_SEL_LONGS        = if (GAME_SCANLINE_CAPS & $0004) != 0 { 1 } else { 0 }                    // CAP_DEFORM
+ // WATERLINE_ART_BYTES — the row remap's ART half (EFFECTS-W1 item 9d): the staging buffer
+ // Waterline_Art_Update row-gathers into before its single DMA. A SIXTH mirror for the same

@@ -1,0 +1,13 @@
+diff --git a/engine/ram.emp b/engine/ram.emp
+index 645fb823..37fa9b14 100644
+--- a/engine/ram.emp
++++ b/engine/ram.emp
+@@ -80,7 +80,7 @@ const CURVE_CARRY_WORDS     = BAND_CURVE_BYTES / 5
+ // slot holding a curve layer, then how many slots from it to walk), derived from the same
+ // tail mirror for CURVE_CARRY_WORDS' reason: a curve tail means the two words, no tail means
+ // no hoist and no bytes (PPB-5, 2026-09-28).
+-const CURVE_WALK_WORDS      = BAND_CURVE_BYTES / 5
++const CURVE_WALK_WORDS      = BAND_CURVE_BYTES / 10
+ // BAND_DRIFT_BYTES — the per-band DRIFT tail (band drift), a FOURTH constant for the reason
+ // BAND_CURVE_BYTES is a third one: it mirrors a DIFFERENT capability bit (CAP_BAND_DRIFT), and
+ // a game may declare any subset of the three. A shadow band occupies

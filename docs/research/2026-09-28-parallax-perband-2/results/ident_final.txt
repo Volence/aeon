@@ -1,0 +1,25 @@
+ROM /home/volence/pxperf/r2_p6c/cdebug.bin   24 frames/fixture   repeats 1
+response = Hscroll_Buffer, all 896 bytes, after each frame
+anchored fixtures: channel 0 world anchor 248 installed by this fixture -> split line 104 at camera 144, 101 at camera 147 (band tops of the anchored counts [2, 4]: [0, 56, 112, 168])
+
+SHIPPED PRECEDENT — the act at $018A48 has 13 region(s); 1 pair a consuming `anchor_ch` with a real world anchor on it (1 on the fixtures' own channel 0):
+  region  5 x4096..5119 y2048..4095  OJZ_Preset_Sec5 -> ParallaxConfig_OJZ_Underwater  anchor_ch 0  world_ys [2272, 'NONE', 'NONE', 'NONE']
+
+FIX  camY bands spans (screen lines)           ragged  wrapF digest         vs ref
+----------------------------------------------------------------------------------
+ID0   144     1 [224]                               0     24 4ef90c32e72c    match  
+ID1   144     1 [224]                               0     24 4ef90c32e72c    match  
+ID2   144     1 [224]                               0     24 d1d257d5f34c    match  
+ID3   144     1 [224]                               0     24 2e8c06316bba    match  
+ID4   144     1 [224]                               0     24 4ad53a2905de    match  
+ID5   144     3 [72, 72, 80]                        0     24 56a462aa7333    match  
+ID6   144     3 [104, 8, 112]                       0     24 c9ba1af8ee00    match  
+ID7   144     5 [56, 48, 8, 56, 56]                 0     24 6fa38ee108ef    match  
+ID8   147     5 [56, 45, 11, 56, 56]                2     24 ea96bb585c04    match  
+ID9   147     3 [101, 11, 112]                      2     24 5da3e2bc8bb7    match  
+
+COVERAGE WITNESSES — ragged spans 4   wrapping frames 240
+
+OK — every fixture's Hscroll_Buffer is byte-identical to the reference
+exit=0
+IDENTDONE

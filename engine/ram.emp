@@ -76,6 +76,11 @@ const BAND_CURVE_BYTES      = if (GAME_SCANLINE_CAPS & $0040) != 0 { 10 } else {
 // tail means no carry and no bytes. The two-value pin is what keeps the division honest.
 ensure(BAND_CURVE_BYTES == 0 || BAND_CURVE_BYTES == 10, "BAND_CURVE_BYTES is {BAND_CURVE_BYTES}, which is neither 0 (no curve tail) nor sizeof(band_curve) = 10 — CURVE_CARRY_WORDS below divides it, and parallax.emp's reservation guard is what checks the 10")
 const CURVE_CARRY_WORDS     = BAND_CURVE_BYTES / 5
+// CURVE_WALK_WORDS — the curve hoist's remembered walk (Parallax_Curve_Walk: the first shadow
+// slot holding a curve layer, then how many slots from it to walk), derived from the same
+// tail mirror for CURVE_CARRY_WORDS' reason: a curve tail means the two words, no tail means
+// no hoist and no bytes (PPB-5, 2026-09-28).
+const CURVE_WALK_WORDS      = BAND_CURVE_BYTES / 5
 // BAND_DRIFT_BYTES — the per-band DRIFT tail (band drift), a FOURTH constant for the reason
 // BAND_CURVE_BYTES is a third one: it mirrors a DIFFERENT capability bit (CAP_BAND_DRIFT), and
 // a game may declare any subset of the three. A shadow band occupies
@@ -109,6 +114,14 @@ const BAND_REMAP_BYTES      = if (GAME_SCANLINE_CAPS & $0800) != 0 { 8 } else { 
 // 8, so the division is by 8 and the two-value pin below is what keeps that honest.
 ensure(BAND_REMAP_BYTES == 0 || BAND_REMAP_BYTES == 8, "BAND_REMAP_BYTES is {BAND_REMAP_BYTES}, which is neither 0 (no remap tail) nor sizeof(band_remap) = 8 — REMAP_STATE_LONGS below divides it, and parallax.emp's reservation guard is what checks the 8")
 const REMAP_STATE_LONGS     = BAND_REMAP_BYTES / 4
+// BAND_SEL_BYTES / BAND_SEL_LONGS — the fill's cached per-slot loop selection (PPB-3,
+// 2026-09-28): one byte per shadow slot (Parallax_Band_Sel) plus a validity long
+// (Parallax_Band_Sel_Valid), present only under CAP_DEFORM, the capability whose per-band
+// tests the cache exists to skip. Mirrors a capability bit with a literal mask like the tails
+// above; parallax.emp's BAND_SEL_N is pinned against CAP_DEFORM, and its reservation guard
+// checks these two against the linked span.
+const BAND_SEL_BYTES        = if (GAME_SCANLINE_CAPS & $0004) != 0 { MAX_PARALLAX_BANDS } else { 0 }   // CAP_DEFORM
+const BAND_SEL_LONGS        = if (GAME_SCANLINE_CAPS & $0004) != 0 { 1 } else { 0 }                    // CAP_DEFORM
 // WATERLINE_ART_BYTES — the row remap's ART half (EFFECTS-W1 item 9d): the staging buffer
 // Waterline_Art_Update row-gathers into before its single DMA. A SIXTH mirror for the same
 // reason as the five above — it sizes an array here and is DERIVED there, and the two must
@@ -555,6 +568,22 @@ pub vars upper_ram {
     Parallax_Shadow_Key_Config:  u32,   // ROM parallax_config* the shadow view is valid for; 0 = none
     Parallax_Shadow_Key_VS:      u16,   // the plane line (Vscroll_BG & PLANE_B_SPAN-1) it was rotated at
     Parallax_Shadow_Key_K:       u16,   // the rotation's start band k at that line
+    // THE CURVE HOIST'S WALK (PPB-5, 2026-09-28): [0] the first shadow slot whose band is a
+    // curve layer, [1] how many slots from it the hoist walks (0 = no curve layer in the view).
+    // Derived by Step 4a's REBUILD path from the view it just built, so it is exactly as valid
+    // as that view: a key hit keeps both. Step 4b's split runs after the hoist and drops the
+    // key, so the walk never describes a split view. Zero words under no CAP_FACTOR_CURVE.
+    // THE FILL'S CACHED LOOP SELECTION (PPB-3, 2026-09-28): Parallax_Band_Sel holds one byte
+    // per shadow slot, stored REVERSED (the byte for slot i is at index n-1-i, the fill's own
+    // down-counter), and it is 0 exactly when that slot takes `.lp_flat` with no remap mark.
+    // Parallax_Band_Sel_Valid (its first byte) says the array describes the current view:
+    // Step 4a's rebuild and the per-act clear leave it 0, and the selection pass before the
+    // fill sets it. Step 4b's split sets every byte to $FF (non-zero claims nothing) and the
+    // flag with it. Zero bytes under no CAP_DEFORM. Placed BEFORE
+    // Parallax_Curve_Walk so that pin, against the end mark, stays an adjacent difference.
+    Parallax_Band_Sel:           [u8; BAND_SEL_BYTES],
+    Parallax_Band_Sel_Valid:     [u32; BAND_SEL_LONGS],
+    Parallax_Curve_Walk:         [u16; CURVE_WALK_WORDS],
     mark Parallax_State_End,
 
     // EFFECTS-W1 item 10b — the plane-role swap flag. 0 = normal roles (FG on Plane A,

@@ -1,0 +1,3 @@
+rc cdebug=0 sdebug=0 finished=1
+cdebug.bin 65560038 857856
+debug.bin 1bf75cc2 957250

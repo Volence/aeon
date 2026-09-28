@@ -1,0 +1,3 @@
+rc cdebug=0 sdebug=0 finished=1
+cdebug.bin a94315fa 857824
+debug.bin ea24428e 957218

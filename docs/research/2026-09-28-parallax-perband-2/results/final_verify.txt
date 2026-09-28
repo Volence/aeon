@@ -1,0 +1,35 @@
+S2CLIP_PLAIN_RC=0
+S2CLIP_DEBUG_RC=0
+s4.bin 26525a48 830827
+s4.debug.bin c426c836 857856
+demo.debug.bin ccb8bc2c 106981
+s4.s2clip.bin 64b26b08 930437
+s4.s2clip.debug.bin 43d6def7 957250
+effects_gates  ROM /home/volence/sonic_hacks/aeon/.claude/worktrees/agent-a07c84ac26b322120/s4.debug.bin
+  22 segments (21 emulator-backed, 1 listing-only), each a `--only` re-invocation with a timeout and ONE retry —
+  [ 1/22] scene:mid_band         PASS         38.5s  2 row(s) for 1 gate(s)
+  [ 2/22] scene:suppressed       PASS         38.5s  2 row(s) for 1 gate(s)
+  [ 3/22] scene:above_screen     PASS         46.8s  2 row(s) for 1 gate(s)
+  [ 4/22] scene:dense            PASS         50.1s  2 row(s) for 1 gate(s)
+  [ 5/22] raster_off             PASS          0.6s  1 row(s) for 1 gate(s)
+  [ 6/22] raster_source          PASS          1.6s  1 row(s) for 1 gate(s)
+  [ 7/22] vsplit_landing         PASS          1.8s  1 row(s) for 1 gate(s)
+  [ 8/22] palette_variant        PASS          1.6s  1 row(s) for 1 gate(s)
+  [ 9/22] snapshot_poison        PASS          0.6s  1 row(s) for 1 gate(s)
+  [10/22] warp_mailbox           PASS          6.3s  1 row(s) for 1 gate(s)
+  [11/22] boot_override          PASS          1.9s  1 row(s) for 1 gate(s)
+  [12/22] parallax_crossing      PASS          0.5s  1 row(s) for 1 gate(s)
+  [13/22] region_fade            PASS          9.7s  1 row(s) for 1 gate(s)
+  [14/22] bg_vscroll_rate        PASS          8.3s  1 row(s) for 1 gate(s)
+  [15/22] bg_window              PASS          0.9s  1 row(s) for 1 gate(s)
+  [16/22] bg_wipe                PASS          1.0s  1 row(s) for 1 gate(s)
+  [17/22] bg_switch              PASS          2.5s  1 row(s) for 1 gate(s)
+  [18/22] tile_cache_fill        PASS          3.6s  1 row(s) for 1 gate(s)
+  [19/22] oscillation_thrash     PASS          2.7s  1 row(s) for 1 gate(s)
+  [20/22] waterline_stamp        PASS          1.0s  1 row(s) for 1 gate(s)
+  [21/22] cost_model             PASS         29.2s  3 row(s) for 1 gate(s)
+  [22/22] listing                PASS          2.6s  15 row(s) for 2 gate(s)
+effects_gates: OK — all 23 scheduled gate(s) produced a complete row set: ['bg_switch', 'bg_vscroll_rate', 'bg_window', 'bg_wipe', 'boot_override', 'cost_model', 'demo_witness', 'oscillation_thrash', 'palette_variant', 'parallax_crossing', 'raster_off', 'raster_source', 'region_fade', 'scanline_spans', 'scene:above_screen', 'scene:dense', 'scene:mid_band', 'scene:suppressed', 'snapshot_poison', 'tile_cache_fill', 'vsplit_landing', 'warp_mailbox', 'waterline_stamp']
+  (42 result rows — a COUNT, and NOT the witness: a gate's row count varies with its own outcome and with source-declared populations. The witness is the gate set above.)
+EFFECTS_GATES_RC=0
+finished=3

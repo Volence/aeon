@@ -1,0 +1,4 @@
+rc cdebug=1 sdebug=skipped finished=1
+error: native build (sonic4 debug): declared-chain drift guard FIRED: 2 error(s):
+  ./engine/level/parallax.emp:631:1: [Error] the curve hoist walk reserves 2 bytes, not the 4 this capability needs (a first-slot word and a slot-count word) — set CURVE_WALK_WORDS in engine/ram.emp. A short reservation makes Step 4a's rebuild store the slot count past the end of Parallax_State, outside Parallax_Init's clear
+  ./engine/level/parallax.emp:653:1: [Error] Parallax_State clear span drifted from engine/ram.emp's Parallax_State .. Parallax_State_End span: expected 213 longs

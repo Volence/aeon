@@ -325,7 +325,7 @@ class Shadow:
     def spans(self, total=HSCROLL_LINES):
         """The filler's band partition: band i covers [tops[i], tops[i+1]), last ends at total.
 
-        Transcribed from Parallax_Fill_PerLine's `.next_band` (parallax.emp:1282-1291):
+        Transcribed from Parallax_Fill_PerLine's `.next_band` (engine/level/parallax.emp, cited by name):
         `move.w #224, d5` then, unless this is the last band, `move.b band_top_line_next(a1), d5`.
         """
         out = []
@@ -344,7 +344,8 @@ def resolve_anchor_line(cfg, screen_l, patch_tab_bytes):
 
     `screen_l` is the LATCHED Effects_Screen_L[ch] read off the machine — a camera-dependent
     quantity, measured per frame and never assumed (Effects_LatchWorldLines runs between
-    Camera_Update and Parallax_Update, parallax.emp:817-820). `patch_tab_bytes` is the record
+    Camera_Update and Parallax_Update: engine/level/parallax.emp, Step 4b's `L = the channel's
+    screen line, LATCHED` note in `Parallax_Step4_Fill`). `patch_tab_bytes` is the record
     block Raster_Patch_Tab points at, or None when the table pointer is null.
     """
     ch = cfg[CFG_ANCHOR_CH]

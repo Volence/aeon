@@ -251,6 +251,9 @@ dma_hscroll_perline_entries = 1
 dma_hscroll_perline_bytes_each = 896
 
 [parallax.cost_model]
+# ⚠ STALE SINCE 2026-09-28 (PERF-PARALLAX-PERBAND rounds 1 and 2). The rows below are the P3
+# tip's. A re-take on the current walker is recorded as the `perband2_*` block further down,
+# NOT promoted, and that block's comment says why: the fixtures now price only the rebuild path.
 # THE WALKER'S FITTED ADDITIVE MODEL — design §5 axis 1. Scanline P2 Phase 0 Task 4 (original),
 # RE-MEASURED AND SUPERSEDED by Scanline P3 Phase 0 Task 1 (2026-08-20), RE-TAKEN AND
 # PROMOTED by Scanline P3 Task 13, 2026-08-22, over the walker P3 leaves behind (T1-T12
@@ -727,6 +730,62 @@ reglue_residual_cycles_overlay_term = 58.9
 reglue_out_of_sample_predicted = 13542.7
 reglue_out_of_sample_measured  = 13834
 reglue_out_of_sample_gap_pct   = 2.11
+
+# ---- THE PERF-PARALLAX-PERBAND RE-TAKE (rider PPB-7, 2026-09-28) — RECORDED, NOT PROMOTED ----
+# tools/parallax_cost_probe.py --repeat 3 (26 fixtures + the out-of-sample row, spread 0 on
+# every row, every window preemption-free, exit 0), on two canonical DEBUG FAST builds:
+#   perband2_base_*  origin/master e76dcea9, crc dd3cf064 (round 1's Step 4a key, merge d33fa8d0)
+#   perband2_*       perf/parallax-perband-2, crc c426c836 (+ PPB-5 curve walk, PPB-3 cached
+#                    loop selection, PPB-6 movem flat lines)
+# Raw output: docs/research/2026-09-28-parallax-perband-2/results/cost_probe_{base,final}.txt.
+#
+# WHY THE PRIMARY ROWS ABOVE (and their comptime mirror, engine/level/scene_dsl.emp's
+# SB_WALK_*_X100, the axis-1 scene budget) WERE NOT REPLACED BY THESE:
+#  1. THE FIXTURES NOW MEASURE THE REBUILD PATH ONLY. Every fixture is a RAM config, and since
+#     round 1 a RAM config is never keyed: each fixture tick rebuilds Step 4a's view, re-derives
+#     the curve walk and re-runs the fill's selection pass. A shipped ROM config takes the key
+#     HIT on every tick its Vscroll_BG & 511 holds. The one ROM config the probe measures, the
+#     out-of-sample row, shows it: the model over-predicts it by 13.1% on the base and 29.3%
+#     here (2.11% at the P3 tip). Safe as an upper bound; no longer the common case.
+#  2. THE ADDITIVE MODEL NO LONGER FITS TO ZERO: un-anchored max |residual| 0.00 at the P3 tip,
+#     67.6 on the base, 47.5 here. Nothing in its columns says that a flat band now costs
+#     differently from a sampled one in the selection test, that the curve walk depends on
+#     where the curve layers sit, or that `.lp_flat` is per-group plus a per-band setup.
+# Promoting would move the build's comptime budget onto coefficients whose error is no longer
+# bounded by the fit, which is a budget-policy call (DEFERRED_WORK PERF-PARALLAX-PERBAND-2,
+# rider PPB-7b), not a transcription.
+perband2_status = "MEASURED 2026-09-28, NOT PROMOTED: the fixtures are RAM configs (never keyed), so they price the rebuild path; see the block comment"
+perband2_base_base_cycles         = 5455.7
+perband2_base_band_perline_cycles = 958.0
+perband2_base_multiband_cycles    = 42.8
+perband2_base_line_fg_only_cycles = 26.0
+perband2_base_line_bg_only_cycles = 27.2
+perband2_base_line_both_cycles    = 124.7
+perband2_base_band_sampling_cycles = 164.6
+perband2_base_vdeform_cycles      = 1554.3
+perband2_base_anchor_cycles       = 1068.3
+perband2_base_anchor_ops_cycles   = 102.9
+perband2_base_residual_cycles              = 67.6   # un-anchored subset (18)
+perband2_base_residual_cycles_all_fixtures = 64.5
+perband2_base_out_of_sample_predicted = 9330.6
+perband2_base_out_of_sample_measured  = 8252
+perband2_base_out_of_sample_gap_pct   = -13.07
+perband2_base_cycles          = 4776.2
+perband2_band_perline_cycles  = 1026.5
+perband2_multiband_cycles     = 106.2
+perband2_line_fg_only_cycles  = 30.6   # the per-line terms are marginal over a FLAT line, and
+perband2_line_bg_only_cycles  = 31.9   #   PPB-6 made a flat line cheaper, so these rose ~4.6
+perband2_line_both_cycles     = 129.3
+perband2_shift_lines_cycles   = 2.0
+perband2_band_sampling_cycles = 103.5
+perband2_vdeform_cycles       = 1569.8
+perband2_anchor_cycles        = 1001.2
+perband2_anchor_ops_cycles    = 102.2
+perband2_residual_cycles              = 47.5   # un-anchored subset (18)
+perband2_residual_cycles_all_fixtures = 72.9
+perband2_out_of_sample_predicted = 8988.4
+perband2_out_of_sample_measured  = 6950
+perband2_out_of_sample_gap_pct   = -29.33
 
 # Transition-frame rows — SYNTHESIZED (camera frozen, configs installed in RAM), not a real
 # section crossing: Parallax_StartTransition and Parallax_CheckBoundary do not run. This

@@ -332,6 +332,35 @@ EHZ's 80-line curve is vertically locked, so its divisor is constant under the k
 still has to run, because it takes both the quotient and the remainder of the per-tick spread.
 Evidence: `docs/research/2026-09-28-parallax-perband.md`.
 
+### 3.10 The hoist walks only the curve layers (2026-09-28, PERF-PARALLAX-PERBAND-2, PPB-5)
+
+§3.9's first bullet still holds: the hoist runs every tick. What changed is where it walks.
+
+- **Before.** It walked every shadow band and paid a `btst` plus the cursor steps, ~56 cycles,
+  for each band that was not a curve. On EHZ that was six of seven, every tick.
+- **Now.** Step 4a's rebuild derives `Parallax_Curve_Walk`, the slot range from the view's first
+  curve layer to its last, and the hoist walks only that range. The range is a function of the
+  view, so a key hit keeps it.
+- **It never describes a split view.** The hoist still runs before Step 4b (§3.1's reason: the
+  divisor is the layer's span), and a split drops the key, so the next tick re-derives it.
+- **Inside the range, a non-curve slot is still skipped by its own `btst`**, so the loop body,
+  both divides and the values it writes are unchanged.
+
+Measured, decomposition build, EHZ DEBUG run: the hoist is 975 -> 728 cycles a tick. On
+canonical OJZ, which has no curve layer, it is 334 -> 38: the hoist stops at its first test.
+
+Two neighbours also moved in the same parcel:
+
+- **The fill's cached selection.** The fill now reads a cached per-slot selection byte first
+  (PPB-3). A curve slot's byte is non-zero (`CURVE_FLAG_ACTIVE_BIT` is one of the selection
+  pass's tests), so it falls into the inline tests exactly as before. It reaches `.lp_curve` by
+  the same route, 32 cycles later.
+- **Output.** Byte-identical on every leg.
+- **Red-first mutant.** A walk one slot short (mutant E) never hoists EHZ's single curve layer,
+  and it went RED on 1200 of 1200 EHZ run ticks.
+
+Evidence: `docs/research/2026-09-28-parallax-perband-2.md`.
+
 ## 4. The interaction: an anchor split inside a curve CONTINUES it
 
 Design §2: *"an anchor split inside a curve layer **continues** the curve (the per-line delta

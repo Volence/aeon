@@ -13,14 +13,25 @@ HOW, WITHOUT A MODEL. The question "is the cached view the view a rebuild would 
 asked of the machine itself, differentially, at every sampled tick:
 
     checkpoint -> run one frame (the ROM's own choice: hit or rebuild) -> capture A
-    restore    -> poke Parallax_Shadow_Key_Config = 0 (forces the rebuild) -> run one frame
-               -> capture B
+    restore    -> poke Parallax_Shadow_Key_Config = 0 (forces the rebuild) and
+                  Parallax_Band_Sel_Valid = 0 (forces the fill's selection pass)
+               -> run one frame -> capture B
     A must equal B: Hscroll_Buffer, the VSRAM column buffer, Vscroll_Factor, the whole
-    shadow band array and both shadow scroll arrays.
+    shadow band array and both shadow scroll arrays, the fill's cached loop selection
+    (Parallax_Band_Sel) and the curve hoist's walk (Parallax_Curve_Walk).
 
 Zero is never a config pointer, so the poke selects the rebuild path and nothing else; both
 runs start from one restored state, so any difference IS the cache. No expectation is typed:
 the reference is the engine's own rebuild.
+
+THE TWO CACHES KEPT UNDER THE SAME KEY (PPB-3 / PPB-5, 2026-09-28, perf/parallax-perband-2).
+The selection bytes are re-derived only while their flag is 0, and a forced view rebuild
+clears it the ROM's own way; the flag is poked anyway, so B re-derives them even on a tree
+whose rebuild path forgot to (red-first: mutant K in
+docs/research/2026-09-28-parallax-perband-2/build_mutant2.sh). The curve walk is derived on
+every rebuild, so the key poke alone re-derives it. Both are compared as well as the output
+they steer, because a stale cache that happens to steer to the same output on a sampled tick
+is still stale.
 
 WHAT MAKES A GREEN MEAN SOMETHING — the coverage witnesses, printed every run and REQUIRED:
   * hit      samples whose PRE-frame key was live (non-zero): the cached path was taken
@@ -57,6 +68,15 @@ import region_table  # noqa: E402
 AEON = HERE.parent
 ROM_TOP = 0x400000     # the engine's own test (Step 4a's `.shadow_built`): ROM is below it
 CAPTURE = [("Hscroll_Buffer", 896), ("Parallax_Vscroll_Column_Buf", 80), ("Vscroll_Factor", 4)]
+# Everything from the key to the end of Parallax_State, captured after the shadow arrays: the
+# key itself, then the caches kept under it besides the view (PPB-3's selection bytes and flag,
+# PPB-5's curve walk). One linked distance, so a field added to that tail is compared without
+# an edit here. (Until 2026-09-28 round 2 the shadow capture was sized `Scroll_B + 2 x (B - A)`,
+# which over-read 32 bytes past Scroll_B's end and so took in the key by accident; the capture
+# is exact now and the key is named.)
+CACHES = [("Parallax_Shadow_Key_Config", "Parallax_State_End")]
+TAIL_FIELDS = ["Parallax_Shadow_Key_Config", "Parallax_Band_Sel", "Parallax_Band_Sel_Valid",
+               "Parallax_Curve_Walk"]
 
 
 class CouldNotRun(Exception):
@@ -128,6 +148,8 @@ async def snap(b, s, shadow_len):
     for nm, n in CAPTURE:
         out += await rd(b, s[nm], n)
     out += await rd(b, s["Parallax_Shadow_Bands"], shadow_len)
+    for nm, end in CACHES:
+        out += await rd(b, s[nm], s[end] - s[nm])
     return out
 
 
@@ -144,6 +166,7 @@ async def sample(b, s, shadow_len, stats, leg):
         key1 = int.from_bytes(await rd(b, s["Parallax_Shadow_Key_Config"], 4), "big")
         await b.call("emulator/restore", {"id": cp})
         await write_bytes(b, s["Parallax_Shadow_Key_Config"], "00000000")
+        await write_bytes(b, s["Parallax_Band_Sel_Valid"], "00")
         await b.call("emulator/run_frames", {"frames": 1})
         bb = await snap(b, s, shadow_len)
         # leave the machine on the ROM's own path (A), not the forced one, for the next tick
@@ -162,8 +185,14 @@ async def sample(b, s, shadow_len, stats, leg):
         stats["differ"] += 1
         if len(stats["first"]) < 5:
             i = next(k for k in range(len(a)) if a[k] != bb[k])
-            where = ("Hscroll_Buffer" if i < 896 else "VSRAM column buf" if i < 976 else
-                     "Vscroll_Factor" if i < 980 else f"shadow band byte {i - 980}")
+            j = i - 980 - shadow_len
+            if j >= 0:
+                at = s["Parallax_Shadow_Key_Config"] + j
+                fld = max((f for f in TAIL_FIELDS if s[f] <= at), key=lambda f: s[f])
+                where = f"{fld} byte {at - s[fld]}"
+            else:
+                where = ("Hscroll_Buffer" if i < 896 else "VSRAM column buf" if i < 976 else
+                         "Vscroll_Factor" if i < 980 else f"shadow band byte {i - 980}")
             stats["first"].append(f"{leg}: sample {stats['samples']} (pre-key cfg ${kcfg:06X} "
                                   f"vs {kvs}, now vs {vs}) first difference at {where}")
 
@@ -171,8 +200,9 @@ async def sample(b, s, shadow_len, stats, leg):
 async def drive(sock, s, equs, rom, legs_frames):
     b = BusClient(socket_path=sock, client_id="pxkey", client_name="parallax_shadow_key_witness")
     await b.connect()
-    shadow_len = s["Parallax_Shadow_Scroll_B"] + 2 * (s["Parallax_Shadow_Scroll_B"]
-                                                      - s["Parallax_Shadow_Scroll_A"]) \
+    # the band records and both scroll arrays: Scroll_B's end is Scroll_B + (B - A)
+    shadow_len = s["Parallax_Shadow_Scroll_B"] + (s["Parallax_Shadow_Scroll_B"]
+                                                  - s["Parallax_Shadow_Scroll_A"]) \
         - s["Parallax_Shadow_Bands"]
     await b.call("emulator/run_frames", {"frames": 420})   # boot, title-less, settle in flight
     act = int.from_bytes(await rd(b, s["Current_Act_Ptr"], 4), "big") & 0xFFFFFF
@@ -221,11 +251,12 @@ def main(argv=None):
         need = [nm for nm, _ in CAPTURE] + [
             "Parallax_Shadow_Bands", "Parallax_Shadow_Scroll_A", "Parallax_Shadow_Scroll_B",
             "Parallax_Shadow_Key_Config", "Parallax_Current_Config", "Parallax_Current_Vscroll_BG",
+            "Parallax_Band_Sel", "Parallax_Band_Sel_Valid", "Parallax_Curve_Walk", "Parallax_State_End",
             "Current_Act_Ptr", "Warp_Req_X", "Warp_Req_Y", "Warp_Req_Flag"]
         miss = [n for n in need if n not in s]
         if miss:
             raise CouldNotRun(f"{a.lst} carries no {', '.join(miss)} (a DEBUG shape of a tree with "
-                              f"Step 4a's key is required)")
+                              f"Step 4a's key and the PPB-3/PPB-5 caches is required)")
         if "parallax_config_pcfg_anchor_ch" not in equs:
             raise CouldNotRun("the listing publishes no EQU parallax_config_pcfg_anchor_ch")
         rom = Path(a.rom).read_bytes()

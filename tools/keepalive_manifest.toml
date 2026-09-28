@@ -102,7 +102,13 @@ a leg that stops reaching one is COULD NOT RUN, not green. MEASURED on the branc
 DEBUG FAST build crc 743e3ca2: exit 0, 180 samples, hit 81 / vs-moved 10 / split 99, 0 differ.
 RED-FIRST on two rebuilt mutants (docs/research/2026-09-28-parallax-perband/build_mutant.sh):
 A (key ignores vs) exit 1, 13 samples differ; B (split keeps the key) exit 1, 118 differ.
-~7 s a run at load 20 (2026-09-28 03:04, uptime 4 days)."""
+~7 s a run at load 20 (2026-09-28 03:04, uptime 4 days).
+EXTENDED 2026-09-28 (perf/parallax-perband-2): the forced run also pokes Parallax_Band_Sel_Valid
+to 0, and the comparison takes in the key and the two caches kept under it (PPB-3's selection
+bytes, PPB-5's curve walk). Canonical DEBUG FAST crc c426c836: exit 0, 180 samples, hit 81 /
+vs-moved 10 / split 99, 0 differ. RED-FIRST: mutant K (Step 4a's rebuild keeps the selection,
+docs/research/2026-09-28-parallax-perband-2/build_mutant2.sh) exit 1, 81 of 180 differ at
+Parallax_Band_Sel; the unextended witness on the same ROM was exit 0."""
 
 # ---- positional rom/lst ---------------------------------------------------------------
 

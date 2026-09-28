@@ -1,0 +1,13 @@
+diff --git a/engine/system/constants.emp b/engine/system/constants.emp
+index 2915ee35..75564154 100644
+--- a/engine/system/constants.emp
++++ b/engine/system/constants.emp
+@@ -853,7 +853,7 @@ pub const SOLID_ALL  = 3
+ // `scene()` call site's fixed-size pad array, and the anchored-at-ceiling poison
+ // (games/sonic4/test/poison/poison_scene_capacity.emp + tools/emp_expect_fail.py, whose
+ // count pin now fails LOUDLY and names this constant instead of going quietly vacuous).
+-pub const MAX_PARALLAX_BANDS    = 16
++pub const MAX_PARALLAX_BANDS    = 18
+ // pcfg_anchor_ch sentinel: this config has NO world-anchored deform overlay (Parcel W).
+ // $FF and not 0, because 0 is a legal patch channel — the same reason RASTER_ARM_PARK is
+ // a value no real arm can take rather than a zero.

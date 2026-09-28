@@ -1,0 +1,4 @@
+rc cdebug=1 sdebug=skipped finished=1
+error: native build (sonic4 debug): declared-chain drift guard FIRED: 2 error(s):
+  ./engine/level/parallax.emp:627:1: [Error] the fill's cached loop selection reserves 16 bytes, not the 20 this capability needs (a byte per shadow slot, then the validity long) — set BAND_SEL_BYTES / BAND_SEL_LONGS in engine/ram.emp. A short reservation makes the selection pass write a slot's byte over the validity flag or the curve walk
+  ./engine/level/parallax.emp:653:1: [Error] Parallax_State clear span drifted from engine/ram.emp's Parallax_State .. Parallax_State_End span: expected 213 longs

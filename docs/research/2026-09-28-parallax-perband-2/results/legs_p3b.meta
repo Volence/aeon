@@ -1,0 +1,15 @@
+plain_run rc=0 load=5.81->5.66
+plain_spin rc=0 load=5.66->6.02
+debug_run rc=0 load=6.02->6.10
+debug_spin rc=0 load=6.10->6.17
+debug_diag rc=0 load=6.17->6.08
+debug_right rc=0 load=6.08->6.31
+debug_down rc=0 load=6.31->6.37
+cdebug_diag rc=0 load=6.37->6.66
+cdebug_right rc=0 load=6.66->6.66
+cdebug_down rc=0 load=6.66->6.52
+cplain_run rc=0 load=6.52->6.68
+cdebug_run rc=0 load=6.68->6.62
+cdebug_anchor_right rc=0 load=6.62->6.49
+cdebug_anchor_down rc=0 load=6.49->6.49
+finished=14
