@@ -255,10 +255,9 @@ pub const CURVE_FLAG_ACTIVE_BIT = 1   // 1 = this band is a curve layer (authore
 // SET AT RUNTIME BY STEP 4b, ON THE SPLIT ENTRY ONLY, and never present in ROM. It is what
 // tells the fill "seed this band's accumulator from the previous band's parked carry
 // instead of from the base scroll" — i.e. do not re-parametrise the ramp at the split.
-// The view Step 4b receives is always a pure rotation of ROM, where the bit is never
-// authored: rebuilt this tick, or a cached one Step 4a's key vouches for, and a split drops
-// that key (2026-09-28; until then the view was re-copied every frame). So the bit cannot
-// go stale.
+// Step 4b sets it only on a view with no split in it, a pure rotation of ROM where the bit is
+// never authored; a split it keeps under Step 4a's key (PPB-4) is re-used whole, never
+// re-applied, and is kept only for a view with no curve layer. So the bit cannot go stale.
 pub const CURVE_FLAG_CONT_BIT   = 2
 pub struct band_curve (size: 10) {
     bc_to_s1:  u8,   // far-end factor shift1 (15 = whole-factor zero, "ramp to locked")
@@ -301,8 +300,8 @@ pub const BAND_CURVE_N = if (GAME_SCANLINE_CAPS & $0040) != 0 { 1 } else { 0 }  
 // independent reasons, both properties of the shadow view this record also lives in:
 //
 //   (a) THE SHADOW VIEW IS DESTROYED AND REBUILT FROM ROM. Every frame when this was written;
-//       since 2026-09-28 whenever (config, Vscroll_BG & 511) changes or a split drops Step 4a's
-//       key, which is no better for an accumulator. Step 4a walks every band and calls
+//       since 2026-09-28 whenever (config, Vscroll_BG & 511) changes or a split that is not
+//       kept drops Step 4a's key: no better for an accumulator. Step 4a walks every band and calls
 //       copy_band_entry_fwd(), which copies the WHOLE record, tails included. An accumulator in
 //       a shadow tail is overwritten with its ROM image (zero) at each rebuild. band_curve's two derived words survive only because they are RE-DERIVED
 //       after the copy by `.cap_factor_curve_hoist`; a value that must ACCUMULATE has no such
