@@ -1,11 +1,6 @@
 {
-  "focus": "14 fixes landed since last night. Metropolis's song and another parallax saving are in progress.",
+  "focus": "Metropolis's song plays now (listening ROM ready). 15 fixes landed since last night; another parallax saving in progress.",
   "inFlight": [
-    {
-      "what": "Song bank 2 with Metropolis's song: finishing and checking it on every Sonic 2 test level",
-      "where": "branch parcel/song-bank-2-step3",
-      "agent": true
-    },
     {
       "what": "Parallax: keep the background view across a split region (RAM measured first)",
       "where": "branch perf/parallax-ppb4",
@@ -45,8 +40,8 @@
     },
     {
       "id": "S2CLIP-MTZ-SONG-BANK",
-      "title": "Sonic 2 zone songs: step 1 landed (songs by name); Metropolis in bank 2 lands once the assembler tool is rebuilt",
-      "state": "doing",
+      "title": "Sonic 2 zone songs: Metropolis plays from bank 2 (landed; your listen). Wing Fortress and Oil Ocean songs still refuse to convert",
+      "state": "open",
       "size": "M",
       "blockedBy": null,
       "project": "REGIONS"
@@ -152,7 +147,7 @@
       "blockedBy": null
     }
   ],
-  "awaiting": null,
+  "awaiting": "your listen to Metropolis's song (s4.s2_mtz_cpz.bin, crc ffcfd9c8) when you have a minute",
   "atBoundary": false,
-  "updatedAt": "2026-09-28T13:28:35Z"
+  "updatedAt": "2026-09-28T14:07:52Z"
 }
