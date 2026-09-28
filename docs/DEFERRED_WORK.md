@@ -44249,3 +44249,17 @@ in `tools/test_clip_manifest.py`. Message text only: no build output changes.
 ## WOVEN-ROUTE-WITNESS-P2-XSPAN: the route witness's default route is RED once Metropolis names a song (OPEN, booked 2026-09-28, `parcel/woven-mtz-song`)
 
 - `tools/woven_route_witness.py` with no `--route` takes every corridor in x order, which adds `hpz_to_ooz`. Its P2 check treats a corridor's no-music zone as the corridor's x span only, so the song-4 request made while the player is placed in Metropolis west at (4583, 2859) is flagged: x 4583 is inside `hpz_to_ooz`'s span although that tunnel is about 1,800 px lower. The request is correct (Metropolis west names SONG_S2_MTZ since `parcel/woven-mtz-song`). The flaw predates that parcel and could not show while Metropolis named no song. Fix: P2 tests the corridor's rectangle (x and y), not its x span. The recorded route (`ehz_to_mtz,mtz_to_cpz,cpz_to_mtz,mtz_to_ooz`) is GREEN; the keepalive uses it.
+
+## MT-BANK-MODULE-NAME: `mt_bank.emp` declares `games.sonic4.mt_bank_blob` (OPEN, a PAIR with sigil MT-BANK-RENAME-PAIR; measured 2026-09-28)
+
+- **What:** sigil's `[module.path-mismatch]` warning fires in every shape because `games/sonic4/data/sound/mt_bank.emp:61` declares `module games.sonic4.mt_bank_blob` (left over from song-bank-2 step 1, which deleted `mt_bank_blob.emp`). The rename is `games.sonic4.mt_bank`.
+- **Built, NOT landed:** branch `fix/mt-bank-module-name` (pushed), tip `97d139ca4623de1c19c10c04bd4faf467c2e17bf`: the module line plus `engine/sound/sound_api.emp:77`'s comment (it also said `SongTable`/`SongPatchTable` live in the MT bank; they are in `games.sonic4.sfx_bank_blob` since step 1). No `use`, `map.toml` row, tool or test in aeon names the old id.
+- **Why it cannot land alone (sigil origin/master, read-only):** `crates/sigil-harness/src/module_roots.rs:151`, SHAPE_GATES `("games.sonic4.mt_bank_blob", ShapeGate::SoundOn)`, matched by exact id in `gate_of()` (:182). After the rename the row matches nothing and the module is placed ungated.
+- **MEASURED with the installed pair (sigil 1173bb31), base tree vs renamed tree, cksum / bytes:**
+  - `./build.sh` s4.bin 1916118093 / 850296: identical (`cmp`).
+  - `DEBUG=1 ./build.sh` s4.debug.bin 3655277463 / 870560: identical.
+  - `DEBUG=1 ./build.sh demo` demo.debug.bin 1628845084 / 106981: identical (sigil places only the built game's modules).
+  - `sigil build --config-a` 4172684484 / 870972 and `--lean` 1591032210 / 798202: identical.
+  - **`sigil build --config-b` (sound off): base rc 0 (2117275833 / 617813); renamed REFUSES, rc 1:** `[sound.fold-head-sound-off] this shape declares sound off, so seam-2 folded no pointers for it, yet its layout places Song_MovingTrucks (section mt_bank, 0x89d48) ... the shape's sound flag and its registry disagree`. A refusal, not extra bytes.
+  - Warning: `module.path-mismatch` summary 20 -> 19 (`SIGIL_WARNINGS=full` 40 -> 38 lines, the two `mt_bank.emp:61` lines gone) in plain, DEBUG and demo DEBUG.
+- **Sequence (sigil's proposal, accepted):** (1) sigil lands a SHAPE_GATES row gating BOTH ids SoundOn; (2) sigil rebuilds the shared pair and tells aeon; (3) aeon merges `fix/mt-bank-module-name`, runs `tools/landing_build.sh` plus `--config-b`, lands. Expected on sigil's side at their next pin advance: `warn_tier_corpus.rs:197-204` lists this site and goes red once the warning stops (intended).
