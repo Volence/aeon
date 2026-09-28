@@ -89,6 +89,16 @@ doubtful-unmeasured = **2** (`bganim_room`, `land_gate`). **20 subject-breaking 
 those 19 gates; all 20 stayed green before this parcel.** Fixed: **11**, plus `fg_page_order`'s wiring
 half closed by the `verify_level_bin` fix. Booked: 13 rows (DEFERRED_WORK, `GPP-*`).
 
+**Addendum 2026-09-28 (`fix/gpp-unmeasured`, the rows left unmeasured).** The two
+doubtful-unmeasured gates are now measured: both stayed green on a subject-breaking mutation
+(`bganim_room`: a release ceiling inside the formula's 138 B error; `land_gate`: a gitignored
+embedded input changed after its stamp), and both are FIXED. `fg_page_order`'s model half:
+measured green on a Tile_Cache_Fill margin mutation, FIXED with a post-sigil ROM arm.
+`effects_seam_gate` step 3 alone: measured green with the descriptor's seam dropped, still
+BOOKED (needs sigil or a generator design). `palstage`: built, sigil and every landing lane
+green, still BOOKED (per-field `ensure`s are an engine edit). Evidence in each row above and
+in DEFERRED_WORK rows 2, 4, 8, 11 and 13.
+
 ## Fixes: red first, then green on today's tree
 
 "Counted red" for the 9 post-sigil fixes is **b3**: a real `DEBUG=1 NO_LINT=1 ./build.sh` with the 11
