@@ -707,6 +707,98 @@ def labels_in(labels, lo, hi):
     return sorted((a, n) for n, a in labels.items() if lo <= a < hi)
 
 
+#: A `data` definition's NAME, typed or not (`pub data X: u16 = 0`, `data _y = ...`).
+#: `_EMP_DATA_DEF` above needs `=` right after the name, so it cannot see a typed one,
+#: and the growing section's generated module types most of its rows.
+_EMP_DATA_NAME = re.compile(r"^[ \t]*(?:pub[ \t]+)?data[ \t]+([A-Za-z_$][\w$.]*)[ \t]*[:=]",
+                            re.M)
+#: `NAME = embed("path")` bound whole, the only definitions whose byte length the source
+#: states outright.
+_EMP_DATA_EMBED = re.compile(
+    r'^[ \t]*(?:pub[ \t]+)?data[ \t]+([A-Za-z_$][\w$.]*)[ \t]*=[ \t]*embed\(\s*"([^"]*)"\s*\)',
+    re.M)
+
+
+def section_span(labels, aeon, game_dir=None):
+    """The bytes the GROWING section occupies in THIS listing (GPP-BGANIM-LIVE-FORMULA).
+
+    `headroom = room + <what the section already holds> - slop`. Until 2026-09-28 the
+    middle term was `inject_editor_bg.live_section_bytes()`, a formula over the override
+    JSON that models the DEBUG shape's view twins in every shape: measured 8376 B against
+    a listing span of 8238 B in s4.lst (138 B over), so the release gate's headroom was
+    138 B generous, and a release ceiling of 131,700 B against a true headroom of
+    131,662 B read "sits 100 B inside the ROM room", exit 0.
+
+    MEASURED here instead: the modules declared `in` the section that defines
+    GROWTH_SECTION_HEAD are read for their `data` names; the span runs from the head's
+    LMA to the first label ABOVE it that none of those modules defines (the next
+    section's first label, or an alignment pad in front of it: stopping at the pad
+    UNDERSTATES the span by at most the pad, the conservative direction). Refused as
+    Unmeasurable: no module defining the head, the head in two sections, no foreign
+    label above the head, one of the section's own labels at or past that end, or an
+    `embed` the section binds whole running past it (a foreign label INSIDE the section).
+
+    Only `engine/` and THIS game's tree (`game_dir`, the map's directory) are searched: every
+    game supplies a `BgAnim_Table` (games/demo/data/demo_data.emp does), and another game's
+    module is not in this listing.
+    """
+    game_dir = game_dir or os.path.join(aeon, "games", "sonic4")
+    roots = tuple(os.path.join(os.path.abspath(r), "") for r in
+                  (os.path.join(aeon, "engine"), game_dir))
+    sections = {sec: [p for p in paths if os.path.abspath(p).startswith(roots)]
+                for sec, paths in emp_modules(aeon).items()}
+    owners, names_by_section = [], {}
+    for sec, paths in sections.items():
+        names, embeds = set(), {}
+        for p in paths:
+            with open(p, encoding="utf-8", errors="replace") as f:
+                src = f.read()
+            names |= set(_EMP_DATA_NAME.findall(src))
+            embeds.update(dict(_EMP_DATA_EMBED.findall(src)))
+        names_by_section[sec] = (names, embeds)
+        if GROWTH_SECTION_HEAD in names:
+            owners.append(sec)
+    if len(owners) != 1:
+        raise Unmeasurable(
+            f"section span: {len(owners)} section(s) define {GROWTH_SECTION_HEAD} "
+            f"({owners}); the span is measured from the ONE section that head opens. "
+            f"Not a size.")
+    sec = owners[0]
+    names, embeds = names_by_section[sec]
+    if GROWTH_SECTION_HEAD not in labels:
+        raise Unmeasurable(f"section span: the listing defines no {GROWTH_SECTION_HEAD}")
+    head = labels[GROWTH_SECTION_HEAD]
+    above = sorted((a, n) for n, a in labels.items() if a > head and n not in names)
+    if not above:
+        raise Unmeasurable(
+            f"section span: no label outside section {sec!r} lies above "
+            f"{GROWTH_SECTION_HEAD} 0x{head:X}, so the section's end cannot be read "
+            f"from this listing. Not a size.")
+    end, next_label = above[0]
+    ours = {n: labels[n] for n in names if n in labels}
+    past = sorted((a, n) for n, a in ours.items() if a >= end)
+    if past:
+        raise Unmeasurable(
+            f"section span: {next_label} at 0x{end:X} is not in section {sec!r}, but that "
+            f"section's own {', '.join(n for _a, n in past)} lie(s) at or above it: a "
+            f"foreign label sits INSIDE the section, so its end is not where the next "
+            f"label says. Not a size.")
+    for name, rel in sorted(embeds.items()):
+        if name not in ours:
+            continue
+        path = os.path.join(aeon, rel)
+        if not os.path.isfile(path):
+            raise Unmeasurable(f"section span: {name} embeds {rel}, which does not exist")
+        blob_end = ours[name] + os.path.getsize(path)
+        if blob_end > end:
+            raise Unmeasurable(
+                f"section span: {name} at 0x{ours[name]:X} embeds {rel} "
+                f"({os.path.getsize(path)} B, to 0x{blob_end:X}), past {next_label} at "
+                f"0x{end:X}: a foreign label sits INSIDE the section. Not a size.")
+    return {"section": sec, "head": head, "end": end, "next_label": next_label,
+            "bytes": end - head, "own_labels": len(ours)}
+
+
 def image_occupancy(rom_path, lo, hi):
     """What the ROM IMAGE holds over [lo, hi): the second occupancy instrument.
 
@@ -872,6 +964,9 @@ def rom_room(lst_path, aeon=None, map_toml=None, rom_path=None, anchor_overlay=N
     # of `end`, and independent of both: a correct terminus with a correct length
     # still says nothing about whether growth reaches this room.
     growth = check_growth_path(labels, aeon, map_toml, end, anchor, overlay)
+    # What the growing section already holds, MEASURED off the same listing (see
+    # section_span): the other term of the headroom, and until 2026-09-28 a formula.
+    span = section_span(labels, aeon, os.path.dirname(map_toml))
     return {
         "art_sonic_lma": lma,
         "art_blob": blob,
@@ -880,6 +975,7 @@ def rom_room(lst_path, aeon=None, map_toml=None, rom_path=None, anchor_overlay=N
         "anchor": anchor,
         "room": anchor - end,
         "growth": growth,
+        "section": span,
         "labels_below_terminus": len(labels_in(labels, 0, end)),
         "image_scan": terminus["image_scan"],
         "extent": extent,
@@ -1017,7 +1113,11 @@ def report(lst_path, aeon=None, gate=False, out=sys.stdout, rom_path=None,
         print(f"  anchors: from the overlay {anchor_overlay} "
               + ", ".join(f"{n} 0x{a:X}" for n, a in r["overlay"].items())
               + " (map.toml's rows of those names do not apply to this build)", file=out)
-    live = live_section_bytes(aeon)
+    # `live` is the section's LISTING span (section_span), not the override-JSON formula:
+    # the formula models the DEBUG shape everywhere (GPP-BGANIM-LIVE-FORMULA). The formula
+    # is still printed beside it, as the generator's pre-build estimate, never used here.
+    live = r["section"]["bytes"]
+    formula = live_section_bytes(aeon)
     # The ALIGNMENT SLOP is subtracted (F7 arm 3): growth of K shifts the terminus
     # by up to K + slop, so the largest the section can be and still fit under the
     # anchor is `live + room - slop`, not `live + room`. Measured, not assumed —
@@ -1061,6 +1161,11 @@ def report(lst_path, aeon=None, gate=False, out=sys.stdout, rom_path=None,
     else:
         print(f"    crosses no alignment pad, so growth costs exactly what it adds",
               file=out)
+    sp = r["section"]
+    print(f"  section: {sp['section']!r} spans {live} B in this listing, "
+          f"{GROWTH_SECTION_HEAD} 0x{sp['head']:X} to {sp['next_label']} 0x{sp['end']:X} "
+          f"({sp['own_labels']} of its labels inside); the override formula estimates "
+          f"{formula} B ({formula - live:+d} B, not used)", file=out)
     print(f"  ROM room {r['room']} B free + {live} B the section already holds "
           f"- {g['slop']} B alignment slop = {headroom} B for ojz_bg_anim", file=out)
     print(f"  ruled authoring ceiling BGANIM_SECTION_CEILINGS[{shape!r}] = {ceiling} B "

@@ -40895,6 +40895,44 @@ for every gate; it is not the proxy/subject shape.
 8. **GPP-BGANIM-LIVE-FORMULA** (`bganim_room.py`, doubtful, unmeasured). `live` is a formula over
    the override JSON, not the section's listing span, and it is shape-blind (~138 B over on
    release). The reserve arm fires first today, so no mutation reaches it.
+
+   **MEASURED, then FIXED 2026-09-28 (`fix/gpp-unmeasured`, base origin/master `c76c9f90`).**
+   - **Promise** (header): "the ONLY ENFORCEMENT of `BGANIM_SECTION_CEILINGS` against a real
+     listing", failing "the moment a shape's ROM room can no longer hold that shape's
+     ceiling". **Predicate:** `ceiling > room + live - slop`, with `live` =
+     `inject_editor_bg.live_section_bytes()`, a formula over the override JSON.
+   - **The formula, measured against the listings of this base:** debug `s4.debug.lst`
+     `BgAnim_Table` `$2CCC0` to the next foreign label `Map_TestObj` `$2ED78` = **8376 B**,
+     formula 8376 (exact). Release `s4.lst` `BgAnim_Table` `$26354` to `Map_TestObj` `$28382`
+     = **8238 B**, formula **8376** (+138 B: the DEBUG-only view twins, which are zero-size
+     labels at `$26382` in release). So the release headroom was 138 B generous.
+   - **"No mutation reaches it" was true only of mutations that shrink the room** (the
+     reserve arm, room < 49,152, fires first). Raising the ruled ceiling reaches the arm
+     directly. **Mutation (on disk, `tools/inject_editor_bg.py`):** `"s4.lst": 131700,` in
+     place of `BGANIM_SECTION_CEILING_RULED`. True headroom on the release ROM
+     (`s4.bin` crc `50401674`): 123,430 room + 8,238 - 6 slop = **131,662 B**, so a real
+     38 B breach. `bganim_room.py --lst s4.lst --rom s4.bin --fixture ... --gate` (build.sh's
+     arguments): **exit 0**, "the ruled ceiling (131700 B) ... sits 100 B inside the ROM
+     room". Restored with `git show HEAD:`.
+   - **Fix (tools only):** `section_span()` measures the section from the listing: the
+     modules declared `in` the section that defines `BgAnim_Table` (searched in `engine/` and
+     this game's tree only; `games/demo` defines one too) give the section's own labels; the
+     span runs from the head to the first label above it those modules do not define.
+     Unmeasurable (never a size): no or two owning sections, no foreign label above, an own
+     label at or past the end, or a whole-bound `embed` running past it (a foreign label
+     inside the section). `headroom = room + span - slop`; the formula is still printed
+     beside it with its difference, and not used.
+   - **Red:** the same mutation, fixed tool: **exit 1**, "BGANIM_SECTION_CEILINGS['s4.lst'] =
+     131700 B but only 131662 B are reachable", with "section: 'ojz_bg_anim' spans 8238 B ...
+     the override formula estimates 8376 B (+138 B, not used)". **Green** on the restored
+     tree: `s4.lst` exit 0 (8238 B), `s4.debug.lst` exit 0 (8376 B, +0). `test_bg_emit.py`:
+     the hermetic tree now carries the section's module; +3 rows (release ceiling inside the
+     formula's error fails; foreign label inside the section; no owning module).
+   - **Not covered:** bytes between the section's last own byte and the next foreign label
+     are counted as the section's. Unlabelled bytes another section placed there first would
+     over-state the span (the generous direction). Today there are none: `BgAnim_Banks` +
+     its 8,192 B embed ends exactly at `Map_TestObj` in both shapes; the check only refuses
+     an embed running PAST the next label, not a gap before it.
 9. **GPP-INSTASHIELD-WALKOFF** (`instashield_gate.py`, measured). `Ground_DetachState`
    `moveq #PSTATE_AIR` -> `#PSTATE_JUMP` gave exit 0. The gate proves the routine refuses every
    state except JUMP/ROLLJUMP. That a walk-off is not JUMP came from a one-time hand enumeration of

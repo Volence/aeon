@@ -1453,6 +1453,11 @@ class TestBgAnimRoomOverCommittedFixture(unittest.TestCase):
     #: s4.lst at introduction — BgAnim_Table 0x2823C, BgAnim_Banks 0x2826A, delta
     #: 0x2E = 46. Used only to synthesize the head row the 08-26 cut predates.
     BGANIM_HEAD_DELTA = 2 + 44
+    #: The cut's `Map_TestObj - BgAnim_Banks` (0x29BFE - 0x27BFE): the bank blob.
+    BGANIM_BANKS_BYTES = 0x2000
+    #: What the section spans in the hermetic listing, by hand: head row to Map_TestObj.
+    #: This is what the gate now adds to the room (section_span), not the override formula.
+    SECTION_SPAN = BGANIM_HEAD_DELTA + BGANIM_BANKS_BYTES     # 8238
 
     def _rebased_cut(self, anchor, head_lma=None, pads=()):
         """The committed cut with its ANCHOR-SIDE rows moved to `anchor`.
@@ -1544,6 +1549,18 @@ class TestBgAnimRoomOverCommittedFixture(unittest.TestCase):
                     'pub data Art_Sonic     = _art_sonic\n' + tail)
         with open(os.path.join(d, "art", "sonic.bin"), "wb") as f:
             f.write(b"\0" * blob_len)
+        # The GROWING section's module, as tools/inject_editor_bg.py emits it (the head row
+        # and the whole-bound bank blob): `section_span` reads the section's own labels from
+        # it and measures the span off the listing (GPP-BGANIM-LIVE-FORMULA). The blob is
+        # the cut's own 0x2000 B from BgAnim_Banks to Map_TestObj.
+        gen = os.path.join(d, "games", "sonic4", "data", "generated")
+        os.makedirs(gen)
+        with open(os.path.join(gen, "bg_anim.emp"), "w") as f:
+            f.write('module games.sonic4.ojz_bg_anim_act1 in ojz_bg_anim\n'
+                    'pub data BgAnim_Table: u16 = 1\n'
+                    'pub data BgAnim_Banks = embed("games/sonic4/data/generated/banks.bin")\n')
+        with open(os.path.join(gen, "banks.bin"), "wb") as f:
+            f.write(b"\0" * self.BGANIM_BANKS_BYTES)
         if band:
             with open(os.path.join(d, "games", "sonic4", "data",
                                    "editor_bg_override.json"), "w") as f:
@@ -1640,9 +1657,13 @@ class TestBgAnimRoomOverCommittedFixture(unittest.TestCase):
         # document sets no `default_off`, so its three view twins decline and export
         # their names as count-0 words (BGANIM_VIEW_COUNT x BGANIM_COUNT_BYTES in the
         # DEBUG shape). Modelling them as absent is the 6 B this test used to be.
-        live = inject_editor_bg.live_section_bytes(tree)
-        self.assertEqual(live, 8238 + inject_editor_bg.BGANIM_VIEW_COUNT
+        # The formula still models the DEBUG view twins (8238 + their count words); the
+        # GATE adds the section's measured listing span instead (GPP-BGANIM-LIVE-FORMULA).
+        self.assertEqual(inject_editor_bg.live_section_bytes(tree),
+                         8238 + inject_editor_bg.BGANIM_VIEW_COUNT
                          * inject_editor_bg.BGANIM_COUNT_BYTES)
+        live = self.SECTION_SPAN
+        self.assertEqual(bganim_room.rom_room(lst, tree)["section"]["bytes"], live)
         packed_end = self._hand_lma() + self.FIXTURE_ART_SONIC_BYTES
         room = self.FIXTURE_ANCHOR - packed_end
         headroom = room + live
@@ -1826,7 +1847,7 @@ class TestBgAnimRoomOverCommittedFixture(unittest.TestCase):
         self.assertEqual(rc, 0, text)
         self.assertIn("BGANIM_SECTION_CEILINGS['s4.lst'] = 20480 B", text)
         headroom = (self.FIXTURE_ANCHOR - (self._hand_lma() + self.FIXTURE_ART_SONIC_BYTES)
-                    + inject_editor_bg.live_section_bytes(tree))
+                    + self.SECTION_SPAN)
         table = inject_editor_bg.BGANIM_SECTION_CEILINGS
         saved = table["s4.lst"]
         table["s4.lst"] = headroom + 1
@@ -1844,11 +1865,11 @@ class TestBgAnimRoomOverCommittedFixture(unittest.TestCase):
         derivation so the test tracks the fixture, never a typed number."""
         import bganim_room
         tree, lst = self._tree()
-        headroom = (bganim_room.rom_room(lst, tree)["room"]
-                    + inject_editor_bg.live_section_bytes(tree))
-        # 88,288 B of room + this fixture's own section (8,238 B of band and blob,
-        # plus the three declined view names' count words in the DEBUG shape).
-        self.assertEqual(headroom, 88288 + inject_editor_bg.live_section_bytes(tree))
+        r = bganim_room.rom_room(lst, tree)
+        headroom = r["room"] + r["section"]["bytes"]
+        # 88,288 B of room + this fixture's own section as the LISTING spans it (8,238 B
+        # of band and blob, head row to Map_TestObj), not the override formula.
+        self.assertEqual(headroom, 88288 + self.SECTION_SPAN)
         table = inject_editor_bg.BGANIM_SECTION_CEILINGS
         saved = table["s4.debug.lst"]
         table["s4.debug.lst"] = headroom + 1
@@ -1862,6 +1883,50 @@ class TestBgAnimRoomOverCommittedFixture(unittest.TestCase):
                       f"{headroom} B are reachable", text)
         self.assertIn("dac_banks", text)
         self.assertRegex(text, rf"(?m)^\s*binding limit: the ROM room \({headroom} B\)", text)
+
+    # ---- what the section holds is MEASURED (GPP-BGANIM-LIVE-FORMULA, 2026-09-28) --
+
+    def test_the_section_term_is_the_listing_span_not_the_formula(self):
+        """The release row, the shape the formula over-states: a ceiling one byte above the
+        MEASURED headroom fails, although the formula's headroom would still hold it.
+        Red on the tool before 2026-09-28, which added the formula (8376 in this tree)."""
+        import bganim_room
+        tree, lst = self._tree(lst="s4.lst")
+        r = bganim_room.rom_room(lst, tree)
+        self.assertEqual(r["section"]["bytes"], self.SECTION_SPAN)
+        formula = inject_editor_bg.live_section_bytes(tree)
+        self.assertGreater(formula, self.SECTION_SPAN, "the premise: the formula over-states")
+        headroom = r["room"] + self.SECTION_SPAN - r["growth"]["slop"]
+        table = inject_editor_bg.BGANIM_SECTION_CEILINGS
+        saved = table["s4.lst"]
+        table["s4.lst"] = headroom + 1       # inside the formula's error, outside the truth
+        try:
+            rc, text = self._report(tree, lst)
+        finally:
+            table["s4.lst"] = saved
+        self.assertEqual(rc, 1, text)
+        self.assertIn(f"but only {headroom} B are reachable", text)
+        self.assertIn(f"spans {self.SECTION_SPAN} B in this listing", text)
+        self.assertIn(f"estimates {formula} B (+{formula - self.SECTION_SPAN} B, not used)", text)
+
+    def test_a_foreign_label_inside_the_section_is_unmeasurable(self):
+        """A label the section's modules do not define, 16 B into the bank blob, would cut
+        the span short. The embed's own length says the section runs past it: refused."""
+        import bganim_room
+        banks = bganim_room.lst_labels(self.FIXTURE)["BgAnim_Banks"]
+        tree, lst = self._tree(pads=[("__align$games.sonic4.padmod$0", banks + 0x10)],
+                               pad_modules=[("games.sonic4.padmod", "align 2")])
+        with self.assertRaises(bganim_room.Unmeasurable) as cm:
+            bganim_room.rom_room(lst, tree)
+        self.assertIn("a foreign label sits INSIDE the section", str(cm.exception))
+
+    def test_a_section_no_module_declares_is_unmeasurable(self):
+        import bganim_room
+        tree, lst = self._tree()
+        os.remove(os.path.join(tree, "games", "sonic4", "data", "generated", "bg_anim.emp"))
+        with self.assertRaises(bganim_room.Unmeasurable) as cm:
+            bganim_room.rom_room(lst, tree)
+        self.assertIn("0 section(s) define BgAnim_Table", str(cm.exception))
 
     # ---- the terminus is a CHECKED FACT (B7, 2026-09-06) ------------------------
 
@@ -2324,7 +2389,7 @@ class TestBgAnimRoomOverCommittedFixture(unittest.TestCase):
         banks = bganim_room.lst_labels(self.FIXTURE)["BgAnim_Banks"]
         for quantum, want_slop in ((2, 1), (16, 15)):
             tree, lst = self._tree(
-                pads=[("__align$games.sonic4.padmod$0", banks + 0x10)],
+                pads=[("__align$games.sonic4.padmod$0", banks + self.BGANIM_BANKS_BYTES)],
                 pad_modules=[("games.sonic4.padmod", f"align {quantum}")])
             r = bganim_room.rom_room(lst, tree)
             self.assertEqual(r["growth"]["slop"], want_slop)
@@ -2334,9 +2399,8 @@ class TestBgAnimRoomOverCommittedFixture(unittest.TestCase):
             self.assertIn(f"(align {quantum})", text)
             self.assertIn(f"can cost up to K+{want_slop} B", text)
             # and the headroom the ceiling is compared against is REDUCED by it
-            from inject_editor_bg import live_section_bytes
             self.assertIn(f"- {want_slop} B alignment slop = "
-                          f"{r['room'] + live_section_bytes(tree) - want_slop} B", text)
+                          f"{r['room'] + self.SECTION_SPAN - want_slop} B", text)
 
     def test_a_pad_whose_module_cannot_be_found_is_unmeasurable_not_zero(self):
         """Loud on unmeasurable. An unresolvable pad has an UNKNOWN quantum, so the
@@ -2344,7 +2408,8 @@ class TestBgAnimRoomOverCommittedFixture(unittest.TestCase):
         answer and would restore exactly the silence this arm removes."""
         import bganim_room
         banks = bganim_room.lst_labels(self.FIXTURE)["BgAnim_Banks"]
-        tree, lst = self._tree(pads=[("__align$games.sonic4.nosuch$0", banks + 0x10)])
+        tree, lst = self._tree(pads=[("__align$games.sonic4.nosuch$0",
+                                      banks + self.BGANIM_BANKS_BYTES)])
         with self.assertRaises(bganim_room.Unmeasurable) as cm:
             bganim_room.rom_room(lst, tree)
         self.assertIn("no `.emp` under engine/ or games/ declares", str(cm.exception))
