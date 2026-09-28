@@ -1,10 +1,10 @@
 {
-  "focus": "Teeter fixed; now fixing the Wing Fortress fall-through (wrong collision layer), then a fresh woven ROM.",
+  "focus": "Wing Fortress fall-through fixed; rebuilding the woven ROM for you.",
   "inFlight": [
     {
-      "what": "Wing Fortress: Sonic falls through decks when he arrives on the second collision layer",
-      "where": "branch fix/woven-wfz-plane-b",
-      "agent": true
+      "what": "Rebuilding the woven ROM with the Wing Fortress fix",
+      "where": "main checkout",
+      "agent": false
     }
   ],
   "blockedOnOwner": [
@@ -24,22 +24,22 @@
       "since": "2026-09-27"
     }
   ],
-  "nextBoundary": "When the Wing Fortress fix reports (it stalled waiting; nudged at 01:01Z) and lands.",
+  "nextBoundary": "When the woven rebuild finishes; the next row is the song bank.",
   "queue": [
-    {
-      "id": "WOVEN-WFZ-PLANE-B",
-      "title": "Wing Fortress: Sonic falls through decks after arriving on the second collision layer (you found it)",
-      "state": "doing",
-      "size": "S",
-      "blockedBy": null,
-      "project": "REGIONS"
-    },
     {
       "id": "WOVEN-EDITABLE-IN-AURORA",
       "title": "Make the woven act a level you can touch up in aurora (today every build regenerates it from Sonic 2, so edits wouldn't stick)",
       "state": "open",
       "size": "M",
       "blockedBy": "owner: do you want it made editable?"
+    },
+    {
+      "id": "WOVEN-CROSSING-PATH",
+      "title": "Arriving at Chemical Plant's west edge on the wrong collision layer lets Sonic through a wall (not yet seen in play)",
+      "state": "open",
+      "size": "S",
+      "blockedBy": null,
+      "project": "REGIONS"
     },
     {
       "id": "WARP-VSCROLL-PRIME",
@@ -229,5 +229,5 @@
   ],
   "awaiting": "New woven ROM with the teeter fix: s4.woven.debug.bin (crc 1bce0476). Also: do you want the woven act made editable in aurora?",
   "atBoundary": false,
-  "updatedAt": "2026-09-28T01:01:11Z"
+  "updatedAt": "2026-09-28T01:09:59Z"
 }
