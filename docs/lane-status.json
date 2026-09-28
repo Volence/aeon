@@ -5,6 +5,11 @@
       "what": "Song bank 2 with Metropolis's song: finishing and checking it on every Sonic 2 test level",
       "where": "branch parcel/song-bank-2-step3",
       "agent": true
+    },
+    {
+      "what": "Measure whether the sprite art-load pairing check can be fooled, and fix it if so",
+      "where": "branch fix/gpp-dplc-pairing",
+      "agent": true
     }
   ],
   "blockedOnOwner": [
@@ -84,7 +89,7 @@
     {
       "id": "GATE-PREDICATE-VS-PROMISE",
       "title": "Checks guarding something near their subject: 14 fixed (3 tonight); the rest need a design call, another lane, or are unmeasured doubts",
-      "state": "next",
+      "state": "doing",
       "size": "M",
       "blockedBy": null
     },
@@ -142,5 +147,5 @@
   ],
   "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-09-28T12:30:53Z"
+  "updatedAt": "2026-09-28T12:31:18Z"
 }
