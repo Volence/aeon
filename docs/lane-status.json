@@ -7,24 +7,19 @@
       "agent": true
     },
     {
-      "what": "Make parallax cheaper in Emerald Hill (14.6k cycles a tick, mostly per-band work), same picture",
-      "where": "branch perf/parallax-perband",
-      "agent": true
-    },
-    {
       "what": "Check that Sonic's collision sensors really read the loop layer he is on (the old check for it was retired)",
       "where": "branch fix/gpp-layer-sensors",
       "agent": true
     },
     {
-      "what": "Landing the cheaper parallax (18% fewer cycles a tick, same picture): full build + effects checks",
-      "where": "branch perf/parallax-perband",
-      "agent": false
-    },
-    {
       "what": "Second song bank so Metropolis's song fits (assembler rebuilt, resumed)",
       "where": "branch parcel/song-bank-2",
       "agent": true
+    },
+    {
+      "what": "Landing the bounce-lag fix: sideways prefetch waits until the camera really moves (fewer wasted decodes)",
+      "where": "branch perf/oscillation-thrash",
+      "agent": false
     }
   ],
   "blockedOnOwner": [
@@ -53,14 +48,7 @@
   "queue": [
     {
       "id": "PERF-OSCILLATION-THRASH",
-      "title": "Lag while bouncing in place in Emerald Hill's dead end: re-measure on today's tree, diagnose, fix if contained",
-      "state": "doing",
-      "size": "M",
-      "blockedBy": null
-    },
-    {
-      "id": "PERF-PARALLAX-PERBAND",
-      "title": "Cheaper parallax: 18% fewer cycles a tick with a byte-identical picture; landing now",
+      "title": "Bouncing in place wasted block decodes (lag was already mostly gone); fix measured, landing now",
       "state": "doing",
       "size": "M",
       "blockedBy": null
@@ -82,7 +70,7 @@
     },
     {
       "id": "S2CLIP-MTZ-SONG-BANK",
-      "title": "Sonic 2 zone songs: building the second song bank and Metropolis's song now",
+      "title": "Sonic 2 zone songs: step 2 building; step 1 waits on one small assembler change (asked, taken)",
       "state": "doing",
       "size": "M",
       "blockedBy": null,
@@ -177,5 +165,5 @@
   ],
   "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-09-28T08:17:01Z"
+  "updatedAt": "2026-09-28T08:47:57Z"
 }
