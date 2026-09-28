@@ -1,6 +1,17 @@
 {
   "focus": "Metropolis, Wing Fortress and Oil Ocean songs are all in the woven act. Building you fresh listening ROMs.",
-  "inFlight": [],
+  "inFlight": [
+    {
+      "what": "Tidy the sound-bank file's declared name (zero bytes); asked sigil whether their tools key on it",
+      "where": "branch fix/mt-bank-module-name",
+      "agent": true
+    },
+    {
+      "what": "Building fresh listening ROMs with all four new songs",
+      "where": "landing tree .aeon-land-mtzsong",
+      "agent": false
+    }
+  ],
   "blockedOnOwner": [
     {
       "id": "SP6-MODULATION-DIVERGENCE",
@@ -144,19 +155,19 @@
     {
       "id": "MT-BANK-MODULE-NAME",
       "title": "Tidy: the sound-bank file's declared name doesn't match its path, so the assembler warns in every build (zero bytes)",
-      "state": "next",
+      "state": "doing",
       "size": "S",
       "blockedBy": null
     },
     {
       "id": "WOVEN-ROUTE-WITNESS-P2-XSPAN",
       "title": "The woven act's route checker misreads which tunnel you're in when two are stacked; fix its test to use height too",
-      "state": "open",
+      "state": "next",
       "size": "S",
       "blockedBy": null
     }
   ],
   "awaiting": "your retest of the woven act's start music on the fresh ROM (aeon/s4.s2clip.debug.bin, crc 0b8c65d7), and which emulator you heard it in",
   "atBoundary": false,
-  "updatedAt": "2026-09-28T20:20:30Z"
+  "updatedAt": "2026-09-28T20:21:04Z"
 }
