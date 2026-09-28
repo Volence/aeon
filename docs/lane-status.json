@@ -1,5 +1,5 @@
 {
-  "focus": "Songs and five fixes landed today. Everything left on my list needs you; waiting on your listen and woven answers.",
+  "focus": "Songs and five fixes landed today. Next up is Hidden Palace's song; your listen and woven answers still wait.",
   "inFlight": [],
   "blockedOnOwner": [
     {
@@ -23,7 +23,7 @@
       "since": "2026-09-28"
     }
   ],
-  "nextBoundary": "Now: nothing in flight, nothing owner-free left that is ready to start.",
+  "nextBoundary": "Now: nothing in flight. Next owner-free item: Hidden Palace's song (the song packer can't handle one of its commands yet).",
   "queue": [
     {
       "id": "WOVEN-BOOT-AUDIO",
@@ -42,8 +42,8 @@
     },
     {
       "id": "S2CLIP-MTZ-SONG-BANK",
-      "title": "Sonic 2 zone songs: Wing Fortress and Oil Ocean landed; listening ROM s4.s2clip.bin (crc ca99b1dc) ready. Hidden Palace still refuses",
-      "state": "open",
+      "title": "Sonic 2 zone songs: all but Hidden Palace play in the woven act. Hidden Palace's song uses a note-length command on a tone channel the packer can't handle yet",
+      "state": "next",
       "size": "M",
       "blockedBy": null,
       "project": "REGIONS"
@@ -137,5 +137,5 @@
   ],
   "awaiting": "your listen: woven act with Metropolis, Wing Fortress and Oil Ocean songs (aeon/s4.s2clip.debug.bin crc 0e086143, plain s4.s2clip.bin 3be528b0), and which emulator gave you the broken start music",
   "atBoundary": true,
-  "updatedAt": "2026-09-28T23:03:38Z"
+  "updatedAt": "2026-09-28T23:04:02Z"
 }
