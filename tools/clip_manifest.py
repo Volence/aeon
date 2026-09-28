@@ -1089,8 +1089,11 @@ def load(path, donor_root=None, constants=None, warn=None, warning_records=None)
     if not isinstance(clips_raw, list) or not clips_raw:
         raise ClipManifestError(f"R3 {path}: `clips` must be a non-empty list")
 
+    #: id -> the owner LABEL that first claimed it ("clips[0]", "corridors[2]", "shafts[1]").
+    #: Clips, corridors and shafts share this one space; every entry is a full label and every
+    #: refusal prints it as-is (aurora shows the text verbatim to authors).
     clips, seen_ids, seen_regions = [], {}, {}
-    #: id -> the --json subject that first claimed it (clips and corridors share one space)
+    #: id -> the --json subject that first claimed it (the same shared space as seen_ids)
     owner = {}
     for i, cr in enumerate(clips_raw):
         if not isinstance(cr, dict):
@@ -1114,9 +1117,9 @@ def load(path, donor_root=None, constants=None, warn=None, warning_records=None)
                 f"fields, where upper case is fine.", here)
         if cid in seen_ids:
             raise ClipManifestError(
-                f"R3 {path}: clip id {cid!r} used twice (clips[{seen_ids[cid]}] and clips[{i}])",
+                f"R3 {path}: clip id {cid!r} used twice ({seen_ids[cid]} and clips[{i}])",
                 [owner[cid]] + here)
-        seen_ids[cid] = i
+        seen_ids[cid] = f"clips[{i}]"
         owner[cid] = here[0]
         if rid is not None:
             if rid in seen_regions:
@@ -1286,8 +1289,8 @@ def load(path, donor_root=None, constants=None, warn=None, warning_records=None)
                 f"the same region-id pattern", here)
         if kid in seen_ids:
             raise ClipManifestError(
-                f"K1 {path}: corridor id {kid!r} is already used by clips[{seen_ids[kid]}] "
-                f"or an earlier corridor; one name is one rectangle", [owner[kid]] + here)
+                f"K1 {path}: corridor id {kid!r} is already used by {seen_ids[kid]}; "
+                f"one name is one rectangle", [owner[kid]] + here)
         seen_ids[kid] = f"corridors[{i}]"
         owner[kid] = here[0]
         _require_rect(f"corridors[{i}].dst_rect", kr["dst_rect"], here)

@@ -599,6 +599,53 @@ def test_a_clip_cannot_name_a_preset(donors, doc, tmp_path):
     assert "preset" in str(e.value) and "palette.bin" in str(e.value), str(e.value)
 
 
+#: A corridor and a shaft that pass every rule on the two-clip fixture, so the ONLY thing the
+#: rows below can trip on is the duplicated id.
+_CORRIDOR = {"id": "k_first", "dst_rect": {"x": 0, "y": 0, "w": 256, "h": 256}, "floor_y": 128}
+_SHAFT = {"id": "s_first", "dst_rect": {"x": 0, "y": 0, "w": 256, "h": 512}}
+
+
+@pytest.mark.parametrize("tag, dup_kind, taken, owner", [
+    ("K1", "corridors", "ehz_s2", "clips[0]"),       # clip -> corridor
+    ("K1", "corridors", "k_first", "corridors[0]"),  # corridor -> corridor
+    ("K9", "shafts", "cpz_s2", "clips[1]"),          # clip -> shaft
+    ("K9", "shafts", "k_first", "corridors[0]"),     # corridor -> shaft
+    ("K9", "shafts", "s_first", "shafts[0]"),        # shaft -> shaft
+])
+def test_a_reused_id_names_its_real_owner(donors, doc, tmp_path, tag, dup_kind, taken, owner):
+    """Clips, corridors and shafts share ONE id space, and the refusal names who holds the id.
+
+    aurora shows this text verbatim to authors. The bug this pins: owners were stored as a
+    bare int for clips and a full label for the others, so a shaft reusing a clip's id said
+    "already used by 0" and a corridor reusing a corridor's said "clips[corridors[0]]".
+    """
+    for donor, _zone in CASES:
+        _need(donor)
+    d = copy.deepcopy(doc)
+    d["corridors"] = [copy.deepcopy(_CORRIDOR)]
+    d["shafts"] = [copy.deepcopy(_SHAFT)]
+    dup = copy.deepcopy(_CORRIDOR if dup_kind == "corridors" else _SHAFT)
+    dup["id"] = taken
+    d[dup_kind].append(dup)
+    with pytest.raises(CM.ClipManifestError) as e:
+        CM.load(_write(tmp_path, d), donor_root=donors)
+    msg = str(e.value)
+    assert msg.startswith(tag + " "), msg
+    assert f"is already used by {owner};" in msg, msg
+
+
+def test_a_reused_clip_id_names_both_clips(donors, doc, tmp_path):
+    """R3's own message, after the owner store changed to full labels: no double wrapping."""
+    for donor, _zone in CASES:
+        _need(donor)
+    d = copy.deepcopy(doc)
+    d["clips"][1]["id"] = d["clips"][0]["id"]
+    d["clips"][1].pop("region_id", None)
+    with pytest.raises(CM.ClipManifestError) as e:
+        CM.load(_write(tmp_path, d), donor_root=donors)
+    assert "used twice (clips[0] and clips[1])" in str(e.value), str(e.value)
+
+
 def test_a_dst_rect_is_a_legal_region_rect(baked):
     """Every clip's dst_rect satisfies the contract's rect: integer world pixels, x/y >= 0,
     w/h >= 1. This file's R6 and R11 are STRICTER, which is fine — a dst_rect is a subset of
