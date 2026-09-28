@@ -380,11 +380,14 @@ when = "sound_on"
 #   * bank 1 grows past 0xC0000: bank 2 rounds to 0xC8000 and that island is refused.
 # Both are loud. The REMEDY is to put the next song in THIS bank, not bank 1: this bank is
 # what the room is for.
-# MEASURED GAP, 2026-09-28 (sigil d39ed4c3; bank 1 now ends at the song tables, which
-# follow the SFX block): plain bank 1 ends at 0xBDBCC, gap 9,268 B, growth left 8,244 B;
-# DEBUG ends at 0xBF624, gap 2,524 B, growth left 1,500 B (DEBUG binds). One table entry
-# (a new song id, in either bank) costs 8 B of it. Re-measure from the listings
-# (`SongPatchTable` + 4 * SONG_COUNT) whenever bank 1 changes.
+# MEASURED GAP, 2026-09-28, after Wing Fortress and Oil Ocean joined bank 2 (sigil 1173bb31;
+# bank 1 ends at the song tables, which follow the SFX block; the engine-table head grew
+# 128 B for Oil Ocean's S2 envelope and the tables 16 B for the two ids): plain bank 1 ends
+# at 0xBDC5C, gap 9,124 B, growth left 8,100 B; DEBUG ends at 0xBF6B4, gap 2,380 B, growth
+# left 1,356 B (DEBUG binds). (Before: 0xBDBCC / 9,268 / 8,244 and 0xBF624 / 2,524 / 1,500.)
+# One table entry (a new song id, in either bank) costs 8 B of it, and any head growth costs
+# its bytes here too. Re-measure from the listings (`SongPatchTable` + 4 * SONG_COUNT)
+# whenever bank 1 changes.
 # A clip with its own anchor overlay carries this row too, at its own sound_bank + 0x8000
 # (games/sonic4/data/clips/<id>/anchors.toml, derived by tools/clip_anchors.py).
 [[anchor]]

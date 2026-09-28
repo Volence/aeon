@@ -4305,12 +4305,16 @@ sequencer frame. Two rules make a song bank other than the SFX bank safe:
   counts as a patch read. `tools/song_bank_witness.py` holds this: a song played from its own
   bank must write the chip exactly as a copy of it in the SFX bank does.
 **The second bank** is `SongBank2_Head` (`games/sonic4/data/sound/song_bank2.emp`): the head
-replica, then Sonic 2's Metropolis. Sigil's walk rounds it to the window after bank 1; the map's
+replica, then Sonic 2's Metropolis, Wing Fortress and Oil Ocean (9,606 B of the window used,
+2026-09-28). Sigil's walk rounds it to the window after bank 1; the map's
 `song_bank_2` anchor (`sound_bank + 0x8000`) only declares that island, so bank 1 must end more
 than 0x400 below it (the map.toml comment carries the measured margin). A clip with its own
 anchor overlay carries the same row at its own `sound_bank + 0x8000`
 (`tools/clip_anchors.py --derive`). See
-`docs/DEFERRED_WORK.md` `## S2CLIP-MTZ-SONG-BANK` for what is open (clip overlays, WFZ/OOZ).
+`docs/DEFERRED_WORK.md` `## S2CLIP-MTZ-SONG-BANK` for what is open (Hidden Palace, which the
+packer refuses).
+The engine-table head grows with the tables it carries (Oil Ocean's S2 envelope $4C took it from
+1,712 to 1,840 B); every song bank pays that growth once, and bank 1 pays it out of its margin.
 
 ### 6.5 Distance-Based Sound Attenuation (NOVEL) — DEFERRED, DEMOTED (2026-07-03)
 
