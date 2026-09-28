@@ -38,7 +38,8 @@ VERDICT:
      (read off the ROM's own region table) and the CRAM lines 1-3 hold the right zone's
      palette by the end of the run;
   P1 the music requests, in order, equal the derived expectation; P2 none is made with the
-     camera centre inside a corridor, and each is made with the camera centre inside a zone
+     camera centre inside a connector's RECTANGLE (x and y, the manifest's dst_rect; a
+     corridor's x span alone flagged stacked corridors, WOVEN-ROUTE-WITNESS-P2-XSPAN), and each is made with the camera centre inside a zone
      that names the song (the start zone included);
   K1 a note start (an FM key-on or a DAC sample start) within KEYON_WINDOW frames of each
      request; no FM key-on before the first (the driver's boot DAC-enable write is not one).
@@ -136,6 +137,23 @@ def expected_requests(act, legs, ids):
             out.append((co.id, want))
             playing = want
     return out
+
+
+def connectors_holding(legs, c, cy):
+    """The route's connectors (corridors AND shafts) whose RECTANGLE (manifest `dst_rect`,
+    half-open) holds the camera centre (c, cy): P2's no-music zone.
+
+    WOVEN-ROUTE-WITNESS-P2-XSPAN (2026-09-28): a corridor's zone used to be its x span alone
+    (the 1-D rule; only a shaft was tested on both axes). In a 2-D act corridors stack: on
+    s2_woven, x 4583 in Metropolis west (y 2859) is inside hpz_to_ooz's span, 4544..5103,
+    although that tunnel is y 4624..5135, so the correct song-4 request made there was
+    flagged. Still caught (MEASURED on ROM-copy mutants whose corridor far half names the
+    far song): s2_woven's hpz_to_ooz request at (4850, 4863) and s2_mtz_cpz's 1-D
+    mtz_to_cpz request at (1763, 1067). tools/test_woven_route_witness.py holds both
+    cases."""
+    return [co for co, _l, _r in legs
+            if co.dst[0] <= c < co.dst[0] + co.dst[2]
+            and co.dst[1] <= cy < co.dst[1] + co.dst[3]]
 
 
 async def drive(sock, syms, equs, act, legs, ym=False):
@@ -399,14 +417,9 @@ def main():
         fails.append(f"68k wrote 0 to the music slot {len(zeros)} time(s)")
     for f, v in requests:
         c, cy = at[f]["centre"], at[f]["cy"]
-        for co, _l, right in legs:
-            # a corridor's dead band is its x span (the 1-D rule, unchanged); a shaft's is
-            # its rectangle
-            if (co.dst[0] <= c < co.dst[0] + co.dst[2]
-                    and (getattr(co, "axis", "x") == "x"
-                         or co.dst[1] <= cy < co.dst[1] + co.dst[3])):
-                fails.append(f"P2 song {v} requested at frame {f} with the camera centre INSIDE "
-                             f"connector {co.id} ({c}, {cy})")
+        for co in connectors_holding(legs, c, cy):
+            fails.append(f"P2 song {v} requested at frame {f} with the camera centre INSIDE "
+                         f"connector {co.id} ({c}, {cy})")
         # Made from INSIDE a zone that names this song: any clip whose `music` is it,
         # the act's start zone included. (Until 2026-09-28 only each leg's right-hand zone
         # was a candidate, which was the same thing while no start zone named a song;
