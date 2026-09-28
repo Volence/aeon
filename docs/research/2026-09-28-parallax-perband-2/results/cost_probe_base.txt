@@ -1,0 +1,189 @@
+band_record stride (published in cdebug.lst): 32 bytes  [legacy prefix 10 + 22 of capability tails]
+ROM /home/volence/pxperf/r2_base/cdebug.bin   sample 31 frames   repeats 3
+response = Parallax_Update's per-routine row, INCLUSIVE of its callees.
+interrupts.hint is HBlank + VBlank in this ROM and is never read.
+
+FIX  bands  FG/BG/both  Px_Update  spread  PerLine  varies
+----------------------------------------------------------
+W0       1   0/0  /0         5436       0        0  -
+W1       2   0/0  /0         6408       0        0  band count vs W0
+W2       3   0/0  /0         7358       0        0  band count vs W1
+W3       4   0/0  /0         8308       0        0  band count vs W2
+W4       1   0/0  /0         5468       0        0  table attached vs W0 (a NULL column since 2026-08-26: the table alone changes nothing the walker does)
+W5       2   0/0  /0         6472       0        0  band count vs W4
+W6       3   0/0  /0         7454       0        0  band count vs W5
+W7       1 224/0  /0        12790       0        0  FG curve sampling vs W4
+W8       1   0/0  /224      36204       0        0  BG curve sampling vs W7
+W9       1   0/0  /0         7010       0        0  deform-ref vs W0
+W10      2 224/0  /0        15676       0        0  re-glue vs W5
+W11      1   0/0  /0         5468       0        0  phase advance vs W4
+W12      3 224/0  /0        16866       0        0  band count vs W10
+W13      1   0/224/0        12992       0        0  BG-only sampling vs W4 — disambiguates sample_fg
+W14      2 112/0  /0        10210       0        0  sampled LINES vs W7 (224) — puts the cost in lines, not channels
+W15      3  80/0  /0        10168       0        0  sampled LINES vs W14 (112)
+W16      4   0/120/0        14642       0        0  anchor-driven sampling vs W12
+W17      2   0/120/0        12158       0        0  band count vs W16 — sampled lines identical BY CONSTRUCTION (both sample only below the same split, so the FG/BG/both column prints the same triple for the two). The literal "144" that stood here was the count under the split this fixture set could not actually produce until 2026-09-19; the column is the authority, not this string.
+W18      4   0/0  /0        10354       0        0  overlay turns sampling ON vs W16 (anchor_dsb 2 -> 15)
+W21      2   0/0  /0         8034       0        0  band count vs W18 — the 2x2's fourth cell
+W19      4 120/0  /0        14436       0        0  channel vs W16 (BG -> FG)
+W20      4   0/104/0        13742       0        0  split POSITION vs W16 — and it re-checks sampled_lines(split)
+W22      1 224/0  /0        12342       0        0  deform SHIFT VALUE vs W7 (3 -> 2)
+W23      1 224/0  /0        13686       0        0  deform SHIFT VALUE vs W22 (2 -> 5)
+W24      4   0/0  /0         8436       0        0  band count vs W6
+W25      2 224/0  /0        13948       0        0  sampling BANDS vs W14 (1 -> 2) — identifies band_sampling
+
+FITTED ADDITIVE MODEL — cycles for one Parallax_Update call
+  base               5455.7
+  band_perline        958.0
+  multiband            42.8
+  line_fg_only         26.0
+  line_bg_only         27.2
+  line_both           124.7
+  shift_lines           2.0
+  band_sampling       164.6
+  vdeform            1554.3
+  anchor             1068.3
+  anchor_ops          102.9
+
+RESIDUAL PER FIXTURE (measured - model). THIS IS THE DELIVERABLE.
+  W0   measured     5436  model   5455.7  residual    -19.7
+  W1   measured     6408  model   6456.5  residual    -48.5
+  W2   measured     7358  model   7414.5  residual    -56.5
+  W3   measured     8308  model   8372.5  residual    -64.5
+  W4   measured     5468  model   5455.7  residual    +12.3
+  W5   measured     6472  model   6456.5  residual    +15.5
+  W6   measured     7454  model   7414.5  residual    +39.5
+  W7   measured    12790  model  12775.8  residual    +14.2
+  W8   measured    36204  model  36204.0  residual     -0.0
+  W9   measured     7010  model   7010.0  residual     -0.0
+  W10  measured    15676  model  15688.7  residual    -12.7
+  W11  measured     5468  model   5455.7  residual    +12.3
+  W12  measured    16866  model  16914.2  residual    -48.2
+  W13  measured    12992  model  13044.9  residual    -52.9
+  W14  measured    10210  model  10198.9  residual    +11.1
+  W15  measured    10168  model  10134.7  residual    +33.3
+  W16  measured    14642  model  14601.1  residual    +40.9
+  W17  measured    12158  model  12108.9  residual    +49.1
+  W18  measured    10354  model  10366.8  residual    -12.8
+  W21  measured     8034  model   8039.3  residual     -5.3
+  W19  measured    14436  model  14457.0  residual    -21.0
+  W20  measured    13742  model  13732.0  residual    +10.0
+  W22  measured    12342  model  12333.3  residual     +8.7
+  W23  measured    13686  model  13660.9  residual    +25.1
+  W24  measured     8436  model   8372.5  residual    +63.5
+  W25  measured    13948  model  13941.3  residual     +6.7
+
+max |residual| = 64.5 cycles  (0.18% of the largest fixture)
+
+UN-ANCHORED SUBSET (18 fixtures): max |residual| = 67.56 cycles
+  base              5459.02
+  band_perline       967.81
+  multiband           13.10
+  line_fg_only        25.85
+  line_bg_only        26.76
+  line_both          124.38
+  shift_lines          2.00
+  band_sampling      194.42
+  vdeform           1550.98
+
+THE ANCHORED OVERLAY IS NOT A CONSTANT — but it is not two regimes either. Each
+anchored fixture's cost over the un-anchored model, with the overlay's own loop
+trip count beside it:
+  W10  bands=2 ops=5 sampling_bands=3 sampled(fg/bg/both)=[224, 0, 0] split=104   measured 15676 - model 14157.9 = +1518.1
+  W12  bands=3 ops=6 sampling_bands=4 sampled(fg/bg/both)=[224, 0, 0] split=104   measured 16866 - model 15320.2 = +1545.8
+  W16  bands=4 ops=9 sampling_bands=3 sampled(fg/bg/both)=[0, 120, 0] split=104   measured 14642 - model 12650.0 = +1992.0
+  W17  bands=2 ops=5 sampling_bands=2 sampled(fg/bg/both)=[0, 120, 0] split=104   measured 12158 - model 10519.9 = +1638.1
+  W18  bands=4 ops=9 sampling_bands=0 sampled(fg/bg/both)=[0, 0, 0] split=104   measured 10354 - model 8375.6 = +1978.4
+  W21  bands=2 ops=5 sampling_bands=0 sampled(fg/bg/both)=[0, 0, 0] split=104   measured 8034 - model 6439.9 = +1594.1
+  W19  bands=4 ops=9 sampling_bands=3 sampled(fg/bg/both)=[120, 0, 0] split=104   measured 14436 - model 12540.8 = +1895.2
+  W20  bands=4 ops=7 sampling_bands=2 sampled(fg/bg/both)=[0, 104, 0] split=120   measured 13742 - model 11963.4 = +1778.6
+
+  OVERLAY TERM FITTED: anchor = 1071.6 + 97.59 x overlay_loop_trips
+    W10  trips=5  measured  +1518.1  model  +1559.5  residual   -41.5
+    W12  trips=6  measured  +1545.8  model  +1657.1  residual  -111.3
+    W16  trips=9  measured  +1992.0  model  +1949.9  residual   +42.1
+    W17  trips=5  measured  +1638.1  model  +1559.5  residual   +78.5
+    W18  trips=9  measured  +1978.4  model  +1949.9  residual   +28.5
+    W21  trips=5  measured  +1594.1  model  +1559.5  residual   +34.5
+    W19  trips=9  measured  +1895.2  model  +1949.9  residual   -54.7
+    W20  trips=7  measured  +1778.6  model  +1754.7  residual   +23.9
+  max |residual| on the overlay term = 111.3 cycles
+  What is LEFT in that residual is the loop-type change the P2 note called the
+  regime: turn-on costs +27 (2 bands) / +45 (4 bands) over a flat overlay, and the
+  BG channel ~25 over FG. Recorded, not fitted — one fixture pair per cell.
+
+PREEMPTION CHECK — the per-routine row is a per-VIDEO-FRAME average, so it is one
+Parallax_Update call ONLY at frames/tick = 1.000 (see _one).
+  W0   31/31 lag 0  31/31 lag 0  31/31 lag 0
+  W1   31/31 lag 0  31/31 lag 0  31/31 lag 0
+  W2   31/31 lag 0  31/31 lag 0  31/31 lag 0
+  W3   31/31 lag 0  31/31 lag 0  31/31 lag 0
+  W4   31/31 lag 0  31/31 lag 0  31/31 lag 0
+  W5   31/31 lag 0  31/31 lag 0  31/31 lag 0
+  W6   31/31 lag 0  31/31 lag 0  31/31 lag 0
+  W7   31/31 lag 0  31/31 lag 0  31/31 lag 0
+  W8   31/31 lag 0  31/31 lag 0  31/31 lag 0
+  W9   31/31 lag 0  31/31 lag 0  31/31 lag 0
+  W10  31/31 lag 0  31/31 lag 0  31/31 lag 0
+  W11  31/31 lag 0  31/31 lag 0  31/31 lag 0
+  W12  31/31 lag 0  31/31 lag 0  31/31 lag 0
+  W13  31/31 lag 0  31/31 lag 0  31/31 lag 0
+  W14  31/31 lag 0  31/31 lag 0  31/31 lag 0
+  W15  31/31 lag 0  31/31 lag 0  31/31 lag 0
+  W16  31/31 lag 0  31/31 lag 0  31/31 lag 0
+  W17  31/31 lag 0  31/31 lag 0  31/31 lag 0
+  W18  31/31 lag 0  31/31 lag 0  31/31 lag 0
+  W21  31/31 lag 0  31/31 lag 0  31/31 lag 0
+  W19  31/31 lag 0  31/31 lag 0  31/31 lag 0
+  W20  31/31 lag 0  31/31 lag 0  31/31 lag 0
+  W22  31/31 lag 0  31/31 lag 0  31/31 lag 0
+  W23  31/31 lag 0  31/31 lag 0  31/31 lag 0
+  W24  31/31 lag 0  31/31 lag 0  31/31 lag 0
+  W25  31/31 lag 0  31/31 lag 0  31/31 lag 0
+
+shadow band tops (screen lines). Slot band_count is poisoned with $FF before the
+sample: an ANCHORED fixture must overwrite it, an un-anchored one must not.
+  W0   [0, 65535, 80, 112, 160, 160]  slot[1]=$FFFF  un-anchored, slot untouched
+  W1   [0, 112, 65535, 112, 160, 160]  slot[2]=$FFFF  un-anchored, slot untouched
+  W2   [0, 72, 144, 65535, 160, 160]  slot[3]=$FFFF  un-anchored, slot untouched
+  W3   [0, 56, 112, 168, 65535, 160]  slot[4]=$FFFF  un-anchored, slot untouched
+  W4   [0, 65535, 80, 112, 160, 160]  slot[1]=$FFFF  un-anchored, slot untouched
+  W5   [0, 112, 65535, 112, 160, 160]  slot[2]=$FFFF  un-anchored, slot untouched
+  W6   [0, 72, 144, 65535, 160, 160]  slot[3]=$FFFF  un-anchored, slot untouched
+  W7   [0, 65535, 80, 112, 160, 160]  slot[1]=$FFFF  un-anchored, slot untouched
+  W8   [0, 65535, 80, 112, 160, 160]  slot[1]=$FFFF  un-anchored, slot untouched
+  W9   [0, 65535, 80, 112, 160, 160]  slot[1]=$FFFF  un-anchored, slot untouched
+  W10  [0, 104, 112, 112, 160, 160]  slot[2]=  112  split at 104
+  W11  [0, 65535, 80, 112, 160, 160]  slot[1]=$FFFF  un-anchored, slot untouched
+  W12  [0, 72, 104, 144, 160, 160]  slot[3]=  144  split at 104
+  W13  [0, 65535, 80, 112, 160, 160]  slot[1]=$FFFF  un-anchored, slot untouched
+  W14  [0, 112, 65535, 112, 160, 160]  slot[2]=$FFFF  un-anchored, slot untouched
+  W15  [0, 72, 144, 65535, 160, 160]  slot[3]=$FFFF  un-anchored, slot untouched
+  W16  [0, 56, 104, 112, 168, 160]  slot[4]=  168  split at 104
+  W17  [0, 104, 112, 112, 160, 160]  slot[2]=  112  split at 104
+  W18  [0, 56, 104, 112, 168, 160]  slot[4]=  168  split at 104
+  W21  [0, 104, 112, 112, 160, 160]  slot[2]=  112  split at 104
+  W19  [0, 56, 104, 112, 168, 160]  slot[4]=  168  split at 104
+  W20  [0, 56, 112, 120, 168, 160]  slot[4]=  168  split at 120
+  W22  [0, 65535, 80, 112, 160, 160]  slot[1]=$FFFF  un-anchored, slot untouched
+  W23  [0, 65535, 80, 112, 160, 160]  slot[1]=$FFFF  un-anchored, slot untouched
+  W24  [0, 56, 112, 168, 65535, 160]  slot[4]=$FFFF  un-anchored, slot untouched
+  W25  [0, 112, 65535, 112, 160, 160]  slot[2]=$FFFF  un-anchored, slot untouched
+  W10 vs W5: differ — the split happened
+  W12 vs W6: differ — the split happened
+  W17 vs W5: differ — the split happened
+  W21 vs W5: differ — the split happened
+  W18 vs W24: differ — the split happened
+  W16 vs W24: differ — the split happened
+  W19 vs W24: differ — the split happened
+  W20 vs W24: differ — the split happened
+  W20 vs W16: split moved 104 -> 120 (+16) as asked
+
+OUT OF SAMPLE — the config the game installs at the idle baseline, NOTHING poked
+but the camera freeze. addr $01487E, 5 authored bands, anchor ch 0, transition frames 0
+  shadow view (top,dsa,dsb) x5: [(0, 15, 15), (32, 15, 15), (80, 15, 15), (112, 15, 15), (160, 15, 15)]   split slot poison overwritten: False
+  latched L [32623, 170]   split band k=0   overlay trips 0
+  sampled lines fg/bg/both = 0/0/0   shift_lines 0   sampling_bands 0
+  frames/ticks 31/31   measured [8252, 8252, 8252]   spread 0
+  model 9330.6   measured 8252   gap -1078.6  (-13.07%)
+exit=0

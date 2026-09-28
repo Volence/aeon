@@ -1,0 +1,3 @@
+rc cdebug=1 sdebug=skipped finished=1
+error: native build (sonic4 debug): build_program: 1 error(s);
+  ./engine/level/parallax.emp:516:1: [Error] BAND_SEL_N is 0 but this game's Game.SCANLINE_CAPS & CAP_DEFORM is 4: the fill's cached loop selection no longer follows the capability that gates its code, so the gated pass would write past a zero-length Parallax_Band_Sel, or a game would reserve bytes nothing reads. BAND_SEL_N must stay the fold of GAME_SCANLINE_CAPS, never a literal

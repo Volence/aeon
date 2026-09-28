@@ -1,0 +1,4 @@
+rc cdebug=1 sdebug=skipped finished=1
+error: native build (sonic4 debug): build_program: 2 error(s);
+  ./engine/level/parallax.emp:624:1: [Error] MAX_PARALLAX_BANDS is 18, not a multiple of 4: Parallax_Band_Sel (a byte per slot) would leave Parallax_State a non-whole number of longs, which Parallax_Init's long-counted clear under-clears
+  ./engine/level/scene_dsl.emp:77:1: [Error] scene_dsl's inlined band ceiling (16) drifted from MAX_PARALLAX_BANDS — every literal 16 governed by this pin is listed in the constant's own comment block in engine/system/constants.emp; move them together or the fixed-size layer arrays and the ceiling disagree

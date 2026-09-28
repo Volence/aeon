@@ -1,0 +1,12 @@
+diff --git a/engine/level/parallax.emp b/engine/level/parallax.emp
+index 10a08f77..f3b601f8 100644
+--- a/engine/level/parallax.emp
++++ b/engine/level/parallax.emp
+@@ -2462,7 +2462,6 @@ proc Parallax_Step4_Fill () clobbers(d0-d7/a0-a6) {
+         bmi     .curve_walk_store
+         move.w  d3, d2
+         sub.w   d4, d2
+-        addq.w  #1, d2                              // count = last - first + 1
+     .curve_walk_store:
+         move.w  d4, Parallax_Curve_Walk             // (Parallax_Curve_Walk).w — first slot
+         move.w  d2, Parallax_Curve_Walk+2           // (Parallax_Curve_Walk+2).w — slot count

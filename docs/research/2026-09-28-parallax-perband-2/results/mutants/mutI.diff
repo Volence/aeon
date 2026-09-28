@@ -1,0 +1,13 @@
+diff --git a/engine/level/parallax.emp b/engine/level/parallax.emp
+index 10a08f77..65653439 100644
+--- a/engine/level/parallax.emp
++++ b/engine/level/parallax.emp
+@@ -512,7 +512,7 @@ ensure(BAND_REMAP_N == ((Game.SCANLINE_CAPS & CAP_ROW_REMAP) / CAP_ROW_REMAP),
+ // the deform tests, which are the largest per-band decision (64 of the ~116 cycles a flat band
+ // spent deciding it was flat), so CAP_DEFORM is its one capability: a game with curves or a
+ // remap but no deform keeps the inline tests it had.
+-pub const BAND_SEL_N = if (GAME_SCANLINE_CAPS & $0004) != 0 { 1 } else { 0 }   // CAP_DEFORM
++pub const BAND_SEL_N = if (GAME_SCANLINE_CAPS & $0001) != 0 { 1 } else { 0 }   // CAP_DEFORM
+ ensure(BAND_SEL_N == ((Game.SCANLINE_CAPS & CAP_DEFORM) / CAP_DEFORM),
+        "BAND_SEL_N is {BAND_SEL_N} but this game's Game.SCANLINE_CAPS & CAP_DEFORM is {Game.SCANLINE_CAPS & CAP_DEFORM}: the fill's cached loop selection no longer follows the capability that gates its code, so the gated pass would write past a zero-length Parallax_Band_Sel, or a game would reserve bytes nothing reads. BAND_SEL_N must stay the fold of GAME_SCANLINE_CAPS, never a literal")
+ 

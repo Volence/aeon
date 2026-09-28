@@ -1,0 +1,12 @@
+diff --git a/engine/level/parallax.emp b/engine/level/parallax.emp
+index 10a08f77..fc160bd6 100644
+--- a/engine/level/parallax.emp
++++ b/engine/level/parallax.emp
+@@ -3081,7 +3081,6 @@ proc Parallax_Step4_Fill () clobbers(d0-d7/a0-a6) {
+         btst    #1, d2
+         beq     .sel_flat
+         cmpi.b  #15, band_entry.band_deform_shift_b(a4)
+-        bne     .sel_inline
+     .sel_flat:
+         moveq   #0, d1                              // flat and unmarked: `.lp_flat` directly
+         jbra    .sel_store
