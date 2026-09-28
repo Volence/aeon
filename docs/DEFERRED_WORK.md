@@ -36266,6 +36266,8 @@ Events.asm`, `Engine/Core/Draw Level.asm`).
   because Step 5's dead `Parallax_Snap_Pending` test let the lerp through and `Parallax_BG_Snap` only
   skips the rate clamp after it. Every witness above ran on instant destinations, which is why it read 0.
   Closed by PARALLAX-STEP5-SNAP-DEAD (fixed crc `8236bc31`: every store at 544). The original bullet:
+* **CLOSED 2026-09-28 (`fix/boot-tall-ratchet`): the boot-ladder suspicion at the end of the next
+  bullet was REAL, MEASURED, and is fixed.** See BOOT-TALL-VSCROLL-RATCHET below. The original bullet:
 * **NOT folded in:** PARALLAX-STEP5-SNAP-DEAD (Step 5's dead `Parallax_Snap_Pending` test). This fix
   does not touch that test and needs nothing from it: a lerping config on the warp tick would still
   lerp, but no witnessed entry lerps (0 slide frames). **Suspected, NOT measured:** the BOOT ladder can
@@ -36428,6 +36430,55 @@ why nobody has seen it.
 **Not this parcel's subject**, and it matters to step 4 only as the reason BG-RATE-PRIME-EXEMPTION
 above could not simply test the flag. Whoever takes it: the fix is worth about three instructions
 and the argument is worth more than the fix.
+
+## BOOT-TALL-VSCROLL-RATCHET — a boot deep in a map taller than the plane primed Plane B from a capped scroll and slid (booked unmeasured 2026-09-28 inside BG-RATE-PRIME-EXEMPTION; MEASURED and CLOSED the same day, `fix/boot-tall-ratchet`)
+
+**Real, and not only on a DEBUG path.** The boot ladder (`GameState_OJZScroll_Init`) ran
+`Parallax_Init` (whose tail `Parallax_Update` runs with `Region_Current` NULL, so Step 5 reads the
+act-default ceiling `VSCROLL_BG_MAX` = 288 and takes the one-plane arm), then the plane prime, then a
+second `Parallax_Update`, all before any region crossing. The window was seeded from a scroll capped at
+288; frame 1's `Parallax_CheckBoundary` resolved the tall start row (no snap: null previous row), its
+ceiling reached Step 5, and the rate clamp walked the scroll to its target 16 px an invocation.
+
+* **Entry paths, enumerated by what writes the camera and runs the init ladder.** `Game.entry` is
+  `GameState_OJZScroll_Init` (the only caller of `Parallax_Init` and `Camera_Init` in the tree; boot.emp
+  is the only writer of `Game_State` to it). Its camera comes from `Camera_Init` (the act's authored
+  start) or, in DEBUG, the `Boot_At` override (`center_camera_on`, Aurora's "Build & Run at the cursor").
+  Clip and woven shapes bake their act into the same OJZ slot and run the same ladder. There is no
+  checkpoint, respawn, act-reload or title-to-level path (`Game_State` has no other writer outside the
+  test states, which zero the camera). The DEBUG warp has its own ladder (fixed by WARP-VSCROLL-PRIME).
+  Release OJZ's authored start is not in a tall row (DEBUG OJZ's tall row 11 is DEBUG-only).
+* **What the hypothesis forbade, stated before the run:** if no start put the camera in a tall row with
+  a target above 288, the first store after the prime would already be the target and nothing could
+  slide. **Measured (headless, per `Parallax_Step5_Vscroll` invocation):** DEBUG OJZ crc `8236bc31`,
+  `Boot_At` into tall row 11 (camera (5471, 5808)): prime read 288, target 544, then 304, 320 ... 544,
+  **16 invocations of slide**. `s2_hpz_solo` DEBUG crc `eb69092c`, its **AUTHORED** start (camera
+  (64, 893), row 1, span 1152): 288 -> 446 over **10** invocations. So a plain clip boot slides too.
+  `s2_woven`'s authored start (camera (160, 2221)) is in row 4, a one-plane map (span 0): it cannot
+  slide, before or after (read on the fixed woven DEBUG crc `37b10bad`: every store 0).
+* **Fix: the warp ladder's step-6 order on the boot ladder** (S3K's order: the BG camera, then the plane
+  drawn from it). After `Parallax_Init`: `Parallax_CheckBoundary` (its sentinel forces the rescan; the
+  config it installs is the one `Parallax_Init` was just given, so nothing is staged), `BgAnim_Init`,
+  `st Parallax_BG_Snap` / `Parallax_Update` / `clr.b Parallax_BG_Snap`, THEN the prime, then
+  `BG_Stream_Update`. The second `Parallax_Update` below the prime moved up; the boot now has one. The
+  frame's own crossing takes its fast path. `Parallax_CheckBoundary`'s null-row rule is unchanged: both
+  of its null-row callers are now ladders that set the snap themselves, because only the caller knows a
+  prime follows.
+* **After** (same witnesses): DEBUG OJZ crc `1000eded`, prime read 544, 19 of 19 stores at 544;
+  `s2_hpz_solo` `42e4ec8c`, authored start stores 446 on its first snapped Update, and `Boot_At` into
+  each of its four tall rows stores the target (271 / 527 / 711 / 928) on the first one.
+* **Gates.** `tools/bg_vscroll_rate_witness.py` leg B (A8, runner `effects_gates.py` gate
+  `bg_vscroll_rate`): red on the parent (exit 1, A8 alone) and on the fix with its `st Parallax_BG_Snap`
+  deleted (mutant crc `1ac22e9e`, exit 1, A8 alone, primed from 304); PASS exit 0 on `1000eded`; exit 2
+  (COULD NOT RUN) when no tall row's target clears 288. `tools/test_bg_plane_window.py` gains the boot
+  ladder's order leg (pytest), red on the parent ladder and on the fixed ladder with the prime moved back
+  above the crossing.
+* **Release bytes move: +12** (`jbsr Parallax_CheckBoundary`, `st` and `clr.b Parallax_BG_Snap`; FAST
+  release 829975 -> 829987 bytes, crc `d6ccbe7d` -> `d2c5842a`). Behaviour on a release OJZ boot: the
+  start region's preset install moves from frame 1's crossing into the init (same row, same config).
+* **Not graded here:** the boot's first-frame PICTURE on Hidden Palace's band chain (the warp-entry leg
+  grades warps only). The scroll is at its target from the prime, the state the warp reaches and that
+  leg grades exact; a boot-entry picture leg in `clip_bg_scroll_witness` would close it.
 
 ## THE STEP-4 CLAMP'S POSITION HALF IS LIVE AND UNEXERCISED — no shipped region row authors an `rg_bg_span` (booked 2026-09-16)
 
