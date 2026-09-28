@@ -885,9 +885,11 @@ pub proc BG_Stream_Update () clobbers(d0-d7/a0-a2) {
         // WHAT IS DELIBERATELY NOT DONE HERE: `st Parallax_Snap_Pending`, which §4.3 asks
         // for "so the scroll does not lerp across two different pictures". Measured at this
         // pin, it would not do that and would do something else. (1) The scroll it means is
-        // Parallax_Step5_Vscroll's, and that proc's `tst.b Parallax_Snap_Pending` is DEAD —
-        // Step 3's band loop clears the byte in the two instructions before its `jbra` into
-        // Step 5 (booked as PARALLAX-STEP5-SNAP-DEAD, and re-read here rather than carried).
+        // Parallax_Step5_Vscroll's, and that proc's `tst.b Parallax_Snap_Pending` was DEAD —
+        // Step 3's band loop cleared the byte before its `jbra` into Step 5. ⚠ NO LONGER TRUE
+        // since 2026-09-28 (PARALLAX-STEP5-SNAP-DEAD, closed: Step 5 clears it now), so the
+        // flag WOULD now snap that scroll too; (2) is the reason that still stands, and the
+        // one this arm rests on: a snap here would override the author's pcfg_transition.
         // (2) What the flag DOES reach is Step 3's per-band `.snap_b`, which overrides the
         // frames-remaining ramp Parallax_StartTransition staged from the author's
         // `pcfg_transition` — a second authority for snap-versus-lerp at a crossing, which

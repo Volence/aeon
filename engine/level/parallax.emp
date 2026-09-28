@@ -2212,8 +2212,11 @@ pub proc Parallax_Update () clobbers(d0-d7/a0-a6) preserves(sr.mask) {
         cmp.w   d7, d5
         blo     .band_loop
 
-        // clear Snap_Pending flag — one-shot, consumed by this Update
-        clr.b   Parallax_Snap_Pending               // (Parallax_Snap_Pending).w
+        // Snap_Pending is one-shot and still consumed by THIS Update, but NOT HERE: Step 5
+        // reads it too (the whole-plane BG scroll's snap) and clears it at its `.v_store`,
+        // which every arm of that proc reaches. It was cleared here until 2026-09-28, which
+        // made Step 5's test dead: a DEBUG warp that staged a smooth transition snapped the
+        // bands and LERPED the whole-plane scroll (PARALLAX-STEP5-SNAP-DEAD, closed).
 
         // NOTE: Step 5 (Vscroll) runs BEFORE Step 4 (HScroll fill) — the
         // band rotation in Step 4a needs this frame's Vscroll_BG.
@@ -2828,18 +2831,21 @@ proc Parallax_Step5_Vscroll () clobbers(d0-d7/a0-a6) {
         asr.w   d2, d0
         add.w   parallax_config.pcfg_v_offset(a0), d0     // d0 = target_b
 
-        // ⚠ THIS TEST IS ALREADY DEAD AND WAS BEFORE STEP 4 — recorded here because step 4's
-        // rate clamp below would otherwise look like it had an exemption available that it
-        // does not. `Parallax_Step5_Vscroll` has exactly ONE caller, the `jbra` at the foot of
-        // Step 3's band loop, and the two instructions immediately above that `jbra` are
-        // `clr.b Parallax_Snap_Pending` and a comment. So the byte is consumed by Step 3 and
-        // this `tst.b` reads 0 on every path into this proc. Consequence: a warp or an instant
-        // install that sets the flag still snaps the BANDS (Step 3 reads it before clearing),
-        // but the whole-plane BG scroll below falls through to the CAP_TRANSITIONS test and
-        // LERPS if a transition happens to be in flight. Not fixed here — it is neither step
-        // 4's subject nor a regression step 4 introduces — but booked in DEFERRED_WORK as
-        // PARALLAX-STEP5-SNAP-DEAD, with the two candidate fixes and the reason the choice is
-        // not obvious (moving the `clr.b` past the tail call changes Step 3's contract).
+        // THE SNAP: store the target, skip the lerp. LIVE since 2026-09-28 (PARALLAX-STEP5-
+        // SNAP-DEAD, closed): Step 3 no longer clears the byte before its `jbra` here; this
+        // proc clears it at `.v_store`, which every arm reaches (`.v_locked` included), so it
+        // is still one-shot per Update. Until then this test read 0 on every path.
+        //
+        // WHAT IT COVERS THAT NOTHING ELSE DOES: a snap request on a frame with a transition
+        // in flight. The writers are Parallax_Init, StartTransition's `.instant` and
+        // `.recross_current` arms, and the DEBUG warp. The first three leave
+        // Transition_Frames at 0, so the CAP_TRANSITIONS test below snaps them anyway; the
+        // warp does not, because its own crossing STAGES a smooth transition whenever the
+        // destination's config differs and declares pcfg_transition 0. Dead, that warp
+        // snapped the bands and lerped this scroll from its pre-warp value (1/16 of the gap a
+        // frame, then the residual popped on the promote frame; bg_vscroll_rate_witness leg
+        // P, A7). Parallax_BG_Snap is NOT the same authority and does not cover it: it skips
+        // the RATE clamp below, after this lerp, and only on a tall map.
         tst.b   Parallax_Snap_Pending               // (Parallax_Snap_Pending).w
         bne     .v_snap
         // CAP_TRANSITIONS span (P2 §3.3). Transition_Frames can only be nonzero
@@ -3107,10 +3113,12 @@ proc Parallax_Step5_Vscroll () clobbers(d0-d7/a0-a6) {
         // exempt; the same tick's body runs after the prime and is clamped as usual.
         //
         // THE SIGNALS THAT WERE NOT USED, and why, kept because each looks right at a glance.
-        // `Parallax_Snap_Pending` is not available here: Step 3's band loop consumes it
-        // (`clr.b Parallax_Snap_Pending`) immediately before its `jbra` into this proc, so the
-        // `tst.b` at the top of this routine already reads 0 on every path (see the note
-        // there; PARALLAX-STEP5-SNAP-DEAD). `BG_Wipe_Cursor` means "a crossing wipe is in
+        // `Parallax_Snap_Pending` was not available here when this was written (Step 3 cleared
+        // it before its `jbra` into this proc; PARALLAX-STEP5-SNAP-DEAD, closed 2026-09-28), and
+        // it is still the wrong byte now that it reaches this proc: it means "skip the LERP",
+        // its non-warp writers (Parallax_Init, StartTransition's instant and recross arms) are
+        // no statement about the plane being repainted, and the lerp test at the top of this
+        // routine is its one Step 5 reader. `BG_Wipe_Cursor` means "a crossing wipe is in
         // flight", and a PRIME is exactly the case where it is definitionally ZERO: both
         // synchronous Plane B writers retire the cursor with `clr.w BG_Wipe_Cursor` as part
         // of priming. Exempting the clamp during a WIPE would also be the wrong direction — the
@@ -3191,6 +3199,8 @@ proc Parallax_Step5_Vscroll () clobbers(d0-d7/a0-a6) {
     .v_store:
         clr.b   Parallax_BG_Snap                    // (Parallax_BG_Snap).w — one frame, every arm
         move.w  d2, Parallax_Current_Vscroll_BG     // (Parallax_Current_Vscroll_BG).w
+        clr.b   Parallax_Snap_Pending               // (Parallax_Snap_Pending).w — one-shot: Step 3's
+                                                    //   bands and this store have both read it
 
         // pack into Vscroll_Factor (used by Vscroll_Write whole-plane branch)
         // EFFECTS-W1 item 10b: swap which value lands in VSRAM's plane-A-register slot
