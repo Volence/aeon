@@ -1,5 +1,5 @@
 {
-  "focus": "18 fixes and Metropolis's song landed since last night. Waiting on your woven-act answers.",
+  "focus": "Fresh session up. Waiting on your woven-act answers; the only work not waiting on you is the two missing Sonic 2 songs.",
   "inFlight": [],
   "blockedOnOwner": [
     {
@@ -35,7 +35,7 @@
     {
       "id": "S2CLIP-MTZ-SONG-BANK",
       "title": "Sonic 2 zone songs: Metropolis plays from bank 2 (landed; your listen). Wing Fortress and Oil Ocean songs still refuse to convert",
-      "state": "open",
+      "state": "next",
       "size": "M",
       "blockedBy": null,
       "project": "REGIONS"
@@ -134,7 +134,7 @@
       "blockedBy": null
     }
   ],
-  "awaiting": "which covering you meant (A: Wing Fortress shaft blue at 4064,1800; B: tunnel walls at 2864,2450; C: grey stone at a zone edge, 164,1924), and whether you want the real background or the zone's foreground there; plus your pick on WOVEN-TOUCHUPS",
+  "awaiting": "your WOVEN-TOUCHUPS pick and which covering you meant (A Wing Fortress shaft, B tunnel walls, C grey stone); or a go on the two missing Sonic 2 songs",
   "atBoundary": true,
-  "updatedAt": "2026-09-28T16:29:34Z"
+  "updatedAt": "2026-09-28T16:31:20Z"
 }
