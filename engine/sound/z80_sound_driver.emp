@@ -1241,6 +1241,27 @@ section z80_sound_driver (cpu: z80) {
         ret
     }
 
+    // --- SndDrv_SongBankIn — put the SONG's bank (SND_SONG_BANK) in the $8000
+    // window and return the bank that was there, so a bracket can put its caller's
+    // bank back with `call SndDrv_SetBank` rather than assume which bank that was.
+    // For the music-patch reloads the SFX path makes (Sfx_Restore, Sfx_UnpauseRestore;
+    // song bank 2, step 2): a song's patch bank shares the SONG's bank, which is not
+    // the SFX bank once a song lives in bank 2. Lives here, not in sound_sfx, because
+    // sound_sfx cannot see a sound_constants name outside seam-1's fixed list
+    // (SND_SONG_BANK, SND_CUR_BANK), and a module-local address mirror could drift.
+    // Both SetBank legs are the cached no-op while the song shares the current bank.
+    // The `ld hl`/`ld a,(hl)` pair (4 B, not a 3 B `ld a,(nn)`) keeps the resident
+    // blob even-sized, which the placement requires (boot_data.emp).
+    pub proc SndDrv_SongBankIn () out(a) clobbers(f, b, hl) preserves(c, de, ix, iy) {
+        ld      hl, SND_CUR_BANK
+        ld      a, (hl)                 // a = the caller's window bank (the SetBank cache)
+        push    af
+        ld      a, (SND_SONG_BANK)
+        call    SndDrv_SetBank          // window -> the song's bank (cached)
+        pop     af                      // a = the caller's bank (flags restored too)
+        ret
+    }
+
     // --- Run_SeqFrame_OnSongBank — B1 bracket. Run one sequencer frame with the
     // $8000 window on the SONG bank, then restore it to the SAMPLE bank. The frame
     // engine streams the song through the window (must see the song bank); the DAC

@@ -72,7 +72,7 @@ module engine.sound_sfx (cpu: z80)
 use engine.sound_sequencer.{ModUpdate, Sequencer_Channel}
 use engine.sound_fm.{Fm_PatchLoad, Fm_NoteOff, Fm_SetVolume, Fm_PatchPtr, Fm_NoteOnFreqExact}
 use engine.sound_psg.{Psg_NoteOff, Psg_SetVolume, Psg_NoteOn, Psg_Noise}
-use engine.z80_sound_driver.{SndDrv_SetBank, Snd_RouteClassFlags, Snd_JingleResume}
+use engine.z80_sound_driver.{SndDrv_SetBank, SndDrv_SongBankIn, Snd_RouteClassFlags, Snd_JingleResume}
 
 // --- Game-feel seam mirrors (pkg 1). The seam-1 const list is FIXED (see the
 // driver's file header): a NEW sound_constants.emp name is invisible here, so
@@ -1297,8 +1297,20 @@ section sound_sfx (cpu: z80) {
         push    ix
         push    iy
         pop     ix                       // ix = music FM channel
+        // SONG-BANK BRACKET (song bank 2, step 2): the music patch lives in the SONG's
+        // bank, which is not the SFX bank once a song lives in bank 2. Every caller
+        // (Sfx_Frame, the cap-kill and the steal in SfxDispatch/Sfx_BeginSound) has the
+        // SFX bank in the window, so switch to SND_SONG_BANK for the patch read and put
+        // back the bank the CALLER had (read from the SetBank cache, not assumed), so
+        // the caller's blob cursor keeps reading its own bank. Both SetBanks are cached
+        // no-ops while the song shares the SFX bank. Fm_SetVolume below reads only the
+        // patch already on the chip path + the head LUTs, which every song bank carries.
+        call    SndDrv_SongBankIn        // window -> the song's bank; a = the caller's bank
+        push    af
         call    Fm_PatchPtr              // hl = music FmPatch ptr (SND_SEQ_PATCHTAB, read-only)
         call    Fm_PatchLoad             // re-upload the music voice (re-asserts op-bias)
+        pop     af
+        call    SndDrv_SetBank           // window -> the caller's bank again
         // pan shadow resync: the patch upload just re-derived $B4, so a
         // song-commanded MEV_PAN (sc_pan != 0) is lost on the chip while the
         // write-on-change shadow still matches -> it would never refire. Zero the
@@ -1502,20 +1514,22 @@ section sound_sfx (cpu: z80) {
     // event). PSG needs no restore (the next note-on re-writes tone +
     // attenuation). Overridden voices belong to a live SFX; Sfx_Restore
     // re-uploads them when that SFX ends.
-    // BANK: patch reads go through the $8000 window — bank SFX_BLOB_BANK in
-    // (co-located with the song/patch bank; the Sfx_Frame precedent). Reached
-    // from the mailbox context, whose banked wrapper re-latches the resumed
-    // context's bank on exit.
+    // BANK: patch reads go through the $8000 window — bank the SONG's bank in
+    // (SND_SONG_BANK: the patch bank shares the song's bank, which is not the SFX
+    // bank once a song lives in bank 2; song bank 2 step 2). Banked only after the
+    // channel-count check, so a restore with no song loaded never selects the cold
+    // SND_SONG_BANK = 0. Reached from the mailbox context, whose banked wrapper
+    // re-latches the resumed context's bank on exit.
     // ----------------------------------------------------------------------
     // Contract: clobbers af,bc,de,hl,ix (the Fm_* callees preserve ix; the
     // walker itself re-points it).
     pub proc Sfx_UnpauseRestore () clobbers(af, bc, de, hl, ix) {
-        ld      a, SFX_BLOB_BANK
-        call    SndDrv_SetBank          // window -> patch bank (cached no-op if current)
         ld      a, (SND_SEQ_CHCOUNT)
         or      a
         ret     z                       // no channels loaded -> nothing to restore
-        ld      b, a
+        ld      c, a                    // the count survives the bank switch in c
+        call    SndDrv_SongBankIn       // window -> song/patch bank (cached; clobbers af,b,hl)
+        ld      b, c                    // b = channel count (djnz bound)
         ld      ix, SND_SEQ_CHANNELS
     .chan:
         bit     SCF_ACTIVE_B, (ix+sc_flags)
