@@ -147,8 +147,10 @@ def connectors_holding(legs, c, cy):
     (the 1-D rule; only a shaft was tested on both axes). In a 2-D act corridors stack: on
     s2_woven, x 4583 in Metropolis west (y 2859) is inside hpz_to_ooz's span, 4544..5103,
     although that tunnel is y 4624..5135, so the correct song-4 request made there was
-    flagged. On a 1-D act the rectangle is the tunnel the camera runs through, so nothing
-    it caught there is lost."""
+    flagged. Still caught (MEASURED on ROM-copy mutants whose corridor far half names the
+    far song): s2_woven's hpz_to_ooz request at (4850, 4863) and s2_mtz_cpz's 1-D
+    mtz_to_cpz request at (1763, 1067). tools/test_woven_route_witness.py holds both
+    cases."""
     return [co for co, _l, _r in legs
             if co.dst[0] <= c < co.dst[0] + co.dst[2]
             and co.dst[1] <= cy < co.dst[1] + co.dst[3]]
