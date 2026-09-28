@@ -1,12 +1,6 @@
 {
-  "focus": "Planning the second sound bank for the Sonic 2 songs with the assembler lane.",
-  "inFlight": [
-    {
-      "what": "How far the woven act is from being editable in aurora: sizing our side (aurora asked for theirs)",
-      "where": "branch research/woven-editable",
-      "agent": true
-    }
-  ],
+  "focus": "Woven-act fixes are in your ROM; the song bank waits on the assembler lane; editing the woven act is your call.",
+  "inFlight": [],
   "blockedOnOwner": [
     {
       "id": "SP6-MODULATION-DIVERGENCE",
@@ -22,16 +16,21 @@
       "id": "STEP8-RESIZE",
       "what": "Object video memory: halve the scroll plane now, or free savings now and halve it when badniks need it?",
       "since": "2026-09-27"
+    },
+    {
+      "id": "WOVEN-EDITABLE",
+      "what": "Make the woven act editable in aurora (commits about 9 MB of Sonic 2-derived data), or keep it generated?",
+      "since": "2026-09-28"
     }
   ],
-  "nextBoundary": "When the bank-shape answer returns and goes to the assembler lane for its probe.",
+  "nextBoundary": "At a boundary, clearable. Next row WOVEN-CROSSING-PATH; the song bank resumes when sigil's next session answers.",
   "queue": [
     {
       "id": "WOVEN-EDITABLE-IN-AURORA",
-      "title": "Make the woven act editable in aurora: sizing both sides now (you asked how far off it is)",
-      "state": "doing",
+      "title": "Make the woven act editable in aurora: sized (ours medium, aurora's large to very large); your call on freezing it",
+      "state": "blocked",
       "size": "M",
-      "blockedBy": null
+      "blockedBy": "decision card WOVEN-EDITABLE"
     },
     {
       "id": "WOVEN-CROSSING-PATH",
@@ -227,7 +226,7 @@
       "project": "REGIONS"
     }
   ],
-  "awaiting": null,
-  "atBoundary": false,
-  "updatedAt": "2026-09-28T01:51:50Z"
+  "awaiting": "Your pick on making the woven act editable in aurora (card WOVEN-EDITABLE; I recommend freezing a snapshot).",
+  "atBoundary": true,
+  "updatedAt": "2026-09-28T01:55:12Z"
 }
