@@ -5,6 +5,11 @@
       "what": "Measuring the last five checks nobody has tested yet, fixing any that can be fooled (tools only)",
       "where": "branch fix/gpp-unmeasured",
       "agent": true
+    },
+    {
+      "what": "Sizing your tunnel and shaft wish: the smallest covering that still hides the background switch, and the zone's own scenery in its place",
+      "where": "branch research/woven-cover",
+      "agent": true
     }
   ],
   "blockedOnOwner": [
@@ -142,5 +147,5 @@
   ],
   "awaiting": "your pick on the woven-act route fix (card WOVEN-TOUCHUPS), and a listen to Metropolis's song when you can",
   "atBoundary": false,
-  "updatedAt": "2026-09-28T15:10:04Z"
+  "updatedAt": "2026-09-28T15:12:12Z"
 }
