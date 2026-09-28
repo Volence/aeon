@@ -555,6 +555,16 @@ from scene_spans import (AEON, capability_bits, expected_spans, game_caps,
 #                                  = +10 B, UNGATED (beside the rate clamp, outside every CAP_*
 # block), so the same in both games. Parallax_CheckBoundary grew too (the layout compare that
 # sets the byte); this pin does not name that proc.
+# RE-DERIVATION LOG — 2026-09-28, PARALLAX-STEP5-SNAP-DEAD (`fix/step5-snap-dead`). The pin FAILED
+# and was right to. TWO rows moved, DERIVED from the source change, then read off both listings:
+# the one-shot `clr.b Parallax_Snap_Pending` (4 B, abs.w) moved from Step 3's tail to Step 5's
+# `.v_store`, so Parallax_Update -4 and Parallax_Step5_Vscroll +4, UNGATED, in both games:
+#     demo    Parallax_Update 260 -> 256, Parallax_Step5_Vscroll 186 -> 190
+#     sonic4  Parallax_Update 290 -> 284 (-6), Parallax_Step5_Vscroll 428 -> 432
+# sonic4's extra -2 is a RELAXATION, read off the ROM bytes: the `beq .no_config` after the
+# band-count load spans the band loop, and with the loop 4 B shorter its displacement falls from
+# $82 (130, beq.w: 67 00 00 82) to $7C (124, beq.s: 67 7C). Demo's loop is shorter (no drift
+# block) and was already in short reach, so demo moves by the clr alone.
 DEMO_SPECIALISED_PROCS = {
     "Effects_LatchWorldLines":   26,   # CAP_ANCHOR_MOTION          (sonic4 126)
     "Effects_SetTargetY":         2,   # CAP_ANCHOR_MOTION          (sonic4  36) — a bare rts
@@ -564,8 +574,8 @@ DEMO_SPECIALISED_PROCS = {
     "Parallax_Set_Roles_Swapped": 0,   # CAP_ROLE_SWAP              (sonic4  56) — no unconditional caller, so the whole proc elides
     "Parallax_StartTransition":  78,   # CAP_PER_COL_VSRAM, CAP_TRANSITIONS  (sonic4 106)
     "Parallax_Step4_Fill":      188,   # CAP_ANCHORS, CAP_FACTOR_CURVE  (sonic4 656 at its 32 B record stride). 192 -> 188 on 2026-09-13, RE-DERIVED, not re-baselined: the band record is per game now (GAME_SCANLINE_CAPS) and demo's is the legacy 10 B, not sonic4's 32. Two ungated sites follow sizeof(band_record): `mul_const.w d3, #sizeof(band_record), d5` goes from x32 = `lsl.w #5` (2 B) to x10 = the word LTR chain move/lsl #2/add/double (8 B, +6), and copy_band_entry_fwd goes from 8 x move.l (16 B) to 2 x move.l + move.w (6 B, -10). Net -4, derived before building in docs/superpowers/notes/2026-09-13-per-game-band-defines.md §1.3
-    "Parallax_Step5_Vscroll":   186,   # CAP_PER_COL_VSRAM, CAP_TRANSITIONS, CAP_ROLE_SWAP  (sonic4 428; 176 -> 186 on 2026-09-27, the layout-change snap, +10 DERIVED, see the log above; sonic4 418 before; 170 -> 176 on 2026-09-27, the one-plane arm, +6 DERIVED, see the log above. Before that: sonic4 412, MEASURED this parcel — the parenthetical said 280 and the listing said 362 even before step 4 moved it; these numbers are commentary and nothing asserts them, so the stale one had gone unnoticed). 120 -> 170 on 2026-09-16, regions part 2 step 4's BG V-scroll clamp: DERIVED +50 instruction by instruction before the build, see the RE-DERIVATION LOG above
-    "Parallax_Update":          260,   # CAP_ROLE_SWAP              (sonic4 290). 246 -> 260 on 2026-09-06: the DEBUG-only live-effects arm poll, +14 in BOTH fixtures (shape-gated, not capability-gated) — see the log above
+    "Parallax_Step5_Vscroll":   190,   # CAP_PER_COL_VSRAM, CAP_TRANSITIONS, CAP_ROLE_SWAP  (sonic4 432; 186 -> 190 on 2026-09-28, the Snap_Pending clear moved in, +4 DERIVED, see the log above; sonic4 428 before; 176 -> 186 on 2026-09-27, the layout-change snap, +10 DERIVED, see the log above; sonic4 418 before; 170 -> 176 on 2026-09-27, the one-plane arm, +6 DERIVED, see the log above. Before that: sonic4 412, MEASURED this parcel — the parenthetical said 280 and the listing said 362 even before step 4 moved it; these numbers are commentary and nothing asserts them, so the stale one had gone unnoticed). 120 -> 170 on 2026-09-16, regions part 2 step 4's BG V-scroll clamp: DERIVED +50 instruction by instruction before the build, see the RE-DERIVATION LOG above
+    "Parallax_Update":          256,   # CAP_ROLE_SWAP              (sonic4 284). 260 -> 256 on 2026-09-28: the Snap_Pending clear moved to Step 5, -4 DERIVED (sonic4 290 -> 284, -6 with a beq relaxation), see the log above. 246 -> 260 on 2026-09-06: the DEBUG-only live-effects arm poll, +14 in BOTH fixtures (shape-gated, not capability-gated) — see the log above
     "Raster_GetChannelBand":      8,   # CAP_ANCHORS                (sonic4  50)
     "Raster_HInt":              316,   # CAP_DENSE_TIER             (sonic4 338) — see the
                                         # RE-DERIVATION LOG above; unmeasurable before the

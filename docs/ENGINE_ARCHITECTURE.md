@@ -1793,7 +1793,7 @@ T1 ships with the shared region populated from `act_bg_tiles` (zone-wide pointer
     - **THE SWEEP IS FIXED — top visible row, walking down, wrapping — and has no entry-side rule.** §4.3 asked for a direction from the crossing axis with hidden rows first. A row spans the whole plane width, so a horizontal crossing carries no row order at all; a FALL enters from above with no horizontal component (measured, `REGIONS-VERTICAL-CROSSING-ON-LANDING`); and hidden-first would hold the new-palette-over-old-art transient (E2 snaps the palette on frame 0) for all 16 frames instead of clearing it in 8. **Nothing in the ten-tree reference corpus paints off-screen rows first.**
     - **What is stored is a PLANE row, not a map row**, and the source map row is derived at the draw as `T + ((p - T) mod PLANE_V_CELLS)` from the live `BG_Plane_Top`. That is what survives the window moving mid-sweep, which a fall does: a stored map row goes stale, and a window-relative offset steps the covered plane rows by more than one per spend and leaves holes.
     - **The window SNAPS at the arm**, because a wipe is an asynchronous prime and the only window the tracker can usefully name is the destination — the same thing `Section_RedrawPlanes` does for its synchronous one. It also makes every derived source row in-bounds by construction, which the cross-OUT case needs: step 5's two early-outs left `BG_Plane_Top` at a value a shorter map has no row for, and they are gone.
-    - **`Parallax_Snap_Pending` is NOT set at the arm**, though §4.3 asks for it. Its stated purpose (stop the BG scroll lerping) is unreachable — Step 3 clears the byte before its `jbra` into Step 5 (`PARALLAX-STEP5-SNAP-DEAD`) — and what it does reach is Step 3's per-band `.snap_b`, overriding the ramp `Parallax_StartTransition` staged from the author's `pcfg_transition`. Nothing in the wipe touches a band scroll, a drift accumulator or the BG scroll, so `d-43` ("a drifting background CONTINUES across a boundary") is not in play.
+    - **`Parallax_Snap_Pending` is NOT set at the arm**, though §4.3 asks for it. Its stated purpose (stop the BG scroll lerping) was unreachable when this was ruled — Step 3 cleared the byte before its `jbra` into Step 5 (`PARALLAX-STEP5-SNAP-DEAD`, closed 2026-09-28: Step 5 now reads and clears it, so the flag WOULD now snap that scroll) — and what it also reaches is Step 3's per-band `.snap_b`, overriding the ramp `Parallax_StartTransition` staged from the author's `pcfg_transition`. Nothing in the wipe touches a band scroll, a drift accumulator or the BG scroll, so `d-43` ("a drifting background CONTINUES across a boundary") is not in play.
     - **Flying Battery is the live counter-precedent and is answered, not omitted.** FBZ1/FBZ2 (`sonic3k.asm:108708-108718`, seven agreeing decision sites) pick the sweep direction from travel on all four axes — *seed at the edge you are travelling toward, walk away from it* — which on a descent is the opposite seed. Not adopted because its horizontal half needs a COLUMN producer (ours is deleted) and because FBZ has no LEAD: its plane is 16 block-rows against a 15-row screen, so there is no hidden tail to order, where ours has 17 rows hidden above and the rest below. S3K's other seven zones use a fixed bottom-up seed regardless of sign.
     - **GATE BG-WIPE** (`tools/bg_wipe_gate.py`, registered in `tools/effects_gates.py`, nightly): flies both a horizontal and a vertical crossing, grades ARM / RATE / DONE / COVERED / VISIBLE / FINAL plus a same-layout CONTROL. Red-first against three mutations (5, 3 and 2 failing legs); CONTROL green in all four runs.
   - **`BG_Stream_Update` is the steady-state streamer, and `BG_Plane_Top`'s only mover after the two blits seed it** (regions part 2 step 5, 2026-09-16; `engine/level/bg.emp`). Called from the three `jbsr Parallax_Update` sites in `games/sonic4/test/ojz_scroll_test.emp` — after it, because it reads the clamped map-space scroll Step 5 just stored, and before `VSync_Wait`, because the row entries it appends to `Plane_Buffer` must drain in the SAME VBlank as the VSRAM word that reveals them.
@@ -2775,9 +2775,19 @@ phase all take it from there).
 - **The DEBUG warp no longer ratchets (BG-RATE-PRIME-EXEMPTION, closed 2026-09-28 by
   WARP-VSCROLL-PRIME).** It used to prime the plane from the pre-warp scroll and then ratchet the
   scroll to its target at 16 px/frame on a tall map. The signals rejected on the way are recorded
-  at the clamp in `parallax.emp`: `Parallax_Snap_Pending` is dead at this site (Step 3 clears it
-  before tail-calling Step 5), `BG_Wipe_Cursor` is zero exactly on a prime, and a camera-delta
-  threshold would be an underived heuristic.
+  at the clamp in `parallax.emp`: `Parallax_Snap_Pending` was dead at this site (Step 3 cleared it
+  before tail-calling Step 5; live since 2026-09-28, and still the wrong byte: it means "skip the
+  lerp", not "the plane is repainted"), `BG_Wipe_Cursor` is zero exactly on a prime, and a
+  camera-delta threshold would be an underived heuristic.
+- **The two snap bytes are two stages, not two answers (PARALLAX-STEP5-SNAP-DEAD, closed
+  2026-09-28).** `Parallax_Snap_Pending` skips the LERP: Step 3 snaps the band words on it and
+  Step 5 stores the whole-plane BG scroll at its target on it, and Step 5 clears it at `.v_store`
+  (it was cleared at Step 3's tail, which made Step 5's test dead). `Parallax_BG_Snap` skips the
+  RATE clamp, which runs after the lerp and only on a tall map. The DEBUG warp needs both: its
+  crossing STAGES a smooth transition whenever the destination's config differs and declares
+  `pcfg_transition` 0, and with the Step 5 test dead that warp snapped the bands and lerped the
+  whole-plane scroll 1/16 of the gap a frame, then popped the residual on the promote frame.
+  Gate: `bg_vscroll_rate_witness` leg P (A7).
 - **Gate:** `tools/bg_vscroll_rate_witness.py` (BG-RATE), in the `tools/effects_gates.py` lane.
   Leg W grades the ratchet on DEBUG OJZ's tall-map region (driven since 2026-09-28 by a raw
   `Camera_Y` write under `Debug_Scene_Freeze`, because a warp now snaps), leg X the one-plane snap

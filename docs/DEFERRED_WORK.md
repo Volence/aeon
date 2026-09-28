@@ -111,7 +111,10 @@ holds where it applies. Per-frame cost unchanged; a picture change pays a 16-lon
 - **CLOSED 2026-09-28 (WARP-VSCROLL-PRIME, `fix/warp-vscroll-prime`): BG-RATE-PRIME-EXEMPTION.** The
   warp now stores the BG scroll at its target and primes the plane from it; `clip_bg_scroll_witness
   --warp-entry` GRADES the slide now and reads **0 slide frames** into every Hidden Palace layout
-  (woven DEBUG crc `4f996403`, `s2_hpz_solo` `8dff61c1`). See that entry. The original bullet:
+  (woven DEBUG crc `4f996403`, `s2_hpz_solo` `8dff61c1`). See that entry. **CORRECTED 2026-09-28:** only
+  for an INSTANT destination config (every clip warp above); a warp that staged a smooth transition
+  still slid until PARALLAX-STEP5-SNAP-DEAD closed (DEBUG OJZ row 0 -> 11: 0, 41, 57 ... 329 against
+  544, crc `ef4a4385`; fixed `8236bc31`). The original bullet:
 - ~~**STILL OPEN, narrowed and measured: BG-RATE-PRIME-EXEMPTION on a band chain.**~~ After a DEBUG warp
   into Hidden Palace's layouts 1-3 the V-scroll ratchets 15 / 31 / 44 frames to its target, and on
   14 / 30 / 38 of those frames the live layout's bands sit on rows Sonic 2 scrolls differently (the
@@ -36257,6 +36260,12 @@ Events.asm`, `Engine/Core/Draw Level.asm`).
   commit before the run): exit 1, A1 (366 px in one invocation), A3, A4 (run 0) on leg W.
 * **Crossings unchanged** (`tools/crossing_witness.py`, woven DEBUG `4f996403`, all 11 connectors):
 **0 glitch ticks, 0 faulted, rc 0 on each** (38 runs: 6 on each of the 4 corridors, 2 on each of the 7 shafts), the same 0 the booking recorded before this change.
+* **CORRECTED 2026-09-28 (`fix/step5-snap-dead`): the closure above held only where the warp's
+  destination config is INSTANT.** A warp whose crossing stages a SMOOTH transition still slid, MEASURED
+  on DEBUG OJZ (row 0 -> the tall row 11: 0, 41, 57 ... 329 against a target of 544, crc `ef4a4385`),
+  because Step 5's dead `Parallax_Snap_Pending` test let the lerp through and `Parallax_BG_Snap` only
+  skips the rate clamp after it. Every witness above ran on instant destinations, which is why it read 0.
+  Closed by PARALLAX-STEP5-SNAP-DEAD (fixed crc `8236bc31`: every store at 544). The original bullet:
 * **NOT folded in:** PARALLAX-STEP5-SNAP-DEAD (Step 5's dead `Parallax_Snap_Pending` test). This fix
   does not touch that test and needs nothing from it: a lerping config on the warp tick would still
   lerp, but no witnessed entry lerps (0 slide frames). **Suspected, NOT measured:** the BOOT ladder can
@@ -36313,7 +36322,8 @@ build one still owes this question an answer.)
 
 **Why no exemption was built, which is the part worth carrying.** The obvious signal is
 `Parallax_Snap_Pending`, and it is **not available at this site** — see PARALLAX-STEP5-SNAP-DEAD
-below. Inventing a private "this frame is a prime" flag would have been a second authority for a
+below. (**2026-09-28:** it reaches Step 5 now, that entry is CLOSED, and it is still the wrong byte for
+this question: it means "skip the lerp", and its non-warp writers say nothing about a repaint.) Inventing a private "this frame is a prime" flag would have been a second authority for a
 question step 6 (the wipe) was expected to answer, and this repo's standing lesson is that a
 second private answer to one question is how the 2026-08-26 precedence bug shipped. So the ratchet
 is left visible and named rather than papered over. (**That expectation turned out to be wrong and
@@ -36347,7 +36357,52 @@ camera moved more than N`, i.e. infer the prime from the camera delta. Rejected 
 above — it is a heuristic standing in for a state the engine will shortly hold explicitly — and
 because it would make the rate clamp's behaviour depend on a threshold nobody derived.
 
-## PARALLAX-STEP5-SNAP-DEAD — `Parallax_Step5_Vscroll`'s snap test reads a byte Step 3 already cleared (found 2026-09-16, NOT introduced by step 4)
+## PARALLAX-STEP5-SNAP-DEAD — `Parallax_Step5_Vscroll`'s snap test reads a byte Step 3 already cleared (found 2026-09-16, NOT introduced by step 4; CLOSED 2026-09-28, `fix/step5-snap-dead`)
+
+**CLOSED 2026-09-28 by FIXING it (candidate 1), not deleting it: a real case was still lost, and
+MEASURED.** The clear moved from Step 3's tail to Step 5's `.v_store`, after the store. Every arm of
+Step 5 reaches `.v_store` (`.v_locked` too, through `.v_pack`), nothing between Step 3 and there reads
+the byte, and the `.no_config` early-out still leaves it armed exactly as before, so Step 3's contract
+("one-shot, consumed by this Update") holds unchanged. Candidate 2 (a stash) buys nothing over that.
+
+* **Who sets `Parallax_Snap_Pending`, enumerated by what writes the byte** (grep over `.emp`, plus the
+  test scaffolding): `Parallax_Init` (its tail Update), `Parallax_StartTransition`'s `.instant` and
+  `.recross_current` arms, and the DEBUG warp (`Debug_Warp_Consume`, `st` before its crossing). Tools
+  poke it too (`parallax_crossing_gate`). **Readers:** Step 3's per-band `.snap_b` and Step 5's test;
+  nothing else, and no interrupt handler.
+* **Which cases the dead test lost.** The first three writers leave `Parallax_Transition_Frames` at 0
+  (Init zeroes it; `.instant` and `.recross_current` store 0 beside the flag), so Step 5's
+  `CAP_TRANSITIONS` test took `.v_snap` for them anyway: dead or live, the same store. The DEBUG warp is
+  the one writer whose frame can carry a transition: its crossing STAGES one (`Frames` 16, `Target` =
+  the destination) whenever the destination row's live config differs from the origin's and declares
+  `pcfg_transition` 0, the default. On that frame Step 3 snapped the bands and Step 5 LERPED the
+  whole-plane BG scroll from its pre-warp value.
+* **Does `Parallax_BG_Snap` (WARP-VSCROLL-PRIME) cover it? No: they are two stages.**
+  `Parallax_Snap_Pending` skips the LERP (Steps 3 and 5); `Parallax_BG_Snap` skips the RATE clamp, which
+  runs after the lerp and only on a map taller than the plane. The warp needs both, and sets both.
+  Neither can stand in for the other: BG_Snap's other writer (a layout-changing crossing) must still
+  lerp if the author's config says so, and Snap_Pending's other writers say nothing about a repaint.
+* **Measured (headless, `tools/bg_vscroll_rate_witness.py`, new leg P / A7, DEBUG FAST builds).** The
+  leg asks the engine for every row's live config, takes the smooth destination with the largest
+  derived gap (DEBUG OJZ: row 0, config `0x1487e`, scroll 0 -> row 11, the DEBUG tall region, config
+  `0x134f8`, camera Y 5808, target 544) and requires the subject (Transition_Frames 15 on the warp's
+  own Step 5). **Unfixed** (e47493aa, crc `ef4a4385`): exit 1, 19 of 19 stores off target:
+  0, **41**, 57, 73 ... 329 (the lerp's 1/16 on the warp's own store, BG_Snap letting it through
+  unclamped, then the body's stores ratcheting at 16 px a frame on the tall row: the
+  BG-RATE-PRIME-EXEMPTION slide, back through a smooth config). **Fixed** (crc `8236bc31`): PASS, exit
+  0, every store 544. **Mutant** (the clear put back at Step 3's tail, crc `0403710a`): exit 1, A7
+  alone, identical to the unfixed numbers. Legs C D W X S unchanged on all three.
+* **Why the previous parcel's witnesses were green on it:** every clip act they ran on binds INSTANT
+  scroll configs at the warp's destinations (s2_woven's `crossing_overrides.parallax = snap`; Hidden
+  Palace's layout chain is `transition: 1`), so the warp never staged a transition there. Woven stays
+  blind to this case after the fix; leg P on canonical DEBUG OJZ is its gate.
+* **Release bytes move** (Step 5 is not DEBUG-only): the clear is 4 bytes out of `Parallax_Update` and
+  4 into `Parallax_Step5_Vscroll`; in sonic4 the `beq .no_config` above the band loop also relaxes from
+  `.w` to `.s` (displacement $82 -> $7C), so Update is 290 -> 284 and Step5 428 -> 432 (demo 260 -> 256,
+  186 -> 190). `demo_specialization_witness`'s pin re-derived with a log entry.
+
+The original entry follows, unedited.
+
 
 `Parallax_Step5_Vscroll` opens its BG arm with `tst.b Parallax_Snap_Pending / bne .v_snap`. That
 test can never be taken. The proc has **exactly one caller** — the `jbra Parallax_Step5_Vscroll` at
