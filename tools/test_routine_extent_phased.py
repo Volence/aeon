@@ -35,6 +35,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import collision_consistency                                       # noqa: E402
 import instashield_gate                                            # noqa: E402
 import layer_line_gate                                             # noqa: E402
+import pstate_writers                                              # noqa: E402
 import scene_spans                                                 # noqa: E402
 import sprite_tilt_gate                                            # noqa: E402
 import waterline_art_gate                                          # noqa: E402
@@ -69,6 +70,8 @@ def consumers():
     def collision_rom_tables(syms):
         return collision_consistency._span(syms, "P",
                                            scene_spans.vma_phased_symbol_names())
+    def pstate(syms):
+        return pstate_writers.Extents(syms).extent("P")
 
     return [
         ("instashield_gate.routine_extent", instashield, "P", "$m$P$loop"),
@@ -77,6 +80,10 @@ def consumers():
         ("waterline_art_gate.proc_span", waterline, "P", "$m$P$loop"),
         ("layer_line_gate.extent", layer_line, "P", "$m$P$loop"),
         ("collision_consistency._span", collision_rom_tables, "P", "$m$P$loop"),
+        # GPP-INSTASHIELD-WALKOFF (2026-09-28): the walk-off writer pass. Its local
+        # rule is wider on purpose — EVERY `$`-prefixed symbol, since a macro expansion
+        # mints `$module$asmN$label` locals inside the routine (see its extent()).
+        ("pstate_writers.Extents.extent", pstate, "P", "$m$asm6$abs"),
     ]
 
 
@@ -177,6 +184,7 @@ class TestNoSIXTHConsumerSlipsIn(unittest.TestCase):
         "instashield_gate.py", "sprite_tilt_gate.py",
         "waterline_art_gate.py", "scene_spans.py", "layer_line_gate.py",
         "collision_consistency.py",
+        "pstate_writers.py",
     }
 
     def test_every_file_using_the_next_symbol_idiom_is_claimed_and_filtered(self):

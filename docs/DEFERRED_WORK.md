@@ -40808,6 +40808,57 @@ for every gate; it is not the proxy/subject shape.
    `moveq #PSTATE_AIR` -> `#PSTATE_JUMP` gave exit 0. The gate proves the routine refuses every
    state except JUMP/ROLLJUMP. That a walk-off is not JUMP came from a one-time hand enumeration of
    writers. Fix: also execute the walk-off writers with a `Player_SetState` stub.
+
+   **FIXED 2026-09-28 (`fix/gpp-instashield-walkoff`, base master `32a3f074`).** A third pass in
+   `instashield_gate.py` (`--ability all`, the default build.sh runs), backed by the new
+   `tools/pstate_writers.py`. It does not take the writer set from anyone's list:
+   - **Sites, from the ROM:** every 68000 transfer encoding to `Player_SetState` (bsr/bra/Bcc
+     .s/.w, jsr/jmp abs.w/abs.l/pc) over the whole image, attributed to its listing routine.
+     s4.debug: 31 sites in 27 routines.
+   - **The same sites, from the source** the build's DIGEST-READ rows name. They must agree
+     routine for routine. Any other reference to `Player_SetState` (address taken, table) and
+     any direct write of the state byte other than `clr.b` / `move.b #CONST` is refused.
+     Today's direct writes: Player_Init's `clr.b` (GROUND) and Player_SetState's own store.
+   - **The state each site installs:** a d0 dataflow over flow-decoded bytes (callee
+     summaries, `movem` save/restore, `@noreturn` from source). An unknown d0, an unreached
+     site, an empty writer set or a ROM/source disagreement is UNMEASURABLE (exit 2).
+   - **The accepted set, by EXECUTING both abilities** (not a literal): {JUMP, ROLLJUMP}.
+   - **Ground_DetachState is also EXECUTED** with a `Player_SetState` stub over all 256
+     entry states. It reads nothing but the state byte, so the executed set must EQUAL the
+     dataflow's ({AIR, AIRBALL}).
+   - `GRANTERS` = {Player_Jump, Climb_JumpOff, Ability_InstaShield (the ROLLJUMP->JUMP
+     cancel)} is the one declared input ("which routines are jumps"). It is checked both ways:
+     any other routine installing an accepted state fails, and a granter that stops
+     installing one fails as stale.
+
+   Red first, each on a rebuilt `DEBUG=1 ./build.sh` (build.sh exit 1 at "Ability jump-gate
+   check failed"). The old predicate (`--ability both`, the two unchanged passes) exited 0 on
+   both ROMs:
+   - the audit's mutation, `player_ground.emp` Ground_DetachState `moveq #PSTATE_JUMP, d0`
+     (ROM crc `e602aa48`): "Ground_DetachState installs PSTATE_JUMP, which Ability_InstaShield
+     and Ability_TailsFlight ACCEPTS". The executed arm also caught it: "Ground_DetachState,
+     EXECUTED with a Player_SetState stub, installs PSTATE_JUMP".
+   - a second walk-off writer, `player_spindash.emp` `.floor_gone` (the floor drops away
+     under a spindash) `moveq #PSTATE_ROLLJUMP, d0` (ROM crc `c9c767f7`): "PState_Spindash
+     installs PSTATE_ROLLJUMP ...". This routine is not executable, so only the dataflow
+     graded it.
+
+   Both were restored with `git show HEAD:<path> > <path>`. Green: `tools/landing_build.sh`
+   on the restored tree (see the merge evidence).
+
+   **Found on the way:**
+   - The hand enumeration was already stale. `player_instashield.emp`'s header says springs
+     are `rts` stubs, but `Spring_Launched` (test_solid.emp) is built and installs
+     {AIR, AIRBALL}. That is correct, and it is now graded rather than assumed. The comment
+     was not edited (tools-only parcel).
+   - An extent that stops at "the next symbol that is not the routine's OWN local" also stops
+     at macro-minted locals (`$mod$asm6$abs` from `abs_w`), which cut Air_Collide 0xC4 bytes
+     short. `pstate_writers.Extents` treats every `$` symbol as local (all 2053 in
+     s4.debug.lst are `$mod$scope$label`) and is registered in
+     `test_routine_extent_phased.py`. `routine_extent`'s two subjects contain no macro locals.
+
+   **Not seen:** a state-byte write through a raw numeric displacement or through a comptime
+   macro that takes the field as a parameter. Neither exists today.
 10. **GPP-CROSSOVER-SENSORS** (`loop_crossover_gate.py`, measured). `Player_SensorSurface`'s
     `move.b layer(a0), d3` -> `nop` gave exit 0: the byte decides `Sst.layer`, and nothing checks
     that the sensors read it. Sensor entries live in several files, so this is not a one-site fix.
