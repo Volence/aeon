@@ -1886,5 +1886,15 @@ if __name__ == "__main__":
 #       frame on the tall row). The unfixed tree (e47493aa, crc ef4a4385) is red identically; the
 #       fixed tree (crc 8236bc31) PASS, exit 0, every store at 544.
 #
+#   (e) THE BOOT PRIME (2026-09-28, BOOT-TALL-VSCROLL-RATCHET). Two reds, both RUN:
+#       - THE PARENT TREE (28880431, the boot ladder priming before any crossing; DEBUG crc
+#         8236bc31): exit 1, A8 alone. Primed from 288 (Region_Current null, act-default
+#         ceiling) against 544, then 304, 320 ... 544 over 16 invocations.
+#       - THE SNAP ALONE: delete the boot ladder's `st Parallax_BG_Snap` line in
+#         GameState_OJZScroll_Init (the crossing stays above the prime). Mutant DEBUG crc
+#         1ac22e9e, source restored from the fix commit before the run: exit 1, A8 alone,
+#         primed from 304 (one clamped step off 288), then 320 ... 544.
+#       Fixed tree, DEBUG crc 1000eded: PASS, exit 0, primed from 544, 19 of 19 stores at 544.
+#
 # A mutation that leaves the tool green is a runner defect, not a pass: check that the rebuilt
 # ROM is the one the witness loaded (`--rom`) before concluding anything about the instrument.
