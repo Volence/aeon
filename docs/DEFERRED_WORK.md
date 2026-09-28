@@ -36971,7 +36971,7 @@ Also found, open: (a) the S3K 10-zone row needs 164 sections against `MAX_ACT_SE
   - **Not driven:** going UP any shaft (a climb from ledge to ledge; nothing reaches C1/C2's bottom mouth from Emerald Hill's or Metropolis's ground, springs are S2CLIP-OBJECTS), and running through the zones between connectors (the route PLACES the player; Metropolis west's pit and WOVEN-CPZ-POCKET-ROUTE). Music as before: EHZ and CPZ only (S2CLIP-MTZ-SONG-BANK; HPZ/WFZ/OOZ refused by the importer).
 - **2026-09-27 (bake 2-D, branch `parcel/woven-bake-2d`): the report's §C items 8 and 9.**
   - **Item 8 DONE: a clip act emits no inherited OJZ entities.** The staged project says `entities: none` and Pass 8 (`ojz_entity_gen`) emits every section's tables empty at the clip act's own grid, reading no editor JSON. The >= 9 sections / whole-rows-of-3 refusals no longer apply to a clip act (they still guard the shipped act, pinned). Clip-act ROMs lose OJZ's objects and rings; canonical Pass 8 output byte-identical (`tools/test_clip_act_no_entities.py`).
-  - **Item 9 is ALREADY CLOSED by the one-path paste (MEASURED, no change made).** Plane-B solidity anywhere in the converted tree: EHZ, CPZ, WFZ yes; **MTZ, HPZ, OOZ no**, so all three are pasted with plane A on both planes and K6 reads agreeing planes. K6 per side over every 16-px floor row at the v2.1 layout's tunnel mouths: 0 rows refused as "planes disagree". Metropolis west's east edge now ACCEPTS donor y 640, 768, 1664 (the three rows the report found refused only for the empty plane B). C11's sides accept too: Hidden Palace east y 1792, 1920; Oil Ocean west y 576, 624, 880, 1312, 1408, 1728 (624 a ramp).
+  - **Item 9 is ALREADY CLOSED by the one-path paste (MEASURED, no change made).** (The criterion below was RE-KEYED 2026-09-27 by WOVEN-WFZ-PLANE-B: a zone is one-path iff its Sonic 2 object layout has no plane switcher that selects path B, which makes WFZ one-path too; plane-B solidity no longer decides.) Plane-B solidity anywhere in the converted tree: EHZ, CPZ, WFZ yes; **MTZ, HPZ, OOZ no**, so all three are pasted with plane A on both planes and K6 reads agreeing planes. K6 per side over every 16-px floor row at the v2.1 layout's tunnel mouths: 0 rows refused as "planes disagree". Metropolis west's east edge now ACCEPTS donor y 640, 768, 1664 (the three rows the report found refused only for the empty plane B). C11's sides accept too: Hidden Palace east y 1792, 1920; Oil Ocean west y 576, 624, 880, 1312, 1408, 1728 (624 a ramp).
   - **What still refuses every v2.1 tunnel is GEOMETRY, not K6's plane rule:** at the layout's paste offsets no floor row is flush at BOTH mouths of C5, C6, C7 or C11 (MEASURED, both sides together: 0 accepted rows each). The full-act layout has to choose each pair's vertical offsets from the rows each edge accepts, as `s2_mtz_cpz` did (its note, point 1). A layout job for the full-act parcel.
   - **Item 6 DONE: NEUTRAL FILL (`clips.json` `fill`, clip_manifest K8).** Every cell of `fill.rect` no clip or corridor covers is the open corridor's stone tile on CRAM line 0 (the corridor sheet's zone key) and the bank's full solid block on both planes (the corridor floor's word: no new attr entry beside a corridor). K8 refuses a fill without a `why`, off the 16-px block grid, past the act, or met by a clip/corridor edge off that grid. The static bake's pool rows gain `per_fill` (only when there is a fill) and still add up. Every committed clip act bakes identically (static trees, region rows, emitted module texts; `seconds` timings excluded). `tools/test_clip_woven_2d.py`.
   - **Item 2 DONE (the manifest + bake half): SHAFTS (`clips.json` `shafts`, clip_manifest K7/K9/K10).** One schema for the report's three vertical kinds: a DROP shaft (air lane, walls outside it), a STAIR shaft (`ledges`: one top-solid-only block row every `pitch` px from the bottom mouth up, alternating sides) and a CLOUD band (`look: cloud`: donor art recoloured to line 0 with its holes painted the line-0 colour nearest $0E66, no lip). Every shaft pixel is painted (no background shows). K7: a shaft JOINS one clip above to one below (`connector_ends`, from the geometry). K9: block grid, lane at least a standing player wide, ledge pitch no more than the LEAST standing-jump rise over every character (`jump_reach_px`: PHYS_JUMP_FORCE and KNUX_JUMP_FORCE under PHYS_GRAVITY, 85 px today; Knuckles binds), a cloud band names its art. K10 (at bake): each mouth open across the lane on both planes (nothing solid from the side or below; a top-only floor passes). MEASURED: the top-only ledge block cost 0 attr entries on the EHZ/CPZ fixture (88 both ways; §A.6's "+1 at most"). Crossing a shaft is NOT yet planned or timed: that is items 1, 3 and 15. `tools/test_clip_woven_2d.py`.
@@ -42901,7 +42901,7 @@ Open riders:
 - **WOVEN-FALSE-BALANCE-3 (slope gate):** the new flat-angle gate means no teeter at rest on a
   slope steeper than $20, as in S3K. Not separately measured on the ROM.
 
-## WOVEN-WFZ-PLANE-B: Wing Fortress keeps a plane B Sonic 2 never uses; a player carried onto layer 1 falls through its decks (found 2026-09-27, OPEN)
+## WOVEN-WFZ-PLANE-B: Wing Fortress keeps a plane B Sonic 2 never uses; a player carried onto layer 1 falls through its decks (found 2026-09-27; CLOSED 2026-09-27 by fix/woven-wfz-plane-b)
 
 **The sighting** (read-only, the owner's window): woven (5133, 1389), grounded idle, status 0,
 **layer 1**, "should Wing Fortress have collision?". That spot is the act's neutral FILL floor at
@@ -42933,3 +42933,55 @@ changes. Cost: the woven and s2_wfz_solo bakes change (WFZ plane B := plane A), 
 `collision_baseline.json` RULE B entries keyed to WFZ plane B must be regenerated
 (`build_woven_act.py baseline`), and a witness row (place on layer 1 in Wing Fortress, must stand
 on the deck plane A has).
+
+**CLOSED 2026-09-27 (`fix/woven-wfz-plane-b`, base master `06185e04`).** Cause confirmed as
+booked. `tools/clip_manifest.py`: `zone_has_plane_b` (plane-B solidity anywhere in the converted
+tree) is DELETED; `zone_path_b_switchers` counts the zone's act-1 Obj03 records that can select
+path B (not x-flipped, subtype bit 3 or 4; every prototype Obj03 counts), read with
+`s2_layer_lines`' own readers, and `_clip_collision` pastes plane A on both planes when it is 0.
+MEASURED (B-selecting / all Obj03): EHZ 17/19, CPZ 34/60, ARZ 16/30, CNZ 6/6, HTZ 17/18, SCZ 1/1;
+MCZ, OOZ, MTZ, WFZ 0/0; prototype HPZ 0 of 43. Only Wing Fortress changes.
+- **Unit (pre-build lane, `tools/test_clip_one_path_zone.py`):** RED 3/3 on master's clip_manifest
+  (WFZ plane B != plane A in s2_wfz_solo and woven; the sighting column's plane B has only y 512),
+  10/10 green after, incl. the controls: MTZ + one B-selecting Obj03 is two-path and K6 refuses its
+  seam; an x-flipped (keep-path) Obj03 does not; a planted plane-B solid word no longer decides.
+- **Runtime (`tools/path_b_floor_witness.py`, wired `keepalive_manifest.toml` `#woven`):** layer-1
+  player on level plane-A ground of every one-path clip (6 derived spots a clip + the sighting,
+  graded at x 5137 on the y 1152 deck; the 1280 "deck" in that column is the underside of solid
+  hull, no standing room), each with a layer-0 control. RED on master's woven DEBUG ROM (crc
+  `1bce0476`): 7/7 WFZ spots FELL (5137: 1152 -> 1312), 30/30 MTZ/HPZ/OOZ held. GREEN after (crc
+  `d6ce40fb`): 37/37 held.
+- **Baselines:** woven `collision_baseline.json` 123 -> 119 entries (RULE B 11 -> 7: WFZ's four
+  plane-B notches left with its plane B), 0 new violations; s2_wfz_solo 4 -> 0, file deleted
+  (`collision_consistency.py` OK with no clip baseline).
+- **Woven witnesses on `d6ce40fb`:** crossing_witness 0 glitch ticks on all 11 connectors (46 runs,
+  0 faulted); woven_route_witness (ehz_to_mtz,mtz_to_cpz,cpz_to_mtz,mtz_to_ooz) GREEN;
+  balance_witness GREEN 15/16 graded, 1 unmeasured; first_screen_fg_witness PASS 9 stops.
+- **Landing:** `tools/landing_build.sh` exit 0, `finished=0` (pytest 3767 passed / 3 skipped;
+  34 marked ran and passed, 1 EXEMPTED `test_deb2_appendix[demo.bin]`). s4.bin `8319c1b4`,
+  s4.debug.bin `0c271190`: identical to master, as predicted (only the clip bake moved).
+
+## WOVEN-CROSSING-PATH: nothing sets the collision path at a zone crossing; a path-B arrival in Chemical Plant's west edge passes a wall Sonic 2's path A has (found 2026-09-27, OPEN)
+
+Booking item 2 of WOVEN-WFZ-PLANE-B, MEASURED on the woven DEBUG ROM `d6ce40fb` with
+`path_b_floor_witness.py --connectors` (each crossing driven twice, placed RUN_MARGIN 400 px inside
+the source on layer 0 and on layer 1): the layer is carried unchanged across every connector (no
+line on any run-up or in any connector changed it; connector cells are identical on both planes).
+13 of 15 crossings end at the same place either way. The two that differ:
+- **mtz_to_cpz RIGHT (MTZ -> CPZ west edge):** layer 0 stops at x 5367 (the plane-A back of a loop,
+  donor CPZ x ~7302), layer 1 runs on to 5513. Sonic 2's path there is A (the last non-keep Obj03
+  a rightward run at that height crosses is (6536, 1152) subtype $22: right -> A, high priority,
+  outside the clip's crop), so a path-B arrival here is WRONG collision.
+- mtz_to_cpz LEFT: 4283 vs 4284, 1 px; the difference comes from the layer-1 run-up inside CPZ
+  (a placement artefact), not from the crossing.
+**Why not fixed:** the wrong case needs the player to reach Metropolis on path B, and no measured
+natural route does (every L0 run leaves its zone on 0; the owner-route measurement in
+WOVEN-WFZ-PLANE-B has Emerald Hill's ground route back on A at x 1553). And the obvious fix, a
+baked LayerLine inside each connector setting "the path Sonic 2 has at the arrival mouth", needs
+that path DERIVED reliably: the nearest-line-on-the-travel-axis estimate says B for a leftward
+arrival at Emerald Hill's east edge (line (8968, 576) $11) and B for leaving it (line (7288, 528)
+$0A) while the runtime route leaves on A, so that estimate is not trustworthy and would create a
+wrong case where none is measured. Candidate: reset to A only at arrivals where a route-aware
+derivation (or the witness) shows A is Sonic 2's path (CPZ west is one); priority bits come with
+it (LayerLine has no keep-priority flag). Witness: `path_b_floor_witness.py --connectors` (manual;
+exit 1 today on mtz_to_cpz).
