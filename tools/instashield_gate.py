@@ -1375,7 +1375,7 @@ def pass_walkoff(args, rom, syms, equs, offs):
               "this pass would be vacuous")
         return 2
 
-    ext = pw.Extents(syms, vma_phased_symbol_names())
+    ext = pw.Extents(syms)
     srcs = pw.digest_sources(args.lst, ROOT)
     if not srcs:
         print("  walk-off writers: UNMEASURABLE — %s records no DIGEST-READ .emp rows, so "

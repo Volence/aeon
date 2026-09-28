@@ -141,7 +141,12 @@ class Extents:
     PHASED symbol (its listing value is a bank-local VMA — see instashield_gate's note
     above routine_extent)."""
 
-    def __init__(self, syms, phased):
+    def __init__(self, syms, phased=None):
+        # The ONE phased derivation (S3; tools/test_routine_extent_phased.py claims this
+        # file): never a sixth opinion of which symbols are bank-local VMAs.
+        if phased is None:
+            from scene_spans import vma_phased_symbol_names
+            phased = vma_phased_symbol_names()
         self.syms = syms
         self.phased = set(phased)
         rows = sorted((a, n) for n, a in syms.items() if n not in self.phased)
@@ -352,25 +357,42 @@ class Flow:
             size = mn.split(".")[1] if "." in mn else None
             ops = _split_ops(insn.op_str) if insn.op_str else []
 
+            def escape():
+                # Control leaves this routine by a path that is NOT its own return (a
+                # tail call, an indirect jmp, a fall-through into the next routine).
+                # For a CALLEE summary that means "what comes back is decided
+                # elsewhere", which is unknown — never "does not return". Leaving rets
+                # untouched here would silently drop the caller's path after the call.
+                nonlocal rets
+                rets = TOP
+
             def fall(v=val, s=stack):
                 if nxt >= end:
                     notes.append("falls through its end at $%06X into the next routine"
                                  % nxt)
+                    escape()
                     return
                 merge(nxt, v, s)
 
             if base in TERMINATORS:
-                rets = _join_val(rets, val)
+                rets = _join_val(rets, val) if base == "rts" else TOP
                 continue
             if base in ("bra", "jmp") or base in BCC:
                 tgt = _target(ops[0]) if ops else None
                 if tgt == self.target:
                     site(pc, val)
+                    escape()
                 elif tgt is not None and start <= tgt < end:
                     merge(tgt, val, stack)
                 elif tgt is None and base == "jmp":
                     notes.append("indirect jmp at $%06X (%s) — not followed"
                                  % (pc, insn.op_str))
+                    escape()
+                elif tgt is None:
+                    raise Unmeasurable("%s at $%06X has an operand this pass cannot "
+                                       "resolve: %s" % (mn, pc, insn.op_str))
+                else:
+                    escape()                      # a (conditional) tail call
                 if base in BCC:
                     fall()
                 continue
