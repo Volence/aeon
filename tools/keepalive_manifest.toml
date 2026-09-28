@@ -268,7 +268,7 @@ screen 191 visible cells. GREEN after Tile_Cache_Init's settle loop. On a canoni
 (no clip act, no baked tree named)."""
 
 [wired."clip_bg_scroll_witness.py"]
-args = ["--rom", "{repo}/s4.s2clip_woven.debug.bin", "--lst", "{repo}/s4.s2clip_woven.debug.lst", "--clip", "s2_woven", "--warp-entry"]
+args = ["--rom", "{repo}/s4.s2clip_woven.debug.bin", "--lst", "{repo}/s4.s2clip_woven.debug.lst", "--clip", "s2_woven", "--warp-entry", "--boot-entry"]
 expect = 0
 timeout = 900
 note = """WOVEN-HPZ-BG-MISALIGNED (2026-09-27). The woven mega-act's backgrounds against Sonic 2: 164
@@ -285,7 +285,27 @@ canonical ROM it exits 2 (no clip parallax records). WARP-VSCROLL-PRIME (2026-09
 leg now also FAILS any frame after a warp whose BG vscroll is not at its target (it was reported,
 not graded). RED on the unfixed s2_hpz_solo DEBUG ROM (crc ba18c0c8): layouts 1/2/3 slid 16/31/43
 frames, 3 FAIL, rc 1; GREEN after the fix on s2_hpz_solo (8dff61c1) and s2_woven (4f996403), 0
-slide frames everywhere."""
+slide frames everywhere. BOOT-ENTRY-PICTURE (2026-09-28): `--boot-entry` adds the BOOT leg, the
+ENTRY leg's per-frame grade on the first 90 frames of a LEVEL START: a DEBUG Boot_At boot into
+each tall layout (its first and deepest probe) and the authored start (Emerald Hill here, a
+one-plane map: a SKIP row, graded by the #hpz_solo row below). GREEN on woven crc 37b10bad:
+164/164 probes, ENTRY + FLIGHT 7 rows 0 FAIL, BOOT 11 rows (10 graded) 0 FAIL, rc 0."""
+
+[wired."clip_bg_scroll_witness.py#hpz_solo"]
+args = ["--rom", "{repo}/s4.s2clip_hpz.debug.bin", "--lst", "{repo}/s4.s2clip_hpz.debug.lst", "--clip", "s2_hpz_solo", "--warp-entry", "--boot-entry", "--require-authored-tall"]
+expect = 0
+timeout = 600
+note = """BOOT-ENTRY-PICTURE (2026-09-28). Hidden Palace alone (tools/nightly_instrument_keepalive.sh
+builds DEBUG S2CLIP=s2_hpz_solo and keeps it as s4.s2clip_hpz.debug.*): the one built act whose
+AUTHORED start is inside a tall band chain, so `--require-authored-tall` makes a start that
+leaves it COULD NOT MEASURE rather than a SKIP. The BOOT leg grades the first 90 frames of every
+boot (8 Boot_At boots over the 4 layouts, plus the authored start at camera (64, 893)) line by
+line against Sonic 2's kinds, the plane rows against the ROM's blob, and fails any frame whose
+BG vscroll is not at its target. RED on the parent engine (28880431, crc eb69092c): 6 of 9 boots
+FAIL, first frame vscroll 288 against targets 446..912, slides of 11..40 frames (up to 22 torn),
+rc 1, every other leg green. RED on the fixed tree minus the boot ladder's `st Parallax_BG_Snap`
+(crc 2ed1cac4): the same 6, primed from 304. GREEN on the fix (crc 42e4ec8c): 72/72 probes,
+ENTRY 4 rows, BOOT 9 of 9 exact, 0 slide frames, rc 0. On a canonical ROM it exits 2."""
 
 [wired."balance_witness.py#woven"]
 args = ["--rom", "{repo}/s4.s2clip_woven.debug.bin", "--lst", "{repo}/s4.s2clip_woven.debug.lst", "--clip", "s2_woven", "--spot", "1609,2848,left"]

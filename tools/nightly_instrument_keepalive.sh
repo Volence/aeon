@@ -166,6 +166,19 @@ if ! { python3 tools/s2_zone_convert.py convert s2disasm@WFZ s2disasm@EHZ s2disa
     note "INSTRUMENT KEEPALIVE: the DEBUG S2CLIP=s2_woven build failed at $AT -- the woven mega-act rows will be COULD NOT RUN; see $STATE/build_s2clip_woven.log"
     rm -f "$NIGHTLY/s4.s2clip_woven.debug.bin" "$NIGHTLY/s4.s2clip_woven.debug.lst"
 fi
+# HIDDEN PALACE ALONE (BOOT-ENTRY-PICTURE, 2026-09-28), kept under its own name for the same
+# reason: the one built act whose AUTHORED start is inside a tall band chain (camera (64, 893),
+# target 446 above VSCROLL_BG_MAX), the start BOOT-TALL-VSCROLL-RATCHET slid on. The woven
+# act starts in Emerald Hill (a one-plane map), so only this ROM grades an authored start.
+rm -f "$NIGHTLY/s4.s2clip_hpz.debug.bin" "$NIGHTLY/s4.s2clip_hpz.debug.lst"
+rm -f "$NIGHTLY/s4.s2clip.debug.bin" "$NIGHTLY/s4.s2clip.debug.lst"
+if ! { python3 tools/s2_zone_convert.py convert s2-simonwai-disasm@HPZ \
+        && DEBUG=1 S2CLIP=s2_hpz_solo ./build.sh \
+        && mv "$NIGHTLY/s4.s2clip.debug.bin" "$NIGHTLY/s4.s2clip_hpz.debug.bin" \
+        && mv "$NIGHTLY/s4.s2clip.debug.lst" "$NIGHTLY/s4.s2clip_hpz.debug.lst"; } > "$STATE/build_s2clip_hpz.log" 2>&1; then
+    note "INSTRUMENT KEEPALIVE: the DEBUG S2CLIP=s2_hpz_solo build failed at $AT -- the Hidden Palace rows will be COULD NOT RUN; see $STATE/build_s2clip_hpz.log"
+    rm -f "$NIGHTLY/s4.s2clip_hpz.debug.bin" "$NIGHTLY/s4.s2clip_hpz.debug.lst"
+fi
 rm -f "$NIGHTLY/s4.s2clip.debug.bin" "$NIGHTLY/s4.s2clip.debug.lst"
 if ! { python3 tools/s2_zone_convert.py convert s2disasm@EHZ \
         && python3 tools/s2_zone_convert.py convert s2disasm@CPZ \
