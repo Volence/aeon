@@ -23,7 +23,7 @@
       "since": "2026-09-28"
     }
   ],
-  "nextBoundary": "At a boundary, clearable. Next row WARP-VSCROLL-PRIME (hub go needed or the standing list push).",
+  "nextBoundary": "At a boundary, clearable (about 275k context used). Next row WARP-VSCROLL-PRIME, hub go given; it has no booking under that id, likely DEFERRED_WORK 'BG-RATE-PRIME-EXEMPTION' (line ~111) and lane-log 9cf89517.",
   "queue": [
     {
       "id": "WOVEN-EDITABLE-IN-AURORA",
@@ -226,7 +226,7 @@
       "project": "REGIONS"
     }
   ],
-  "awaiting": null,
+  "awaiting": "A clear: I'm at a clean stop with about 275k context used and nothing unbanked. The next session takes the Hidden Palace warp fix.",
   "atBoundary": true,
-  "updatedAt": "2026-09-28T04:08:13Z"
+  "updatedAt": "2026-09-28T04:09:00Z"
 }
