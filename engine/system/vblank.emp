@@ -256,7 +256,7 @@ pub proc VInt_Level () clobbers(d0-d4/a0-a3/a5-a6) requires(vblank) {
                 subi.w  #DMA_Important, d0
                 cmp.w   DMA_Peak_Important, d0
                 bls     .no_new_important_peak
-                move.w  d0, DMA_Peak_Important  // the field declared at engine/ram.emp:589 and, until now, written nowhere
+                move.w  d0, DMA_Peak_Important  // the field engine/ram.emp declares as DMA_Peak_Important (cited by name: its old line cite drifted) and, until now, written nowhere
             .no_new_important_peak:
                 // (b) fold + clear the window's straddling-Important count
                 move.w  Dbg_DMA_Straddle_Frame, d0
