@@ -5,11 +5,6 @@
       "what": "Measuring the last five checks nobody has tested yet, fixing any that can be fooled (tools only)",
       "where": "branch fix/gpp-unmeasured",
       "agent": true
-    },
-    {
-      "what": "Sizing your tunnel and shaft wish: the smallest covering that still hides the background switch, and the zone's own scenery in its place",
-      "where": "branch research/woven-cover",
-      "agent": true
     }
   ],
   "blockedOnOwner": [
@@ -145,7 +140,7 @@
       "blockedBy": null
     }
   ],
-  "awaiting": "your pick on the woven-act route fix (card WOVEN-TOUCHUPS), and a listen to Metropolis's song when you can",
+  "awaiting": "which covering you meant (A: Wing Fortress shaft blue at 4064,1800; B: tunnel walls at 2864,2450; C: grey stone at a zone edge, 164,1924), and whether you want the real background or the zone's foreground there; plus your pick on WOVEN-TOUCHUPS",
   "atBoundary": false,
-  "updatedAt": "2026-09-28T15:12:12Z"
+  "updatedAt": "2026-09-28T15:35:30Z"
 }
