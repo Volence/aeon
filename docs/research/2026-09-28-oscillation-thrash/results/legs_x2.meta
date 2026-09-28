@@ -1,0 +1,16 @@
+c_fly_right rc=0 load=15.42->15.55
+c_fly_down rc=0 load=15.55->15.87
+c_run DID NOT RUN (no /home/volence/sonic_hacks/aeon/.claude/worktrees/agent-ab5a7fc55355c18dd/.perf/roms/x2/cplain.bin)
+c_run_dbg rc=0 load=15.87->15.68
+c_osc_h4 rc=0 load=15.68->15.23
+c_osc_h8 rc=0 load=15.23->15.05
+c_osc_d4 rc=0 load=15.05->14.96
+e_fly_right rc=0 load=14.96->14.98
+e_run DID NOT RUN (no /home/volence/sonic_hacks/aeon/.claude/worktrees/agent-ab5a7fc55355c18dd/.perf/roms/x2/plain.bin)
+e_run_dbg rc=0 load=14.98->15.13
+e_deadend_dbg rc=0 load=15.13->14.97
+e_pit DID NOT RUN (no /home/volence/sonic_hacks/aeon/.claude/worktrees/agent-ab5a7fc55355c18dd/.perf/roms/x2/plain.bin)
+e_pit_dbg rc=0 load=14.97->14.92
+e_osc_h4 rc=0 load=14.92->15.89
+e_osc_d4 rc=0 load=15.89->15.50
+finished=12

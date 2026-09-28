@@ -42924,12 +42924,39 @@ These equal the FAST builds every measurement used. The base `366b777c` FAST bui
 
 **Open:**
 1. **Scripted runs cannot pass Emerald Hill x ~6000.** The clip carries no objects, so there is a pit under the missing bridge at x 6040, and from a warp to (6300, 690) the player oscillates at x 6530..6870 before a spring route. So the run legs cover spawn to x 5850 (53% of EHZ). The owner meets the same dead ends. Whether EHZ objects (bridges, springs) join the clip is a content call.
-2. **Bouncing in that dead end cost 98 lag frames in 1500 (DEBUG).** This is the perf survey's candidate 7 (the oscillation thrash lead), now seen on the owner's act. Measured once, not diagnosed.
+2. **Bouncing in that dead end cost 98 lag frames in 1500 (DEBUG).** This is the perf survey's candidate 7 (the oscillation thrash lead), now seen on the owner's act. Measured once, not diagnosed. **DIAGNOSED 2026-09-28 (OSCILLATION-THRASH below):** on `32a3f074` that leg is 8/1500 (the soft budget spread the re-decodes); the thrash itself is real (81.5% of its decodes re-decode a block) and its speculative half is fixed on `perf/oscillation-thrash`.
 3. **The remaining run lag (1 release, 6 to 7 DEBUG) is column and row COPY at spindash speed.** `TileCache_FillColumn` measured 50.7k per overrunning tick, of which `PageCache_PatchRun_Col` was 23.9k, with one decode per tick. That is the streaming act's translating copy (bounded-direct), which RESIDENT-PLAIN-COPY does not cover. GENERAL-PATCH-LOOP / RPC-1 are the levers, not measured here.
 4. **Parallax is still 14.6k per tick in EHZ, mostly per-band work** for the 7-band record: Step 4 3.7k, update + factor decodes 3.3k. Stubbing it entirely (an upper bound) takes the DEBUG run 6 -> 1. The perf survey's candidate 5 (cheaper per-band overhead) is not built.
 5. **Content options, priced, not done (the owner's look).** On the after build, flattening the ripple band or the curve each buys 0 frames on the run and 2 on the fly-diagonal EHZ band (31 -> 29); both together buy 4.
 6. **`Canopy_Probe`: 4,026 cycles every tick.** It is worth 5 lag frames on the DEBUG run before this parcel and 1 after. It stays armed (owner's call).
 7. **The choice of soft value and lead is measured, not modelled.** Soft 2 and 3, and lead 12/15, all measured worse; the response is not monotone.
+
+## OSCILLATION-THRASH: a swinging camera re-decodes the same blocks (branch `perf/oscillation-thrash`, 2026-09-28)
+
+The perf survey's candidate 7 and PERF-EHZ-RUN-LAG open item 2. Findings, legs and every number: `docs/research/2026-09-28-oscillation-thrash.md` (tools and raw results in `docs/research/2026-09-28-oscillation-thrash/`). Base `32a3f074`.
+
+**What it was.** On an oscillating camera 81-99% of block decodes re-decode a block decoded before (straight flight: 0%). Two mechanisms: (1) the speculative column scan re-aims at every reversal, stages the block past the far edge, never uses it, and each such claim evicts one of the 16 round-robin staging slots holding the window-edge blocks the demand fill re-reads; (2) on swings wider than the window's slack the demand working set alone exceeds 16 slots. Page ping-pong: none (0 page loads on every leg). **Lag: mostly already gone** — the soft budget holds re-decodes to one per tick: the OJZ bounce is 0/1800 in both shapes, the EHZ dead end 8/1500 (was 98/1500).
+
+**What landed on the branch.** The arming run: `Tile_Cache_Fill`'s column scan (and the corner) STAGE only after the camera has moved `H_PFX_ARM` = 128 px (one block) with the H direction latch since it was set or flipped (`Cache_H_Pfx_Run`); the target is still published for the page tier; the first latch set after `Tile_Cache_Init` arms at once. One ensure bounds `H_PFX_ARM` between one camera step and the cache margin (red-first at 16 and 168 px). ARCH §9.7 updated.
+
+| leg (decodes are staging claims over the same ticks) | before | after |
+|---|---|---|
+| OJZ one-block oscillation (DEBUG fly) | 0/700 lag, 518 decodes | 0/700, 44 (0 after warm-up) |
+| OJZ bounce, release / DEBUG | 0/1800, 757 | 0/1800, 560 |
+| EHZ oscillating diagonal | 18/900, 849 | 16/898, 78 |
+| EHZ dead end (DEBUG) | 8/1500, 319 | 8/1500, 286 |
+| EHZ pit, release / DEBUG | 1/3000 / 7/3000, 696 / 694 | same lag, 642 / 640 |
+| the 2026-09-27 leg set (runs, spins, fly diag/right/down, both acts, both shapes) | | lag, coverage and parallax output identical |
+
+**Gate.** `tools/oscillation_thrash_gate.py`, in `tools/effects_gates.py` after `tile_cache_fill`: a DEBUG free-flight swing of exactly `H_PFX_ARM` must claim 0 staging slots in 600 ticks after warm-up (0 derived: the swing's demand working set, 10 blocks, fits the 16 slots; checked, exit 2 if not). Red-first: arming gate removed -> RED 452 claims; restored -> GREEN 0.
+
+**Landing evidence** (full builds at the code tip; see the branch's last commit message for the re-run on the docs commit): _filled in below at landing._
+
+**Open:**
+1. **Demand re-decoding on large swings (mechanism 2), design-sized.** The OJZ bounce still decodes 560 blocks in 1800 ticks (87% again), the EHZ dead end 286. Levers priced in the research doc: 16 more staging slots (12,288 B RAM of the ~15.8 KB between `Game_RAM_End` and the stack, plus widening the u16 memo masks / `rol.w` eviction windows and `PageCache_Prefetch`'s four `clr.l`), or trailing-edge hysteresis on the cache window (a 39 - 2L column swing needs no refill at minimum lead L; costs lead in sustained motion after a reversal, and catch-up is the column-copy burst OJZF-2 measured as lag). Both change the §9.7 contract; not built.
+2. **No vertical arming run, by measurement.** At 3, 8 and 16 rows it cut more bounce decodes (757 -> 473-524) but put 2-3 lag frames on the release EHZ run and spindash run (hill crests are vertical reversals; the delayed row prefetch became a demand decode on the lag tick). Deleted, not left inert. A vertical rule that tells a hill crest from a bounce is untried.
+3. **The fix buys CPU, not lag, on every leg measured** (lag moved only 18 -> 16 on the EHZ oscillating diagonal). Its value is 0.1-0.7 fewer ~11.5k-cycle decodes per tick while a camera swings.
+4. **New cross-seam names** for sigil's port tests to supply if a port lowers `engine/level/tile_cache.emp` or `engine/ram.emp`: `H_PFX_ARM` (const), `Cache_H_Pfx_Run` (RAM). Not checked against sigil's tree from here.
 
 ## OJZ-FEEL: the lag he still feels playing OJZ act 1, and the fall cap (branch `perf/ojz-feel`, booked 2026-09-26T22:34:06Z)
 

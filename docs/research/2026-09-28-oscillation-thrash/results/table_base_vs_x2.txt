@@ -1,0 +1,39 @@
+c_fly_right    ticks   700 cam x 112..5824 y 144..144
+    base       1000eded   0/700   dec  180 (0.257/t) re   0.0% pages 0/0 cov [2, -2, -15, -16]
+    x2         f1300260   0/700   dec  180 (0.257/t) re   0.0% pages 0/0 cov [2, -2, -15, -16]
+c_fly_down     ticks   700 cam x 96..96 y 144..5920
+    base       1000eded   0/700   dec  220 (0.314/t) re   0.0% pages 0/0 cov [-23, 0, 2, -16]
+    x2         f1300260   0/700   dec  220 (0.314/t) re   0.0% pages 0/0 cov [-23, 0, 2, -16]
+c_run          ok | DID NOT RUN
+c_run_dbg      ticks  1800 cam x 96..1073 y 352..429
+    base       1000eded   0/1800  dec  757 (0.421/t) re  91.1% pages 0/0 cov [0, 0, 0, -8]
+    x2         f1300260   0/1800  dec  472 (0.262/t) re  88.1% pages 0/0 cov [0, 0, 0, -8]
+c_osc_h4       ticks   700 cam x 112..800 y 144..144
+    base       1000eded   0/700   dec   32 (0.046/t) re   0.0% pages 0/0 cov [1, -2, -15, -16]
+    x2         f1300260   0/700   dec   28 (0.040/t) re   0.0% pages 0/0 cov [1, -2, -15, -16]
+c_osc_h8       ticks   700 cam x 112..864 y 144..144
+    base       1000eded   0/700   dec  518 (0.740/t) re  93.1% pages 0/0 cov [1, -2, -15, -16]
+    x2         f1300260   0/700   dec   44 (0.063/t) re  27.3% pages 0/0 cov [1, -2, -15, -16]
+c_osc_d4       ticks   694 cam x 112..800 y 144..816
+    base       1000eded   4/698   dec  612 (0.882/t) re  89.5% pages 0/0 cov [2, -2, 2, -16]
+    x2         f1300260   6/700   dec   76 (0.110/t) re  26.3% pages 0/0 cov [2, -2, 2, -16]
+e_fly_right    ticks  1099 cam x 112..16064 y 144..144
+    base       69340439   0/1099  dec  500 (0.455/t) re   0.0% pages 0/0 cov [2, -2, -15, -16]
+    x2         9686b41a   1/1100  dec  500 (0.455/t) re   0.0% pages 0/0 cov [2, -2, -15, -16]
+e_run          ok | DID NOT RUN
+e_run_dbg      ticks  1201 cam x 96..5689 y 445..800
+    base       69340439   6/1207  dec  479 (0.399/t) re  44.1% pages 0/0 cov [1, 0, 0, -3]
+    x2         9686b41a   5/1206  dec  405 (0.337/t) re  41.0% pages 0/0 cov [1, 0, 0, -3]
+e_deadend_dbg  ticks  1492 cam x 6140..6708 y 485..578
+    base       69340439   8/1500  dec  319 (0.214/t) re  81.5% pages 0/0 cov [1, 0, -4, -4]
+    x2         9686b41a   6/1498  dec  259 (0.174/t) re  78.8% pages 0/0 cov [1, 0, -4, -4]
+e_pit          ok | DID NOT RUN
+e_pit_dbg      ticks  2993 cam x 96..5942 y 445..827
+    base       69340439   7/3000  dec  694 (0.232/t) re  57.2% pages 0/0 cov [1, 0, 0, -2]
+    x2         9686b41a   6/2999  dec  538 (0.180/t) re  51.1% pages 0/0 cov [1, 0, 0, -2]
+e_osc_h4       ticks   899 cam x 112..3360 y 144..144
+    base       69340439   0/899   dec  112 (0.125/t) re   7.1% pages 0/0 cov [2, -2, -15, -16]
+    x2         9686b41a   1/900   dec  108 (0.120/t) re   3.7% pages 0/0 cov [2, -2, -15, -16]
+e_osc_d4       ticks   882 cam x 112..800 y 144..816
+    base       69340439  18/900   dec  849 (0.963/t) re  92.6% pages 0/0 cov [2, -2, 2, -16]
+    x2         9686b41a  17/899   dec   77 (0.087/t) re  28.6% pages 0/0 cov [2, -2, 2, -16]

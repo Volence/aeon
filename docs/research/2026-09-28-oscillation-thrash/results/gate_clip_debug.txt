@@ -1,0 +1,4 @@
+rom debug.bin crc32 f487505c; working set <= 10 blocks of 16 slots; expected claims 0
+flight step 16 px/tick; half-period 8 ticks (H_PFX_ARM 128 px); warm-up 32 ticks; measured 600 ticks: camera x 752..864 (swing 112), 74 reversals; staging claims 0
+GREEN a one-block oscillation claimed no staging slot
+gate on clip debug rc=0

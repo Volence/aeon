@@ -1,0 +1,4 @@
+.perf/roms/x3/cdebug.bin 306290bc 857220
+.perf/roms/x3/cplain.bin edb92994 830223
+.perf/roms/x3/debug.bin 647dd944 956642
+.perf/roms/x3/plain.bin 4dde4eac 929826

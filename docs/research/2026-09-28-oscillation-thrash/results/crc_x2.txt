@@ -1,0 +1,2 @@
+.perf/roms/x2/cdebug.bin f1300260 857198
+.perf/roms/x2/debug.bin 9686b41a 956620
