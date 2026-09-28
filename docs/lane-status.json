@@ -1,9 +1,9 @@
 {
-  "focus": "Fixing the background slide you see for up to 0.7 s after a debug warp into Hidden Palace.",
+  "focus": "Landed the Hidden Palace warp background fix. Next: a small background snap check that can never fire.",
   "inFlight": [
     {
-      "what": "Hidden Palace warp background slide fix (research then fix)",
-      "where": "branch fix/warp-vscroll-prime",
+      "what": "Dead background snap check fix (research then fix)",
+      "where": "branch fix/step5-snap-dead",
       "agent": true
     }
   ],
@@ -29,7 +29,7 @@
       "since": "2026-09-28"
     }
   ],
-  "nextBoundary": "When the warp-slide fix returns, is reviewed and landed.",
+  "nextBoundary": "When the snap-check fix returns, is reviewed and landed.",
   "queue": [
     {
       "id": "WOVEN-EDITABLE-IN-AURORA",
@@ -48,8 +48,8 @@
     },
     {
       "id": "WARP-VSCROLL-PRIME",
-      "title": "After a debug warp into Hidden Palace, the background slides into place for up to 0.7 s; set it directly on a warp",
-      "state": "doing",
+      "title": "Background slide after a debug warp into Hidden Palace: fixed, the right picture shows on the first frame",
+      "state": "open",
       "size": "S",
       "blockedBy": null,
       "project": "REGIONS"
@@ -57,6 +57,14 @@
     {
       "id": "PARALLAX-STEP5-SNAP-DEAD",
       "title": "A background snap test that can never fire (only matters when a crossing and a warp share a frame); about three instructions",
+      "state": "doing",
+      "size": "S",
+      "blockedBy": null,
+      "project": "REGIONS"
+    },
+    {
+      "id": "BOOT-TALL-VSCROLL-RATCHET",
+      "title": "Check whether starting a level deep inside a tall area shows the same background slide the warp had (suspected, not measured)",
       "state": "next",
       "size": "S",
       "blockedBy": null,
@@ -242,5 +250,5 @@
   ],
   "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-09-28T04:10:45Z"
+  "updatedAt": "2026-09-28T04:35:35Z"
 }
