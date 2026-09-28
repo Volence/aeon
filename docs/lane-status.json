@@ -1,12 +1,6 @@
 {
-  "focus": "Woven-act fixes are all in your ROM; now working out how to make room for the Sonic 2 zones' songs.",
-  "inFlight": [
-    {
-      "what": "Sonic 2 songs don't fit the sound bank: research and price the options (no changes yet)",
-      "where": "branch research/song-bank",
-      "agent": true
-    }
-  ],
+  "focus": "Woven fixes are all in your ROM; the Sonic 2 songs need a second sound bank, waiting on the assembler lane's answer.",
+  "inFlight": [],
   "blockedOnOwner": [
     {
       "id": "SP6-MODULATION-DIVERGENCE",
@@ -24,7 +18,7 @@
       "since": "2026-09-27"
     }
   ],
-  "nextBoundary": "When the song-bank research returns with priced options.",
+  "nextBoundary": "At a boundary, clearable. Next row: WOVEN-CROSSING-PATH; the song bank resumes when sigil answers.",
   "queue": [
     {
       "id": "WOVEN-EDITABLE-IN-AURORA",
@@ -59,10 +53,10 @@
     },
     {
       "id": "S2CLIP-MTZ-SONG-BANK",
-      "title": "Metropolis's Sonic 2 song doesn't fit the sound bank, and the other woven zones' songs won't either; needs room for more songs",
-      "state": "doing",
+      "title": "Sonic 2 zone songs: a second song bank is the plan (small engine change); waiting on the assembler lane's side",
+      "state": "blocked",
       "size": "M",
-      "blockedBy": null,
+      "blockedBy": "sigil: what a new aligned song-bank section needs (asked 2026-09-28)",
       "project": "REGIONS"
     },
     {
@@ -228,6 +222,6 @@
     }
   ],
   "awaiting": "New woven ROM with every fix so far: s4.woven.debug.bin (crc d6ce40fb). Also: do you want the woven act made editable in aurora?",
-  "atBoundary": false,
-  "updatedAt": "2026-09-28T01:17:35Z"
+  "atBoundary": true,
+  "updatedAt": "2026-09-28T01:35:03Z"
 }
