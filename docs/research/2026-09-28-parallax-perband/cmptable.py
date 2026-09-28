@@ -20,7 +20,7 @@ import os
 import sys
 
 LEGS = ["plain_run", "plain_spin", "debug_run", "debug_spin", "debug_diag", "debug_right",
-        "debug_down", "cdebug_diag", "cdebug_right", "cdebug_down", "cplain_run", "cdebug_run"]
+        "debug_down", "cdebug_diag", "cdebug_right", "cdebug_down", "cplain_run", "cdebug_run", "cdebug_anchor_right", "cdebug_anchor_down"]
 
 
 def cut(h, n):

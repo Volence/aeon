@@ -1,0 +1,18 @@
+anchored region 5 x 4096..5119 y 2048..4095, world anchor 2272
+  spawn down    samples   60  hit   60  vs-moved    0  split    0  DIFFER 60
+  anchor right  samples   60  hit   60  vs-moved    0  split    0  DIFFER 58
+  anchor down   samples   60  hit   60  vs-moved   50  split    0  DIFFER 0
+  total         samples  180  hit  180  vs-moved   50  split    0  DIFFER 118
+  spawn down: sample 1 (pre-key cfg $01487E vs 0, now vs 0) first difference at Hscroll_Buffer
+  spawn down: sample 2 (pre-key cfg $01487E vs 0, now vs 0) first difference at Hscroll_Buffer
+  spawn down: sample 3 (pre-key cfg $01487E vs 0, now vs 0) first difference at Hscroll_Buffer
+  spawn down: sample 4 (pre-key cfg $01487E vs 0, now vs 0) first difference at Hscroll_Buffer
+  spawn down: sample 5 (pre-key cfg $01487E vs 0, now vs 0) first difference at Hscroll_Buffer
+  anchor right: sample 1 (pre-key cfg $013596 vs 203, now vs 203) first difference at Hscroll_Buffer
+  anchor right: sample 2 (pre-key cfg $013596 vs 203, now vs 203) first difference at Hscroll_Buffer
+  anchor right: sample 3 (pre-key cfg $013596 vs 203, now vs 203) first difference at Hscroll_Buffer
+  anchor right: sample 4 (pre-key cfg $013596 vs 203, now vs 203) first difference at Hscroll_Buffer
+  anchor right: sample 5 (pre-key cfg $013596 vs 203, now vs 203) first difference at Hscroll_Buffer
+VERDICT: RED — the cached shadow view is not the view a rebuild makes
+finished=1
+exit=1
