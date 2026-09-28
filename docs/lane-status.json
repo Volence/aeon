@@ -1,12 +1,6 @@
 {
-  "focus": "Wing Fortress fall-through fixed; rebuilding the woven ROM for you.",
-  "inFlight": [
-    {
-      "what": "Rebuilding the woven ROM with the Wing Fortress fix",
-      "where": "main checkout",
-      "agent": false
-    }
-  ],
+  "focus": "Every woven-act problem you reported today is fixed and in a fresh ROM.",
+  "inFlight": [],
   "blockedOnOwner": [
     {
       "id": "SP6-MODULATION-DIVERGENCE",
@@ -24,7 +18,7 @@
       "since": "2026-09-27"
     }
   ],
-  "nextBoundary": "When the woven rebuild finishes; the next row is the song bank.",
+  "nextBoundary": "At a boundary. The next row is the song bank (Metropolis's Sonic 2 song doesn't fit).",
   "queue": [
     {
       "id": "WOVEN-EDITABLE-IN-AURORA",
@@ -227,7 +221,7 @@
       "project": "REGIONS"
     }
   ],
-  "awaiting": "New woven ROM with the teeter fix: s4.woven.debug.bin (crc 1bce0476). Also: do you want the woven act made editable in aurora?",
-  "atBoundary": false,
-  "updatedAt": "2026-09-28T01:09:59Z"
+  "awaiting": "New woven ROM with every fix so far: s4.woven.debug.bin (crc d6ce40fb). Also: do you want the woven act made editable in aurora?",
+  "atBoundary": true,
+  "updatedAt": "2026-09-28T01:17:03Z"
 }
