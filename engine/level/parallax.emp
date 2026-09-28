@@ -2056,6 +2056,18 @@ pub proc Parallax_Update () clobbers(d0-d7/a0-a6) preserves(sr.mask) {
         // per frame. `moveq #0, d6` still clears the upper word, which the btst needs.
         moveq   #0, d6
         move.w  parallax_config.pcfg_layer_mask(a0), d6            // d6 = layer mask (16 bands)
+        // THE LERP DECISION IS PER FRAME, SO IT IS MADE ONCE HERE (PERF-PARALLAX-PERBAND,
+        // 2026-09-28). "Snap pending, or no transition in flight" picks `.snap_b` for EVERY
+        // band: nothing in this loop (nor in Decode_Factor_A/_B) writes either byte. It was
+        // two `tst.b` of RAM and two branches per band, 42 cycles on the common path; now it
+        // is bit 31 of d6, one `tst.l` + `bpl`, 14. The bit is out of the mask's way: the
+        // mask is bits 0..15 and `btst d5, d6` indexes it with d5 <= 15.
+        tst.b   Parallax_Snap_Pending               // (Parallax_Snap_Pending).w
+        bne     .lerp_decided                       // snap wins over a transition
+        tst.b   Parallax_Transition_Frames          // (Parallax_Transition_Frames).w
+        beq     .lerp_decided                       // no transition — lock to target
+        bset    #31, d6                             // lerp every enabled band this frame
+    .lerp_decided:
         moveq   #0, d5                              // d5 = band index
         move.w  d0, d3                              // d3 = previous-band current_a seed = -camX:
         neg.w   d3                                  //   a disabled band 0 must still hard-lock the
@@ -2084,7 +2096,7 @@ pub proc Parallax_Update () clobbers(d0-d7/a0-a6) preserves(sr.mask) {
 
         // -- factor_a: hard-locked, current_a = target every frame --
         jbsr    Decode_Factor_A                     // out: d2 = -decode(camX, factor_a)
-        move.w  d2, (a2)
+        move.w  d2, (a2)+                           // current_a, and step the cursor
         move.w  d2, d3                              // remember for inheritance
 
         // -- factor_b: lerp during transition, else lock --
@@ -2132,10 +2144,8 @@ pub proc Parallax_Update () clobbers(d0-d7/a0-a6) preserves(sr.mask) {
         .cap_band_drift_accum_end:
         }
 
-        tst.b   Parallax_Snap_Pending               // (Parallax_Snap_Pending).w
-        bne     .snap_b
-        tst.b   Parallax_Transition_Frames          // (Parallax_Transition_Frames).w
-        beq     .snap_b                             // no transition — lock to target
+        tst.l   d6                                  // bit 31: the frame's lerp decision
+        bpl     .snap_b                             //   (made once, above the loop)
         // frames-remaining ramp: step = (target − current) / frames_remaining,
         // so the BG scroll converges EXACTLY by the last window frame
         // (frames_remaining reaches 1 → step = the whole residual). The promote
@@ -2144,10 +2154,12 @@ pub proc Parallax_Update () clobbers(d0-d7/a0-a6) preserves(sr.mask) {
         // at .write_b), so it carries the divisor.
         // §2.1's FOUR POINTS for the divs.w below (restated 2026-09-11, lens item
         // B1-5: points 1 and 2 were here, 3 and 4 were not):
-        //   1. DIVISOR NON-ZERO, STRUCTURALLY. The divide path is reached only past
-        //      the `tst.b Transition_Frames / beq .snap_b` above, and nothing between
-        //      that test and the `move.b` load writes the byte: no call sits between
-        //      them, and its only writers (Parallax_StartTransition's arms and Step 1's
+        //   1. DIVISOR NON-ZERO, STRUCTURALLY. The divide path is reached only when
+        //      d6's bit 31 is set, which the hoist above the loop does only past its
+        //      `tst.b Transition_Frames / beq .lerp_decided` (2026-09-28: the test moved
+        //      there from here, per band -> per frame), and nothing between that test
+        //      and the `move.b` load writes the byte: the loop's only calls are
+        //      Decode_Factor_A/_B, which touch no RAM, and its only writers (Parallax_StartTransition's arms and Step 1's
         //      decrement at the top of this proc) are main-loop code that no interrupt
         //      handler reaches. Step 1 decremented it before this loop and promoted
         //      Target when it hit 0, so frames_remaining is 1..PARALLAX_TRANS_DEFAULT - 1
@@ -2188,19 +2200,18 @@ pub proc Parallax_Update () clobbers(d0-d7/a0-a6) preserves(sr.mask) {
     .snap_b:
         move.w  d2, d1                              // snap: current_b = target
     .write_b:
-        move.w  d1, (a3)
+        move.w  d1, (a3)+                           // current_b, and step the cursor
         move.w  d1, d4
         jbra    .band_done
 
     .band_disabled:
         // inherit previous-band scroll
-        move.w  d3, (a2)
-        move.w  d4, (a3)
+        move.w  d3, (a2)+
+        move.w  d4, (a3)+
 
     .band_done:
-        adda.l  #sizeof(band_record), a1
-        addq.l  #2, a2
-        addq.l  #2, a3
+        // a2/a3 were stepped by their own stores (both arms store each exactly once).
+        lea     sizeof(band_record)(a1), a1
         // BAND DRIFT — step the accumulator cursor. ON BOTH ARMS (this label is where
         // `.band_disabled` joins), because the array is indexed by BAND index and a disabled
         // band still owns its slot. Skipping it here would shift every subsequent band's
@@ -2607,7 +2618,7 @@ proc Parallax_Step4_Fill () clobbers(d0-d7/a0-a6) {
         divu.w  d4, d2                              // d2.w = ceil(rem * 65536 / span)
         move.w  d2, band_curve_frac(a1)
     .curve_next:
-        adda.w  #sizeof(band_record), a1
+        lea     sizeof(band_record)(a1), a1
         addq.l  #2, a3
         addq.w  #1, d5
         dbf     d6, .curve_band
@@ -3779,24 +3790,25 @@ proc Parallax_Fill_PerLine () clobbers(d0-d6/a1-a6) preserves(a0/d7) {
         // register assignment (item 10b's banner, above Parallax_Set_Roles_Swapped).
         // ONCE PER BAND, not per line: the five line loops below all consume this same
         // d0 without re-reading (a2)/(a3), so one check here covers every line they emit.
+    //
+    // THE CURSORS STEP HERE (2026-09-28, PERF-PARALLAX-PERBAND): the pack is the ONE read of
+    // (a2)/(a3) per band and every path to `.band_done` passes through it, so the two
+    // post-increments replace `.band_done`'s two `addq.l #2`. The line loops never touch
+    // a2/a3, which is the cross-loop contract above.
+    //
+    // THE SWAPPED PACK IS THE NORMAL PACK SWAPPED: BG<<16 | FG is `swap` of FG<<16 | BG, so
+    // the swapped arm is one `swap` after the common three moves instead of a second copy of
+    // them behind a `jbra` (22 cycles a band on the normal path, from 30).
+        move.w  (a2)+, d0                           // FG (already negated)
+        swap    d0
+        move.w  (a3)+, d0                           // BG → d0 = FG<<16 | BG
     if (Game.SCANLINE_CAPS & CAP_ROLE_SWAP) != 0 {
     .cap_role_swap_pack_begin:
         tst.b   Parallax_Roles_Swapped
-        bne     .pack_swapped
-        move.w  (a2), d0                            // FG (already negated)
-        swap    d0
-        move.w  (a3), d0                            // BG → d0 = FG<<16 | BG
-        jbra    .packed
-    .pack_swapped:
-        move.w  (a3), d0                            // BG (already negated)
-        swap    d0
-        move.w  (a2), d0                            // FG → d0 = BG<<16 | FG
+        beq     .packed
+        swap    d0                                  // swapped roles → d0 = BG<<16 | FG
     .packed:
     .cap_role_swap_pack_end:
-    } else {
-        move.w  (a2), d0                            // FG (already negated)
-        swap    d0
-        move.w  (a3), d0                            // BG → d0 = FG<<16 | BG
     }
 
         // ---- THE FIFTH LINE LOOP: a curve layer's ramping BG scroll (P3 Task 10) ----
@@ -4363,9 +4375,7 @@ proc Parallax_Fill_PerLine () clobbers(d0-d6/a1-a6) preserves(a0/d7) {
         dbf     d2, .fl_rem
 
     .band_done:
-        lea     sizeof(band_record)(a1), a1
-        addq.l  #2, a2
-        addq.l  #2, a3
+        lea     sizeof(band_record)(a1), a1         // (a2/a3 stepped at the pack)
         tst.w   d7
         bne     .next_band
 
