@@ -29,7 +29,7 @@
       "since": "2026-09-28"
     }
   ],
-  "nextBoundary": "When song-bank step 2 lands; step 1 then waits on one small assembler change (taken by that lane).",
+  "nextBoundary": "When the woven-act sizing returns and goes on your card. NOTE: the assembler lane is advancing its reference to 1ee78b88; tell them before landing anything that moves sound or RAM layout until they confirm.",
   "queue": [
     {
       "id": "WOVEN-EDITABLE-IN-AURORA",
@@ -142,5 +142,5 @@
   ],
   "awaiting": "your listen to Metropolis's song (s4.s2_mtz_cpz.bin, crc ffcfd9c8) when you have a minute",
   "atBoundary": false,
-  "updatedAt": "2026-09-28T14:52:54Z"
+  "updatedAt": "2026-09-28T14:55:11Z"
 }
