@@ -42997,6 +42997,25 @@ cycles/tick; base -> branch):
   `Parallax_Shadow_Key_VS`, `Parallax_Shadow_Key_K`.
 - Unchanged: `engine/structs.emp`, `engine/effects/*`, and the record or config format.
 
+**Landing evidence** (full, non-FAST builds at `4e71b763`, the last code/tool commit; the commit adding this paragraph is docs only). The assembler was sigil `80bcaf72`, md5(SIGIL_BUILD) `5a68be69`. Its source check reported COULD NOT CHECK (the pair worktree it names is not on disk); that is not a pass.
+- `tools/landing_build.sh`: **exit 0, `finished=0`**, land-gate stamp written.
+  - pre-build pytest: 3783 passed, 3 skipped, 36 deselected;
+  - needs_build: 35 passed, 1 EXEMPTED (`test_deb2_appendix[demo.bin]`).
+  - Two earlier runs were red, and both reds were real. `test_citation_form`: `vblank.emp` cited `ram.emp:589` by number, and the Parallax_State insert moved it onto a bare line; now cited by name. `demo_specialization_witness`: three demo image pins moved, re-derived instruction by instruction in its log.
+- `S2CLIP=s2_ehz_cpz ./build.sh` rc 0 and `DEBUG=1 S2CLIP=s2_ehz_cpz ./build.sh` rc 0.
+- **Effects-gates ritual** (`tools/effects_gates.py --rom s4.debug.bin --lst s4.debug.lst`): rc 0, all 22 scheduled gates produced a complete row set, 41 PASS, 0 FAIL.
+- `tools/parallax_shadow_key_witness.py` on the landing `s4.debug.bin`: GREEN (hit 81, vs-moved 10, split 99, 0 differ).
+
+| ROM | CRC32 | bytes |
+|---|---|---|
+| `s4.bin` | `fb86e15e` | 830,169 |
+| `s4.debug.bin` | `743e3ca2` | 857,170 |
+| `demo.debug.bin` | `d15d69ea` | 106,909 |
+| `s4.s2clip.bin` | `116ab256` | 929,777 |
+| `s4.s2clip.debug.bin` | `d7f19db3` | 956,590 |
+
+These equal the FAST builds every measurement used (the step-2 row of the research note's referent table).
+
 **Open riders.**
 - **PPB-1 (sigil lane): the decode inline is BLOCKED.**
   - What it buys: inlining `Parallax_Update`'s `jbsr Decode_Factor_A/_B` saves ~0.5k a tick on

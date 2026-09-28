@@ -196,6 +196,15 @@ Mutant A is invisible on the clip legs, because both clip zones are vertically l
 invisible on the anchored-right leg, where `vs` is constant. The canonical diagonal and the
 witness's anchor-down leg are the legs that see it.
 
+## Landing evidence
+
+The landing evidence is in `docs/DEFERRED_WORK.md` PERF-PARALLAX-PERBAND.
+- `tools/landing_build.sh` exit 0.
+- Both full S2CLIP builds rc 0.
+- The effects-gates ritual rc 0, 22 gates, 41 PASS, 0 FAIL.
+- The landing ROMs are byte-identical to the FAST step-2 builds measured above: `s4.bin`
+  `fb86e15e`, `s4.debug.bin` `743e3ca2`, clip `116ab256` / `d7f19db3`.
+
 ## Blocked: inlining the factor decodes
 
 `Parallax_Update` calls `Decode_Factor_A` and `_B` once per band each. Inlining both saves the
