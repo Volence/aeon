@@ -1,9 +1,9 @@
 {
-  "focus": "Landed the Hidden Palace warp background fix. Next: a small background snap check that can never fire.",
+  "focus": "Two background warp fixes landed. Next: checking whether starting a level inside a tall area shows the same slide.",
   "inFlight": [
     {
-      "what": "Dead background snap check fix (research then fix)",
-      "where": "branch fix/step5-snap-dead",
+      "what": "Measure (and fix if real) a background slide when a level starts deep inside a tall area",
+      "where": "branch fix/boot-tall-ratchet",
       "agent": true
     }
   ],
@@ -29,7 +29,7 @@
       "since": "2026-09-28"
     }
   ],
-  "nextBoundary": "When the snap-check fix returns, is reviewed and landed.",
+  "nextBoundary": "When the level-start check returns, is reviewed and landed (or booked as not real).",
   "queue": [
     {
       "id": "WOVEN-EDITABLE-IN-AURORA",
@@ -56,8 +56,8 @@
     },
     {
       "id": "PARALLAX-STEP5-SNAP-DEAD",
-      "title": "A background snap test that can never fire (only matters when a crossing and a warp share a frame); about three instructions",
-      "state": "doing",
+      "title": "Background check that could never fire: fixed; a warp into an area that fades its background now lands in place",
+      "state": "open",
       "size": "S",
       "blockedBy": null,
       "project": "REGIONS"
@@ -65,6 +65,14 @@
     {
       "id": "BOOT-TALL-VSCROLL-RATCHET",
       "title": "Check whether starting a level deep inside a tall area shows the same background slide the warp had (suspected, not measured)",
+      "state": "doing",
+      "size": "S",
+      "blockedBy": null,
+      "project": "REGIONS"
+    },
+    {
+      "id": "WOVEN-NIGHTLY-ROM-NAME",
+      "title": "Make sure the nightly test drive of the woven act really runs: a file name it expects may not match what the build writes",
       "state": "next",
       "size": "S",
       "blockedBy": null,
@@ -250,5 +258,5 @@
   ],
   "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-09-28T04:35:35Z"
+  "updatedAt": "2026-09-28T04:58:15Z"
 }
