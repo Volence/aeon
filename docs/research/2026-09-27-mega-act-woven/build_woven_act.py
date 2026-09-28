@@ -354,8 +354,9 @@ def baseline(manifest_path, out_path):
                        for (r, z), p in sorted(per.items()))
            + ". RULE A in Hidden Palace = its flat full-height runs carrying 45-degree angles "
              "(Sonic 2's shapes 251..254, see s2_hpz_solo's baseline); RULE B = 16-px "
-             "pinholes in Wing Fortress, Chemical Plant and Oil Ocean floors (s2_wfz_solo, "
-             "s2_mtz_cpz, s2_ooz_solo). Kept as Sonic 2 drew them: repainting donor "
+             "pinholes in Chemical Plant and Oil Ocean floors (s2_mtz_cpz, s2_ooz_solo; "
+             "Wing Fortress's four were on its plane B, which a one-path zone no longer "
+             "carries, WOVEN-WFZ-PLANE-B). Kept as Sonic 2 drew them: repainting donor "
              "collision is not a clip bake's call. MEASURED by collision_consistency.check() "
              "on this act's bake.")
     doc = {"_comment": "Read by tools/collision_consistency.py as a second --baseline in "
