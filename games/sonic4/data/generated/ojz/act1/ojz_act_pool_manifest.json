@@ -5,51 +5,61 @@
     {
       "index": 0,
       "pinned": true,
+      "pinned_stress_evict": true,
       "tiles": 64
     },
     {
       "index": 1,
       "pinned": true,
+      "pinned_stress_evict": true,
       "tiles": 64
     },
     {
       "index": 2,
       "pinned": false,
+      "pinned_stress_evict": false,
       "tiles": 64
     },
     {
       "index": 3,
       "pinned": false,
+      "pinned_stress_evict": false,
       "tiles": 64
     },
     {
       "index": 4,
       "pinned": false,
+      "pinned_stress_evict": false,
       "tiles": 64
     },
     {
       "index": 5,
       "pinned": false,
+      "pinned_stress_evict": false,
       "tiles": 64
     },
     {
       "index": 6,
       "pinned": false,
+      "pinned_stress_evict": false,
       "tiles": 64
     },
     {
       "index": 7,
       "pinned": true,
+      "pinned_stress_evict": true,
       "tiles": 64
     },
     {
       "index": 8,
       "pinned": true,
+      "pinned_stress_evict": true,
       "tiles": 64
     },
     {
       "index": 9,
       "pinned": true,
+      "pinned_stress_evict": false,
       "tiles": 36
     }
   ],

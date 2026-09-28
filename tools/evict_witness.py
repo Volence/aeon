@@ -28,14 +28,16 @@ From those it picks, along the camera's own row after the settle:
   OUT    the first camera x to the right whose window names a page OUTSIDE the initial set;
   BACK   after the out leg, the first x back to the left whose window names a page the out
          leg EVICTED, such that every window between is SERVICEABLE (below).
-No such window is a loud exit 2, never a pass.
+  HOME   after the back leg, the rest of the way left to camera x 0.
+No OUT or BACK window is a loud exit 2, never a pass.
 
 SERVICEABLE. A pinned page is never evicted, so once resident it holds its frame for the rest
 of the act. A window is serviceable iff |pages(window) ∪ pinned pages resident by then| <=
-clamp. The BACK leg only flies through serviceable windows, because a window that is not is
-the P-1 capacity famine (below): flying into it is a measurement of that famine, not of
-eviction. The famine is PREDICTED from the same field and printed; `--famine-probe` flies
-into it and dumps the evidence.
+clamp. The BACK target is chosen through serviceable windows only, so that leg measures
+eviction and nothing else. The HOME route is PREDICTED the same way and printed, then FLOWN
+whatever the prediction says: since P1-FAMINE-PINNED-CAPACITY (2026-09-28) the build refuses a
+STRESS_EVICT tree whose pins plus any window exceed the clamp, so an unserviceable window on a
+built ROM is a broken contract, graded as a FAIL (below), not a route to steer around.
 
 WHAT IS GRADED (exit 1 on any of these):
   * a HALT: `Logic_Tick` unchanged for HALT_FRAMES frames (a raise_error, e.g. the DEBUG
@@ -47,6 +49,9 @@ WHAT IS GRADED (exit 1 on any of these):
     not all resident;
   * BACK: no evicted page re-loaded (absent after its eviction, resident again); the settled
     window's pages not all resident;
+  * HOME: a halt anywhere on the way to camera x 0 (dumped with the page-cache state); a
+    window over the clamp PREDICTED on the route (even if the leg happened not to halt); the
+    settled window's pages not all resident;
   * ART, after every settle: for every resident page p in frame f, VRAM[f * page_bytes ..]
     must equal p's tiles, decoded from the ROM's own page blob (raw, or ZX0 via
     tools/bin/salvador) and Page_Frames[f].pf_page must be p. The same check runs on the
@@ -64,16 +69,21 @@ Outcomes (exit code):
     one on disk. "Could not ask" is never "the answer is no".
 
 THE P-1 CAPACITY FAMINE, measured 2026-09-28 on s4.stress.bin crc32 7e677683 (origin/master
-bb2d11a1): the act pins pages {0,1,7,8,9} (pm_flags, the >=75%-of-sections rule), so once page
-9 is resident only 4 of the 9 frames are evictable, and section 0's windows at camera x
-~768..1344 (y 144) need all 5 unpinned pages {2..6}. Flying right to page 9 and back left
-halts there: "PageCache_AllocFrame: no free/evictable frame (thrash bug)", demand for page 5,
-every evictable frame named by the cache. See EVICT-WITNESS-PHASE1-PREMISE in
-docs/DEFERRED_WORK.md. The witness keeps its BACK leg short of it by derivation.
+bb2d11a1) and again on 5863cf9d (b2b5db52): the fixture shipped the pins chosen for 12 frames,
+{0,1,7,8,9}, with 9 frames, so once page 9 was resident only 4 frames were evictable, and
+section 0's windows near camera x 1376 (y 144) need 5 unpinned pages. Flying right to page 9
+and back left halted there: "PageCache_AllocFrame: no free/evictable frame (thrash bug)",
+demand for page 5. FIXED the same day (P1-FAMINE-PINNED-CAPACITY, docs/DEFERRED_WORK.md): the
+fixture now ships the frame-aware pins at its own clamp, {0,1,7,8} (pm_flags page 9 is
+`1 - STRESS_EVICT`), and the STRESS_EVICT build refuses a tree that would famine. The
+`--famine-probe` flag that flew into the famine on request is RETIRED: on a tree the build
+accepts there is no famine to fly into, and a tree that has one cannot be built in this shape.
+Its route is now the graded HOME leg, which the old ROM fails (it halts at x 1376) and the
+fixed one flies clean.
 
 Usage (it spawns its OWN emulator; nothing needs to be running first):
   STRESS_EVICT=1 ./build.sh
-  python3 tools/evict_witness.py [--rom s4.stress.bin] [--lst s4.stress.lst] [--famine-probe]
+  python3 tools/evict_witness.py [--rom s4.stress.bin] [--lst s4.stress.lst]
 
 HISTORY KEPT BECAUSE THE SHAPES OF THE DEFECTS ARE THE POINT.
   * Until 2026-09-19 it dialled an ambient legacy socket (`/run/user/1000/oracle.sock`) and
@@ -435,7 +445,7 @@ class Run:
               f"{cur}, flags ${flags:02X}")
 
 
-async def main(sock, rom_path: Path, lst_path: Path, famine_probe: bool) -> int:
+async def main(sock, rom_path: Path, lst_path: Path) -> int:
     rom_image = rom_path.read_bytes()
     labels = listing_labels(lst_path)
     not_resident = lst_equ(lst_path, "PAGE_NOT_RESIDENT")
@@ -599,18 +609,27 @@ async def main(sock, rom_path: Path, lst_path: Path, famine_probe: bool) -> int:
           f"{sorted(route.pages(x_back))}, including evicted {want_back}; every window on the way "
           f"needs <= {path_max} of {clamp} frames")
 
-    # ---- the famine, predicted beyond the BACK target ----
-    fam = None
+    # ---- the HOME route: from the BACK target to the act's left edge, predicted ----
+    # The build refuses a STRESS_EVICT tree whose pins plus any window exceed the clamp
+    # (`fg_page_order.py check --stress-evict`, P1-FAMINE-PINNED-CAPACITY), and this count
+    # (pins resident SO FAR) can only be smaller than that one (every pin). So a window over
+    # the clamp here means the ROM broke the contract the build checks: it is a FAIL after
+    # the HOME leg has flown into it, never a route to steer around.
+    fam, home_max = None, 0
     for x in range(x_back, -1, -8):
         pg = route.pages(x)
         held |= pg & pinned
-        if len(pg | held) > clamp:
+        home_max = max(home_max, len(pg | held))
+        if fam is None and len(pg | held) > clamp:
             fam = (x, sorted(pg), sorted(held), len(pg | held))
-            break
     if fam:
-        print(f"P-1 FAMINE (predicted, not flown): at camera x {fam[0]} the window names {fam[1]}; "
-              f"with the pinned pages {fam[2]} resident that is {fam[3]} pages for {clamp} frames, "
-              f"so no frame is evictable there (EVICT-WITNESS-PHASE1-PREMISE)")
+        print(f"P-1 FAMINE PREDICTED on the HOME route: at camera x {fam[0]} the window names "
+              f"{fam[1]}; with the pinned pages {fam[2]} resident that is {fam[3]} pages for "
+              f"{clamp} frames. `fg_page_order.py check --stress-evict` refuses such a tree, so "
+              f"this ROM was not built from one it passed.")
+    else:
+        print(f"HOME route (derived): camera x {x_back} -> 0; every window on the way needs "
+              f"<= {home_max} of {clamp} frames with the pins resident by then")
 
     # ---- BACK leg ----
     ev1, back_start = len(run.events), run.frame
@@ -650,23 +669,48 @@ async def main(sock, rom_path: Path, lst_path: Path, famine_probe: bool) -> int:
             print(f"FAIL: {line}")
         return 1
 
-    if famine_probe:
-        if not fam:
-            print("FAMINE PROBE: nothing predicted to the left; not flown")
-        else:
-            print(f"FAMINE PROBE: flying left to camera x {fam[0]} (predicted over capacity)")
-            halted, _at = await run.fly(["left"], lambda cx: cx <= fam[0])
-            if not halted:
-                halted = await run.settle()
-            if halted:
-                await run.dump_halt("the famine probe")
-                print("FAMINE PROBE: reproduced (the verdict below is the eviction proof's)")
-            else:
-                print("FAMINE PROBE: NOT reproduced — the camera reached the predicted window and "
-                      "the machine kept ticking")
+    # ---- HOME leg: the rest of the way back to camera x 0 ----
+    # This is the route the P-1 famine used to halt on (camera x 1376 on the 12-frame pins);
+    # it replaces the retired `--famine-probe`, which flew into that famine on request.
+    ev2 = len(run.events)
+    halted, at = await run.fly(["left"], lambda cx: cx <= 0)
+    if not halted and at is not None:
+        halted = await run.settle()
+    if halted:
+        await run.dump_halt("the HOME leg")
+        print("FAIL: the HOME leg halted" + (f" at the predicted P-1 famine (camera x {fam[0]})"
+                                             if fam else " on a route derived serviceable"))
+        return 1
+    if at is None:
+        cx, _ = await run.cam()
+        raise Unmeasurable(f"the HOME leg did not fly: camera x {cx} > 0 after {LEG_FRAMES} frames")
+    x_home_end, _ = await run.cam()
+    home_events = run.events[ev2:]
+    for fr, kind, p, f, prev_owner in home_events:
+        print(f"  +{fr}: {kind} page {p} {'from' if kind == 'evict' else 'into'} frame {f}"
+              + (f" (previously page {prev_owner}'s)" if kind == "admit" and prev_owner is not None
+                 else ""))
+    res = run.resident()
+    need = route.pages(x_home_end)
+    fails = []
+    if fam:
+        fails.append(f"a window over the {clamp}-frame clamp was predicted at camera x {fam[0]} "
+                     f"({fam[3]} pages) and the leg did not halt: the static count and the engine "
+                     f"disagree, or the tree was not the one the build checked")
+    if not need <= set(res):
+        fails.append(f"settled at camera x {x_home_end}: the window names {sorted(need)} but "
+                     f"{sorted(need - set(res))} is not resident")
+    print(f"HOME: settled at camera x {x_home_end}; "
+          f"{sum(1 for e in home_events if e[1] == 'evict')} eviction(s), "
+          f"{sum(1 for e in home_events if e[1] == 'admit')} admission(s) on the way")
+    fails += await run.check_art(art, "after the HOME leg")
+    if fails:
+        for line in fails:
+            print(f"FAIL: {line}")
+        return 1
     print(f"PASS: evicted {evicted_out} for a page outside the initial set, re-used the frame, "
-          f"re-loaded {sorted({p for _fr, p, _f in reloaded})}; every resident page's art checked "
-          f"in VRAM after each leg")
+          f"re-loaded {sorted({p for _fr, p, _f in reloaded})}, flew home to camera x "
+          f"{x_home_end} without a halt; every resident page's art checked in VRAM after each leg")
     return 0
 
 
@@ -674,8 +718,6 @@ def _cli() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--rom", default=os.path.join(AEON, "s4.stress.bin"))
     ap.add_argument("--lst", default=os.path.join(AEON, "s4.stress.lst"))
-    ap.add_argument("--famine-probe", action="store_true",
-                    help="after the proof, fly into the predicted P-1 famine and dump it")
     args = ap.parse_args()
     rom_path, lst_path = Path(args.rom).resolve(), Path(args.lst).resolve()
     for label, q in (("ROM", rom_path), ("listing", lst_path)):
@@ -689,7 +731,7 @@ def _cli() -> int:
         sock = inst.start()
         if inst.cart_note:
             print(inst.cart_note)
-        return asyncio.run(main(sock, rom_path, lst_path, args.famine_probe))
+        return asyncio.run(main(sock, rom_path, lst_path))
     except (Unmeasurable, SpawnError, CartMismatch) as e:
         print(f"UNMEASURABLE: {e}")
         return 2

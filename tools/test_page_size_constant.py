@@ -93,7 +93,8 @@ def _bake_pool(gen, page_tiles, last_page_tiles):
     (gen / "ojz_act_pool.emp").write_text("\n".join(lines) + "\n")
     (gen / "ojz_act_pool_manifest.json").write_text(json.dumps({
         "version": 2, "page_tiles": page_tiles, "page_bytes": page_tiles * TILE_SIZE,
-        "pages": [{"index": k, "tiles": tiles[k], "pinned": k == 0} for k in range(2)]}))
+        "pages": [{"index": k, "tiles": tiles[k], "pinned": k == 0,
+                   "pinned_stress_evict": k == 0} for k in range(2)]}))
     (gen / "sec_local_maps.emp").write_text(
         'pub data OJZ_Sec0_LocalMap = embed("sec0_local_map.bin")\n'
         'pub data OJZ_Sec_LocalMaps: [*u8; 1] = [extern("OJZ_Sec0_LocalMap")]\n')
@@ -167,7 +168,8 @@ os.makedirs(gen, exist_ok=True)
 n = int(os.environ["STUB_PAGE_BYTES"])
 open(f"{gen}/act_pool_page0.bin", "wb").write(bytes(i & 0xFF for i in range(n)))
 open(f"{gen}/ojz_act_pool_manifest.emp", "w").write("pub const OJZ_ACT_POOL_PAGES = 1\n")
-json.dump({"pages": [{"index": 0, "tiles": n // 32, "pinned": True}]},
+json.dump({"pages": [{"index": 0, "tiles": n // 32, "pinned": True,
+                      "pinned_stress_evict": True}]},
           open(f"{gen}/ojz_act_pool_manifest.json", "w"))
 '''
 

@@ -2518,6 +2518,17 @@ def generate(stress_uniquify=0):
         log=print)
     print("  " + fg_page_order.verdict_line(placement["verdict"], "Pass 4 placement"))
     fg_page_order.refuse_over_budget(placement["verdict"], "OJZ act 1 (ojz_strip_gen Pass 4)")
+    # The pins the STRESS_EVICT fixture ships (P1-FAMINE-PINNED-CAPACITY, 2026-09-28): that
+    # shape builds THIS tree with PAGE_FRAMES_CLAMP frames, so it gets the same frame-aware
+    # pass at its own clamp (read from the engine at STRESS_EVICT=1). Pass 7b records both
+    # sets; elect_pool_pages spells a page they disagree on as an expression of the define,
+    # so the canonical bytes are the Pass 4 pins exactly. Not a refusal here: whether that
+    # shape fits its clamp is `fg_page_order.py check --stress-evict`'s question, asked by
+    # the STRESS_EVICT build, so a content edit is never blocked by a dev fixture.
+    stress_evict_budget = fg_page_order.load_budget_constants(stress_evict=1)
+    se_pins = fg_page_order.stress_evict_pins(placement, stress_evict_budget)
+    print(f"  Pass 4 pins at the STRESS_EVICT clamp ({stress_evict_budget['PAGE_FRAMES_CLAMP']} "
+          f"frames): {se_pins} (at PAGE_FRAMES: {placement['pins']})")
     unique = placement["unique"]                  # may carry an appended blank / zone copies
     canon_grid = placement["canon"]               # per-cell canonical ids after any zone split
     per_section_canon_tiles = placement["per_section"]
@@ -2774,7 +2785,11 @@ def generate(stress_uniquify=0):
     # Pins: the frame-aware set (the 75% rule's candidates that push no window over
     # PAGE_FRAMES): Pass 4's for the real pool, Pass 4c's for the stress fixture's
     # inflated one.
+    # pinned_stress_evict: the set the STRESS_EVICT shape folds pm_flags to (Pass 4's pins
+    # at PAGE_FRAMES_CLAMP). A STRESS_ART throwaway tree ships its Pass 4c pins in both
+    # columns: build.sh refuses STRESS_ART with STRESS_EVICT, so no shape folds it at 1.
     shipped_pins = set(stress_pins if stress_pins is not None else placement["pins"])
+    shipped_se_pins = set(stress_pins if stress_pins is not None else se_pins)
     pinned_flags = [i in shipped_pins for i in range(len(pages))]
     sidecar = {
         "version": 2,
@@ -2782,7 +2797,8 @@ def generate(stress_uniquify=0):
         "page_bytes": ART_POOL_PAGE_TILES * tile_dedupe.TILE_SIZE,
         "pool_tiles": len(pool_order),
         "pages": [
-            {"index": i, "tiles": len(page), "pinned": bool(pinned_flags[i])}
+            {"index": i, "tiles": len(page), "pinned": bool(pinned_flags[i]),
+             "pinned_stress_evict": i in shipped_se_pins}
             for i, page in enumerate(pages)
         ],
     }

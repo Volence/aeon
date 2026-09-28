@@ -23,6 +23,7 @@ import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import act_grid  # noqa: E402  stdlib-only: the ONE reader of the act's section count
+import elect_pool_pages  # noqa: E402  stdlib-only: the ONE pm_flags emitter and reader
 
 ROOT =os.path.normpath(os.path.join(os.path.dirname(__file__), ".."))
 GEN = os.path.join(ROOT, "games", "sonic4", "data", "generated", "ojz", "act1")
@@ -151,12 +152,12 @@ def verify_act_pool():
     tbl = re.search(r'OJZ_Act_Pool_PageTable[^\[]*\[(.*)\]', pool_txt, re.S)
     entries = re.findall(
         r'pm_source:\s*extern\("OJZ_Act_Pool_Page(\d+)"\)\s*,\s*'
-        r'pm_tiles:\s*(\d+)\s*,\s*pm_form:\s*(\d+)\s*,\s*pm_flags:\s*(\d+)',
+        r'pm_tiles:\s*(\d+)\s*,\s*pm_form:\s*(\d+)\s*,\s*' + elect_pool_pages.PM_FLAGS_FIELD_RE,
         tbl.group(1) if tbl else "")
     check([int(e[0]) for e in entries] == list(range(pages)),
           f"act pool: PageManifest table indices {[e[0] for e in entries]}, expected 0..{pages-1}")
     for e in entries:
-        k, tiles, form, _flags = int(e[0]), int(e[1]), int(e[2]), int(e[3])
+        k, tiles, form = int(e[0]), int(e[1]), int(e[2])
         pbin = os.path.join(GEN, f"act_pool_page{k}.bin")
         if not os.path.isfile(pbin):
             check(False, f"act pool: act_pool_page{k}.bin missing")
@@ -220,15 +221,31 @@ def verify_act_pool():
     sc_pages = {p["index"]: p for p in sc.get("pages", [])}
     check(sorted(sc_pages) == list(range(pages)),
           f"act pool: sidecar page indices {sorted(sc_pages)} != 0..{pages-1}")
+    # The pin bit is checked in BOTH shapes that fold it (P1-FAMINE-PINNED-CAPACITY,
+    # 2026-09-28): at STRESS_EVICT=0 (every shipped shape) against `pinned`, at
+    # STRESS_EVICT=1 (the fixture, PAGE_FRAMES_CLAMP frames) against `pinned_stress_evict`,
+    # the generator's frame-aware pins at the clamp. A spelling elect_pool_pages does not
+    # emit is a failure, never a guess.
     for e in entries:
-        k, tiles, _form, flags = int(e[0]), int(e[1]), int(e[2]), int(e[3])
+        k, tiles, spelling = int(e[0]), int(e[1]), e[3]
         p = sc_pages.get(k)
         if p is None:
             continue
         check(p["tiles"] == tiles,
               f"act pool: page{k} sidecar tiles {p['tiles']} != manifest tiles {tiles}")
-        check(bool(flags & 1) == bool(p["pinned"]),
-              f"act pool: page{k} pm_flags pinned bit {flags & 1} != sidecar pinned {p['pinned']}")
+        try:
+            folded = {se: elect_pool_pages.pm_flags_value(spelling, se) for se in (0, 1)}
+        except elect_pool_pages.ElectError as exc:
+            check(False, f"act pool: page{k}: {exc}")
+            continue
+        for se, key in ((0, "pinned"), (1, "pinned_stress_evict")):
+            if key not in p:
+                check(False, f"act pool: page{k} sidecar has no {key!r} (re-bake with "
+                             f"tools/regenerate-level.sh)")
+                continue
+            check(bool(folded[se] & 1) == bool(p[key]),
+                  f"act pool: page{k} pm_flags {spelling!r} folds to pinned bit "
+                  f"{folded[se] & 1} at STRESS_EVICT={se} != sidecar {key} {p[key]}")
 
 
 def verify_local_map_table(n_sec):

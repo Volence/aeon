@@ -1205,9 +1205,21 @@ fi
 # STRESS_ART is held to it too (stressart-budget, 2026-09-26): its POOL overwhelms the cache
 # on purpose, but a WINDOW over PAGE_FRAMES deadlocks the fly legs instead of evicting (GPL-1,
 # which the old report-only flag here let through for three weeks after the 14 -> 12 re-cut).
+# STRESS_EVICT is held to ITS OWN clamp (P1-FAMINE-PINNED-CAPACITY, 2026-09-28): that shape
+# builds this committed act with PAGE_FRAMES_CLAMP frames, and its pins are pm_flags folded at
+# STRESS_EVICT=1 (the bake's frame-aware pins at the clamp). `--stress-evict` counts exactly
+# that, both numbers read from source at the define, so a pin or clamp drift that would starve
+# the fixture's cache on a DEMAND (the P-1 famine the nightly witness used to halt on) is a
+# refusal here, naming the window, instead of a halt at night.
+FG_CHECK_FLAGS=""
+FG_CHECK_BUDGET="PAGE_FRAMES"
+if [[ "${STRESS_EVICT:-0}" == "1" ]]; then
+    FG_CHECK_FLAGS="--stress-evict"
+    FG_CHECK_BUDGET="PAGE_FRAMES_CLAMP (the STRESS_EVICT fixture's frames)"
+fi
 if [[ "${GAME}" == "sonic4" ]]; then
-    if ! gate strict "fg_page_order.py" python3 "${TOOLS}/fg_page_order.py" check; then
-        echo "FG page budget refused — a camera window needs more art pages than PAGE_FRAMES (see above)."
+    if ! gate strict "fg_page_order.py" python3 "${TOOLS}/fg_page_order.py" check ${FG_CHECK_FLAGS}; then
+        echo "FG page budget refused — a camera window needs more art pages than ${FG_CHECK_BUDGET} (see above)."
         exit 1
     fi
 fi

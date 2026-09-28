@@ -58,6 +58,46 @@ class ElectError(Exception):
     """A refusal. Nothing partial is left behind by the caller's standards."""
 
 
+# ---- pm_flags: ONE emitter, ONE reader (P1-FAMINE-PINNED-CAPACITY, 2026-09-28) ----
+# A page's pin bit can differ between build shapes. The STRESS_EVICT fixture runs the
+# committed act with PAGE_FRAMES_CLAMP frames instead of PAGE_FRAMES, and a pin that fits
+# PAGE_FRAMES can starve it (the P-1 famine), so the sidecar carries a second pin set,
+# `pinned_stress_evict`, chosen by the same frame-aware rule at the clamp
+# (fg_page_order.stress_evict_pins). Where the two agree the byte is a literal; where they
+# differ it is a comptime expression of the STRESS_EVICT define (sigil seeds it in every
+# module: 0 in every shipped shape, 1 under --stress-evict), so a canonical shape folds to
+# exactly the literal it had before. Every tool that reads pm_flags out of a generated
+# `.emp` goes through pm_flags_value, which refuses a spelling it does not know.
+PM_FLAGS_SPELLINGS = {
+    # (pinned, pinned_stress_evict) -> spelling
+    (True, True): "1",
+    (False, False): "0",
+    (True, False): "1 - STRESS_EVICT",
+    (False, True): "STRESS_EVICT",
+}
+#: every pm_flags field of a PageManifest table: group 1 = the spelling, up to the closing brace
+PM_FLAGS_FIELD_RE = r"pm_flags:\s*([^}]*?)\s*\}"
+
+
+def pm_flags_spelling(pinned, pinned_stress_evict):
+    return PM_FLAGS_SPELLINGS[(bool(pinned), bool(pinned_stress_evict))]
+
+
+def pm_flags_value(spelling, stress_evict):
+    """The flags byte a pm_flags spelling folds to with STRESS_EVICT = `stress_evict`."""
+    if stress_evict not in (0, 1):
+        raise ElectError(f"STRESS_EVICT is a 0/1 define, not {stress_evict!r}")
+    spelling = " ".join(str(spelling).split())
+    if spelling.isdigit():
+        return int(spelling)
+    if spelling == "1 - STRESS_EVICT":
+        return 1 - stress_evict
+    if spelling == "STRESS_EVICT":
+        return stress_evict
+    raise ElectError(f"pm_flags spelling {spelling!r} is not one elect_pool_pages emits "
+                     f"({sorted(set(PM_FLAGS_SPELLINGS.values()))}); refusing to guess its value")
+
+
 def _page_count_from_manifest(manifest_path: str) -> int:
     """OJZ_ACT_POOL_PAGES out of the generated `.emp` manifest.
 
@@ -101,6 +141,11 @@ def elect(pool_dir: str, page_bytes: int, salvador: str,
     if len(meta) != pages:
         raise ElectError(
             f"sidecar has {len(meta)} pages, manifest declares {pages}.")
+    lacking = [k for k, m in enumerate(meta) if "pinned_stress_evict" not in m]
+    if lacking:
+        raise ElectError(
+            f"sidecar pages {lacking} carry no `pinned_stress_evict` (the pin set at the "
+            f"STRESS_EVICT clamp, written by ojz_strip_gen Pass 7b); re-run the strip generator.")
 
     # Stale pages from a previously LARGER pool. The elected blobs (.zx0/.raw) would
     # otherwise be EMBEDDED; the .bin payloads past the new page count would be left as
@@ -177,7 +222,7 @@ def elect(pool_dir: str, page_bytes: int, salvador: str,
         for k in range(pages):
             fh.write(f'  PageManifest{{ pm_source: extern("{symbol_prefix}{k}"), '
                      f'pm_tiles: {meta[k]["tiles"]}, pm_form: {forms[k]}, '
-                     f'pm_flags: {1 if meta[k]["pinned"] else 0} }},\n')
+                     f'pm_flags: {pm_flags_spelling(meta[k]["pinned"], meta[k]["pinned_stress_evict"])} }},\n')
         fh.write("]\n")
 
     n0 = forms.count(FORM_ZX0)
