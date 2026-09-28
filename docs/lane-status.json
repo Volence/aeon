@@ -10,6 +10,11 @@
       "what": "Fix the overnight eviction test drive, which refused to run after code moved under it",
       "where": "branch fix/evict-witness-site",
       "agent": true
+    },
+    {
+      "what": "Parallax round 2: three more small savings (about 1.3k cycles a tick), same picture",
+      "where": "branch perf/parallax-perband-2",
+      "agent": true
     }
   ],
   "blockedOnOwner": [
@@ -39,6 +44,13 @@
     {
       "id": "EVICT-WITNESS-SITE",
       "title": "The overnight eviction test drive refused to run (code moved under its search window); fixing how it finds its spot",
+      "state": "doing",
+      "size": "S",
+      "blockedBy": null
+    },
+    {
+      "id": "PERF-PARALLAX-PERBAND-2",
+      "title": "Parallax round 2: three more small savings (about 1.3k cycles a tick in Emerald Hill), same picture",
       "state": "doing",
       "size": "S",
       "blockedBy": null
@@ -147,5 +159,5 @@
   ],
   "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-09-28T10:22:02Z"
+  "updatedAt": "2026-09-28T10:22:39Z"
 }
