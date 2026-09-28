@@ -2,9 +2,9 @@
   "focus": "Owner asleep. Seven fixes landed tonight; now the second song bank, one step at a time.",
   "inFlight": [
     {
-      "what": "Song bank 2 with Metropolis's song: built; the assembler lane is rebuilding its tool with the last change, then it lands",
+      "what": "Song bank 2 with Metropolis's song: assembler rebuilt, finishing and checking it on every Sonic 2 test level",
       "where": "branch parcel/song-bank-2-step3",
-      "agent": false
+      "agent": true
     },
     {
       "what": "Landing the re-aimed overnight eviction test drive",
@@ -166,5 +166,5 @@
   ],
   "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-09-28T11:51:04Z"
+  "updatedAt": "2026-09-28T11:52:19Z"
 }
