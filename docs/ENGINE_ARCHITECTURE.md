@@ -4244,6 +4244,24 @@ Batman uses static per-level sound banks. We make them per-section and dynamic:
 
 No commercial game ties sound banking to level streaming.
 
+**Song banks (per-song bank, S2CLIP-MTZ-SONG-BANK, 2026-09-28, in progress).** A song is
+reached through the bank its own ROM address is in: `Sound_PlayMusic` derives the bank and the
+window pointers from `SongTable[id-1]` / `SongPatchTable[id-1]` (68k-read LMAs) and posts them;
+`Snd_LoadSong` latches `SND_SONG_BANK`, and `Run_SeqFrame_OnSongBank` banks it in around every
+sequencer frame. Two rules make a song bank other than the SFX bank safe:
+- **Every song bank starts with the engine-table head** (the five head tables at window offset
+  0, byte-identical to the SFX bank's), because the resident Z80 reads `SeqOpcodeTable`,
+  `DacSampleTable`, `SndDefaultPitchTable` and the FM/PSG LUTs at fixed window addresses under
+  whatever bank is in. The per-song pitch table lives in the song and is only read under the
+  song's own bank (`Fm_NoteFromTable` runs only inside `Sequencer_Frame`).
+- **A music-patch read on the SFX path banks the song's bank in** (`SndDrv_SongBankIn`):
+  `Sfx_Restore`'s FM voice hand-back and `Sfx_UnpauseRestore`. `Sfx_Restore` returns the window to
+  the bank its caller had (the SFX slot loop reads its blob through it). Both are cached no-ops
+  while the song shares the SFX bank. This is Flamedriver's restore order.
+The second bank itself (`SongBank2_Head`, anchored at 0xC0000) and the move of the song tables
+out of the Moving-Trucks bank are the remaining steps; see `docs/DEFERRED_WORK.md`
+`## S2CLIP-MTZ-SONG-BANK`.
+
 ### 6.5 Distance-Based Sound Attenuation (NOVEL) — DEFERRED, DEMOTED (2026-07-03)
 
 > **DEMOTED below the game-feel layer** (2026-07-01 spec review CUT list, recorded 2026-07-03):
