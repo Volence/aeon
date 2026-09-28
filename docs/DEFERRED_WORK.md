@@ -43212,17 +43212,115 @@ These equal the FAST builds every measurement used (the step-2 row of the resear
   band, which is ~10 cycles against ~100 for a band decode. It changes the band record that
   aurora/`effects_gen` emit.
 - **PPB-3: cache the fill's per-band loop selection under the same key.** About 80 cycles a
-  band, ~0.5k a tick on EHZ.
+  band, ~0.5k a tick on EHZ. **DONE 2026-09-28 by PERF-PARALLAX-PERBAND-2** (below): measured
+  -349 on the EHZ run, -275 on OJZ; +266 on the anchored legs, where every tick splits.
 - **PPB-4: keep the view across an anchored split.** Today an anchored region rebuilds every tick
   (1.4k). The alternative is a pristine copy, +528 B of RAM at MAX 16.
-- **PPB-5: the curve hoist's walk over non-curve bands.** About 0.3k a tick on EHZ.
+- **PPB-5: the curve hoist's walk over non-curve bands.** About 0.3k a tick on EHZ. **DONE
+  2026-09-28 by PERF-PARALLAX-PERBAND-2**: measured -246 on the EHZ run, -296 on OJZ.
 - **PPB-6: flat lines by `movem.l`.** About 0.5k a tick on EHZ, less the setup. The fill has few
-  free registers.
+  free registers. **DONE 2026-09-28 by PERF-PARALLAX-PERBAND-2, and the estimate was wrong for
+  EHZ**: -43 there (its flat bands are 11-58 lines, and the gain is 16 a group of 8 after a
+  32-cycle setup), -265 on OJZ.
 - **PPB-7: `[parallax.cost_model]` in `tools/effects_budget_model.toml` is stale.** Every band
-  term moved down. It is not gated anywhere and was not re-fitted.
+  term moved down. It is not gated anywhere and was not re-fitted. **RE-RUN 2026-09-28 by
+  PERF-PARALLAX-PERBAND-2 and recorded (`perband2_*`), NOT promoted; see rider PPB-7b there.**
 - **PPB-8: the replay net's RAM-hash checkpoints.** The DEBUG RAM layout moved: 8 B inside
   `Parallax_State`, and everything after it moves 8 B. The GPL-A3-3 question again. Not measured
   here.
+
+## PERF-PARALLAX-PERBAND-2: three more per-band costs cached or cut, identical output (branch `perf/parallax-perband-2`, 2026-09-28)
+
+This round took riders PPB-3, PPB-5 and PPB-6 of PERF-PARALLAX-PERBAND, and re-ran PPB-7's fit.
+Findings and every number are in `docs/research/2026-09-28-parallax-perband-2.md`, and tools
+and raw results are in the directory beside it. Base `origin/master` `e76dcea9`.
+
+**What landed.**
+
+1. **PPB-5, the curve hoist walks only the curve layers.**
+   - Step 4a's rebuild derives `Parallax_Curve_Walk`, the slot range from the view's first
+     curve layer to its last. A key hit keeps it with the view.
+   - The hoist walks only that range. It used to walk every band.
+   - RAM: +4 B under `CAP_FACTOR_CURVE`.
+2. **PPB-3, the fill's per-band loop selection is cached under Step 4a's key.**
+   - A pass before the fill writes a byte per slot into `Parallax_Band_Sel` (stored reversed,
+     indexed by the fill's d7). Zero means flat with no remap, and the fill then goes straight
+     to `.lp_flat`.
+   - The pass runs only while `Parallax_Band_Sel_Valid` is 0. The rebuild and `Parallax_Init`
+     clear it.
+   - The split marks every byte `$FF` rather than re-deriving; re-deriving measured +900 on the
+     anchored legs.
+   - RAM: +20 B under `CAP_DEFORM`. Demo: 0.
+3. **PPB-6, flat lines by `movem.l`.** Two `movem.l d0/d3/d5-d6,-(a0)` per group of 8, walking
+   back from the band's end.
+4. **`tools/parallax_shadow_key_witness.py` is extended.** Its forced run also re-derives the
+   selection (pokes `Parallax_Band_Sel_Valid` to 0), and it compares the key and both caches.
+   Its shadow capture is exact now; it had over-read 32 bytes. Red-first on mutant K (the
+   rebuild keeps the selection): exit 1, 81/180. The unextended witness on the same ROM gave
+   exit 0.
+
+**Measured** (FAST builds, `Parallax_Update` inclusive cycles a tick, base -> branch; lag / video
+frames over the same tick span):
+
+| leg | lag | parallax cyc/tick |
+|---|---|---|
+| clip run, release | 0 -> 0 | 11,697 -> 11,058 |
+| clip run, DEBUG | 6 -> 6 | 11,814 -> 11,176 |
+| clip fly diagonal, EHZ band (DEBUG) | 16/72 -> 16/72 | 11,679 -> 11,048 |
+| canonical run, release / DEBUG | 0 -> 0 | 8,154 -> 7,318 / 8,270 -> 7,434 |
+| canonical fly diagonal (DEBUG) | 12 -> 12 | 8,200 -> 7,484 |
+| canonical anchored region, right / down (DEBUG) | 0 -> 0 | 14,314 -> 14,428 / 14,843 -> 14,933 |
+
+- **Per step on the EHZ DEBUG run:** PPB-5 -246, PPB-3 -349, PPB-6 -43.
+- **Output.** `Hscroll_Buffer`, the VSRAM column buffer and `Vscroll_Factor` are byte-identical
+  at every compared tick of all 14 legs.
+- **Fixture identity.** `parallax_hscroll_identity.py --ref <base>` reports OK.
+- **The witness is GREEN:** hit 81, vs-moved 10, split 99, 0 differ.
+- **Red-first.** Code mutants C/D/K/E/F all went RED on the leg identity. The four new `ensure`s
+  each refused their mutation (G/H/I/J).
+
+**Files another lane reads.**
+- `engine/ram.emp`: +24 B at the tail of `Parallax_State` in sonic4 (828 -> 852 at MAX 16).
+  - `Parallax_Band_Sel` and `Parallax_Band_Sel_Valid` sit before `Parallax_Curve_Walk`, which
+    is the last field.
+  - `PARALLAX_STATE_LONGS` gained `2 * BAND_CURVE_N` (was `1 *`) and
+    `BAND_SEL_N * (MAX/4 + 1)`.
+  - Everything after `Parallax_State_End` moves by 24 B in the sonic4 shapes.
+- New cross-seam RAM names, for sigil's `*_port` lists: `Parallax_Curve_Walk`,
+  `Parallax_Band_Sel`, `Parallax_Band_Sel_Valid`.
+- New `pub const`: `BAND_SEL_N` in `engine/level/parallax.emp`.
+- The `Parallax_Update @ Decode_Factor_A/B` call sites that sigil's contract baseline pins are
+  untouched.
+- Unchanged: `engine/structs.emp`, `engine/effects/*`, the record and config formats.
+
+**Landing evidence.** LANDING-EVIDENCE-PLACEHOLDER
+
+**Open riders.**
+- **PPB-4 is worth more now.** Keeping the view across an anchored split (+528 B at MAX 16) would
+  also turn the curve walk and the selection into hits there. The anchored region is the one
+  place this round cost cycles (+114 / +90). About 2k a tick on that region, estimated from the
+  decomposition, not measured.
+- **PPB-7b (owner's call): promote the walker model or replace its method.** The re-run is in
+  `tools/effects_budget_model.toml` as `perband2_*`. It was NOT promoted into the primary rows,
+  or into their comptime mirror `SB_WALK_*_X100` in `engine/level/scene_dsl.emp` (the axis-1
+  scene budget), for two reasons:
+  1. The fixtures are RAM configs, which are never keyed, so they price only the rebuild path.
+     The one ROM config measured (the out-of-sample row) is over-predicted by 29.3% (13.1% on
+     the base, 2.11% at the P3 tip).
+  2. The model no longer fits to zero: the un-anchored max residual is 47.5 now, 0.00 at the P3
+     tip.
+
+  The choice: promote as a conservative (rebuild-path) bound, or give the probe ROM-config
+  fixtures and new columns.
+- **PPB-9: cheaper misses for a vertically scrolling config.** The selection pass costs ~120-150
+  a slot and runs on every vs change. The selection is a function of the ROM bands alone, so it
+  could be cached per config and rotated by k (~25 a slot). That needs another MAX-byte array and
+  a config key. OJZ's diagonal and down legs gained without it, so it was not built.
+- **PPB-10: the selection byte's reason bits.** Carrying FG/BG/curve/remap as bits would let the
+  inline path skip its tests on sampled bands (~20-40 each). But the split's `$FF` marking would
+  then be wrong, so this only makes sense together with PPB-4.
+- **PPB-8 again:** the DEBUG RAM layout moved another 24 B after `Parallax_State`, so the replay
+  net's RAM-hash checkpoints have the GPL-A3-3 question again. Not measured here.
 
 ## OSCILLATION-THRASH: a swinging camera re-decodes the same blocks (branch `perf/oscillation-thrash`, 2026-09-28)
 

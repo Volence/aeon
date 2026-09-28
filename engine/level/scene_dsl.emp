@@ -2662,7 +2662,10 @@ pub comptime fn assert_act_relative_tagged(scenes: array, act_span: int) -> int 
 // axis-1 charge moved. The next parallax_cost_probe re-take fits ONE base column
 // (toml `base_cycles`) against the surviving fixtures and replaces this sum with a
 // measurement; until then the toml row carries the same derivation.
-pub const SB_WALK_BASE_X100          = 466400   // base_cycles          4664.00 = 3116.00 + 1548.00
+// ⚠ 2026-09-28: a re-take on the current walker is recorded in the toml as `perband2_*` and
+// deliberately NOT promoted here: its fixtures are RAM configs, which Step 4a never keys, so it
+// prices only the rebuild path (the toml block says why; DEFERRED_WORK rider PPB-7b).
+pub const SB_WALK_BASE_X100         = 466400   // base_cycles          4664.00 = 3116.00 + 1548.00
 pub const SB_WALK_BAND_PERLINE_X100  = 85400    // band_perline_cycles   854.00
 pub const SB_WALK_MULTIBAND_X100     = 2000     // multiband_cycles        20.00
 // THE PER-LINE SAMPLING TERMS ARE SHIFT-0 INTERCEPTS since the shift_lines column exists;

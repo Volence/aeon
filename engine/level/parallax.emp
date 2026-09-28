@@ -2330,6 +2330,12 @@ proc Parallax_Step4_Fill () clobbers(d0-d7/a0-a6) {
         //   (4) THE SCROLL WORDS ARE NOT CACHED. They are the only per-tick input to the
         //       view, and `.reorder_scroll` rotates them from Parallax_Current_Scroll_A/_B
         //       every tick, on both paths, from the same k the records were rotated by.
+        // TWO MORE THINGS ARE KEPT WITH THE VIEW, under the same key (perf/parallax-perband-2):
+        // the curve hoist's walk (Parallax_Curve_Walk, derived below at `.shadow_built`) and
+        // the fill's loop selection (Parallax_Band_Sel, dropped at `.shadow_rebuild` and
+        // re-derived before the fill). Both are functions of the view alone (and the config's
+        // table pointers, which the key's config half fixes), so a hit keeps them exactly as
+        // it keeps the view; tools/parallax_shadow_key_witness.py compares all three.
         // The output is byte-identical to the always-rebuild shape at every tick; the check
         // is docs/research/2026-09-28-parallax-perband/ (HScroll/VSRAM/factor dumps compared
         // tick by tick, with the mutant that went RED on it).
@@ -4040,7 +4046,9 @@ proc Parallax_Fill_PerLine () clobbers(d0-d6/a1-a6) preserves(a0/d7) {
         // TWENTY-SIX CYCLES PER BAND FOR A GAME THAT DECLARES THE BIT AND DOES NOT USE IT
         // (`tst.l` 16 + `beq` 10), zero for a game that does not declare it — the same
         // shape, and about a third of the cost, of band drift's measured 68 cyc/band for
-        // declaring ITS bit.
+        // declaring ITS bit. Since PPB-3 (2026-09-28) a flat band in a game that also declares
+        // CAP_DEFORM does not reach this test at all: the cached selection above sent it to
+        // `.lp_flat`, and its byte being zero is what says there was no ladder to mark.
     if (Game.SCANLINE_CAPS & CAP_ROW_REMAP) != 0 {
     .cap_row_remap_mark_begin:
         tst.l   band_remap_ladder(a1)
