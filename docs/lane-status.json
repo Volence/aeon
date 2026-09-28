@@ -1,6 +1,12 @@
 {
-  "focus": "Woven fixes are all in your ROM; the Sonic 2 songs need a second sound bank, waiting on the assembler lane's answer.",
-  "inFlight": [],
+  "focus": "Planning the second sound bank for the Sonic 2 songs with the assembler lane.",
+  "inFlight": [
+    {
+      "what": "Second song bank: which build shape our sound data needs, so the assembler lane can size its side",
+      "where": "branch research/song-bank-shape",
+      "agent": true
+    }
+  ],
   "blockedOnOwner": [
     {
       "id": "SP6-MODULATION-DIVERGENCE",
@@ -18,7 +24,7 @@
       "since": "2026-09-27"
     }
   ],
-  "nextBoundary": "At a boundary, clearable. Next row: WOVEN-CROSSING-PATH; the song bank resumes when sigil answers.",
+  "nextBoundary": "When the bank-shape answer returns and goes to the assembler lane for its probe.",
   "queue": [
     {
       "id": "WOVEN-EDITABLE-IN-AURORA",
@@ -54,9 +60,9 @@
     {
       "id": "S2CLIP-MTZ-SONG-BANK",
       "title": "Sonic 2 zone songs: a second song bank is the plan (small engine change); waiting on the assembler lane's side",
-      "state": "blocked",
+      "state": "doing",
       "size": "M",
-      "blockedBy": "sigil: what a new aligned song-bank section needs (asked 2026-09-28)",
+      "blockedBy": null,
       "project": "REGIONS"
     },
     {
@@ -222,6 +228,6 @@
     }
   ],
   "awaiting": "New woven ROM with every fix so far: s4.woven.debug.bin (crc d6ce40fb). Also: do you want the woven act made editable in aurora?",
-  "atBoundary": true,
-  "updatedAt": "2026-09-28T01:35:03Z"
+  "atBoundary": false,
+  "updatedAt": "2026-09-28T01:36:20Z"
 }
