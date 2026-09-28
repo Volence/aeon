@@ -62,6 +62,24 @@ if [ -n "${STUB_DURING:-}" ] && [ "$r" = "${STUB_DURING_SHAPE:-}" ]; then
     esac
 fi
 printf x > "$r.bin"
+python3 tools/stub_lst.py "$r"
+"""
+
+#: The listing a real shape writes, reduced to what `land_gate.py finish --lst` reads: a
+#: Source Digest whose one READ row is the committed engine/a.emp, with its real crc/size
+#: (GPP-LAND-GATE-IGNORED-INPUTS: finish refuses a stamp whose build read an input the
+#: key does not cover, so a green run must now name its listings).
+STUB_LST = r"""import sys, zlib
+data = open("engine/a.emp", "rb").read()
+row = "DIGEST-READ crc=%08x size=%d origin=source path=engine/a.emp" % (
+    zlib.crc32(data) & 0xFFFFFFFF, len(data))
+agg = zlib.crc32((row + "\n").encode()) & 0xFFFFFFFF
+open(sys.argv[1] + ".lst", "w").write("\n".join([
+    "DIGEST-FORMAT 1", "DIGEST-ASSEMBLER sigil version=0 revision=0 tree=clean",
+    "DIGEST-SHAPE target=t game=g debug=0 extra-entries=none",
+    "DIGEST-SCAN pattern=*.emp files=0 crc=00000000", row,
+    "DIGEST-AGGREGATE crc=%08x reads=1" % agg,
+    "DIGEST-ROM crc=00000000 size=0 path=x.bin", "DIGEST-END", ""]))
 """
 
 STUB_LANE = "import sys; print('stub needs_build lane'); sys.exit(0)\n"
@@ -70,8 +88,10 @@ STUB_LANE = "import sys; print('stub needs_build lane'); sys.exit(0)\n"
 def _sandbox(root, git=True):
     os.makedirs(os.path.join(root, "tools"))
     os.makedirs(os.path.join(root, "engine"))
-    for name in ("landing_build.sh", "land_gate.py"):
+    for name in ("landing_build.sh", "land_gate.py", "artifact_provenance.py"):
         shutil.copy(os.path.join(TOOLS, name), os.path.join(root, "tools", name))
+    with open(os.path.join(root, "tools", "stub_lst.py"), "w") as f:
+        f.write(STUB_LST)
     with open(os.path.join(root, "build.sh"), "w") as f:
         f.write(STUB_BUILD)
     os.chmod(os.path.join(root, "build.sh"), 0o755)
@@ -80,7 +100,7 @@ def _sandbox(root, git=True):
     with open(os.path.join(root, "engine", "a.emp"), "w") as f:
         f.write("a\n")
     with open(os.path.join(root, ".gitignore"), "w") as f:
-        f.write("*.bin\n*.landing-tmp\nstub-sleeping\n")
+        f.write("*.bin\n*.lst\n*.landing-tmp\nstub-sleeping\n__pycache__/\n")
     env = _env()
     if git:
         for args in (["init", "-q", "-b", "master"], ["add", "-A"], ["commit", "-q", "-m", "base"]):
@@ -134,6 +154,30 @@ def test_a_green_run_writes_the_stamp_for_its_content():
         assert _stamps(d) == [_key(d) + ".json"], (_stamps(d), out)
         s = json.load(open(os.path.join(d, ".git", "aeon-land-gate", _stamps(d)[0])))
         assert s["finished"] == 0 and s["key"] == _key(d)
+        # every landing shape's listing was handed to finish and read
+        assert s["listings"] == [sh + ".lst" for sh in landing_shapes(
+            open(os.path.join(TOOLS, "landing_build.sh"), encoding="utf-8").read())], s
+        assert s["inputs_checked"] == len(s["listings"]), s
+
+
+def test_a_run_whose_build_read_an_ignored_file_writes_no_stamp():
+    """GPP-LAND-GATE-IGNORED-INPUTS through the real script: the stub listing names a
+    gitignored input, so the run is green and clean by `git status` and still no stamp."""
+    with tempfile.TemporaryDirectory() as d:
+        script = _sandbox(d)
+        with open(os.path.join(d, "tools", "stub_lst.py")) as f:
+            src = f.read()
+        src = src.replace('path=engine/a.emp"', 'path=engine/ignored.bin"').replace(
+            'open("engine/a.emp", "rb")', 'open("engine/ignored.bin", "rb")')
+        with open(os.path.join(d, "tools", "stub_lst.py"), "w") as f:
+            f.write(src)
+        subprocess.run(["git", "commit", "-q", "-am", "reads an ignored file"], cwd=d,
+                       env=_env(), check=True, capture_output=True)
+        with open(os.path.join(d, "engine", "ignored.bin"), "w") as f:
+            f.write("only on this disk")
+        rc, out = _run(script, d)
+        assert rc == 0 and _last(out) == "finished=0", out
+        assert "engine/ignored.bin, which is NOT COMMITTED" in out and _stamps(d) == [], out
 
 
 def test_a_failed_shape_writes_no_stamp():
