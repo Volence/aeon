@@ -7,18 +7,13 @@
       "agent": true
     },
     {
-      "what": "Check that Sonic's collision sensors really read the loop layer he is on (the old check for it was retired)",
-      "where": "branch fix/gpp-layer-sensors",
-      "agent": true
-    },
-    {
       "what": "Second song bank so Metropolis's song fits (assembler rebuilt, resumed)",
       "where": "branch parcel/song-bank-2",
       "agent": true
     },
     {
-      "what": "Landing the bounce-lag fix: sideways prefetch waits until the camera really moves (fewer wasted decodes)",
-      "where": "branch perf/oscillation-thrash",
+      "what": "Landing the check that Sonic's sensors really read the loop layer he is on",
+      "where": "branch fix/gpp-layer-sensors",
       "agent": false
     }
   ],
@@ -46,13 +41,6 @@
   ],
   "nextBoundary": "When the three agents (insta-shield check, bounce lag, parallax cost) return and land.",
   "queue": [
-    {
-      "id": "PERF-OSCILLATION-THRASH",
-      "title": "Bouncing in place wasted block decodes (lag was already mostly gone); fix measured, landing now",
-      "state": "doing",
-      "size": "M",
-      "blockedBy": null
-    },
     {
       "id": "WOVEN-EDITABLE-IN-AURORA",
       "title": "Make the woven act editable in aurora: sized (ours medium, aurora's large to very large); your call on freezing it",
@@ -165,5 +153,5 @@
   ],
   "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-09-28T08:47:57Z"
+  "updatedAt": "2026-09-28T09:19:02Z"
 }
