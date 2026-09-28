@@ -59,7 +59,8 @@ level re-bake can change. Each is read from the authority that governs it:
 
   PAGE_NOT_RESIDENT, PAGE_TABLE_MAX   the listing's own `EQU` lines
   act_art_pool_pages                  the act descriptor on the running machine
-  PAGE_FRAMES_CLAMP                   the EMITTED `cmpi.w #imm,d6` in `Level_LoadArt`,
+  PAGE_FRAMES_CLAMP                   the EMITTED `cmpi.w #imm,d6` in `Level_LoadArt`'s
+                                      fully-resident latch (found by local labels),
                                       NOT its `EQU` — on the STRESS shape those two
                                       DISAGREE (12 published, 9 compared). The `EQU` is
                                       read anyway and printed beside it, loudly, because
@@ -105,7 +106,28 @@ PHASE1_FRAMES = 900
 BURST_FRAMES = 90
 ACT_ART_POOL_PAGES_OFF = 0x1E   # engine/structs.emp, Act.act_art_pool_pages (u16)
 CMPI_W_D6 = b"\x0c\x46"        # cmpi.w #imm,d6 — the residency-clamp compare's opcode
-CLAMP_SCAN_BYTES = 64           # window from Level_LoadArt; must contain exactly one
+MOVEQ_D6 = 0x7C                 # moveq #imm,d6 — the bulk-load cap's clamp (high byte)
+# THE CLAMP SITE IS LOCATED BY LOCAL LABELS, NOT BY A BYTE WINDOW (EVICT-WITNESS-SITE,
+# 2026-09-28). It was "exactly one `cmpi.w #imm,d6` in the first 64 bytes of
+# Level_LoadArt", and the 2026-09-28 nightly (origin/master 514c3546) refused with TWO:
+# 787a9980 (2026-09-25, five hours after this witness was wired into the nightly) added a
+# second `cmpi.w #PAGE_FRAMES_CLAMP, d6`, the streaming act's bulk-load cap, at +$30 into
+# the routine. From that commit on, every nightly run refused (bisected by building
+# 787a9980 and its parent; see EVICT-WITNESS-SITE in docs/DEFERRED_WORK.md). A window
+# measured in bytes is a claim about every instruction ahead of the site; the labels are
+# claims about the site itself. The listing publishes each local label as
+# `$<module>$Level_LoadArt$<label> : <addr> C |`, so the spans are:
+#   LATCH  [Level_LoadArt, .streaming_pool)   `cmpi.w #PAGE_FRAMES_CLAMP,d6 / bhi
+#          .streaming_pool`: the fully-resident latch, i.e. the very `pool > clamp`
+#          question this witness's pigeonhole asks. The clamp is read off THIS one.
+#   CAP    [.streaming_pool, .bulk_count_ok)  `cmpi.w #PAGE_FRAMES_CLAMP,d6 / bls
+#          .bulk_count_ok / moveq #PAGE_FRAMES_CLAMP,d6`: the bulk-load cap. Read as a
+#          cross-check: all three immediates are one constant, so a disagreement means the
+#          routine changed shape under this witness, and that is a refusal, not a pick.
+# Each span must hold exactly one `cmpi.w #imm,d6` (and CAP exactly one `moveq #imm,d6`);
+# zero or two is the same loud SETUP refusal the window had. Never widen, never pick.
+LATCH_END_LABEL = "streaming_pool"
+CAP_END_LABEL = "bulk_count_ok"
 PAGE_TABLE_MAX_NAME = "PAGE_TABLE_MAX"
 
 
@@ -126,6 +148,31 @@ def lst_equ(lst_path: Path, name: str) -> int:
         f"evict_witness: SETUP — the listing {lst_path} publishes no `EQU {name}`. "
         f"Refusing to substitute a transcribed value: the whole point of reading it here "
         f"is that nothing notices when a transcribed one goes stale.")
+
+
+def lst_local_label(lst_path: Path, routine: str, label: str) -> int:
+    """The address of local label `.label` inside `routine`, off the listing's symbol table.
+
+    sigil publishes a local label as `$<module>$<routine>$<label> : <HEX> C |`. The module
+    part is matched as a wildcard (a module rename is not this witness's business), but the
+    match must be UNIQUE: zero or several addresses is a loud SETUP refusal, never a pick.
+    """
+    pat = re.compile(r"^\$[^$\s]+\$" + re.escape(routine) + r"\$" + re.escape(label)
+                     + r"\s*:\s*([0-9A-Fa-f]+)\s+C\s*\|")
+    hits = {int(m.group(1), 16) for line in lst_path.read_text(errors="replace").splitlines()
+            if (m := pat.match(line.strip()))}
+    if len(hits) != 1:
+        raise SystemExit(
+            f"FAIL: SETUP — the listing {lst_path.name} publishes {len(hits)} address(es) for "
+            f"local label `.{label}` in {routine} (want exactly one); this witness locates "
+            f"the residency-clamp compare by that label and refuses to guess. Re-derive the "
+            f"site from engine/level/load_art.emp.")
+    return hits.pop()
+
+
+def span_sites(rom_image: bytes, lo: int, hi: int, opword_ok) -> list:
+    """Even addresses in [lo, hi) whose opword satisfies `opword_ok`."""
+    return [a for a in range(lo, hi - 1, 2) if opword_ok(rom_image[a:a + 2])]
 
 
 async def sym(b, name):
@@ -174,8 +221,9 @@ async def main(sock, rom_path: Path, lst_path: Path):
     # ---- THE CLAMP IS READ OFF THE INSTRUCTION THAT ENFORCES IT ----
     # AND THAT IS NOT PEDANTRY, IT IS A MEASURED DISAGREEMENT. On 2026-09-19, on the very
     # shape this witness exists for, `s4.stress.lst` publishes `EQU PAGE_FRAMES_CLAMP =
-    # $0000000C` (12) while `s4.stress.bin` emits `cmpi.w #$0009,d6` at the one site in
-    # `Level_LoadArt` that uses that name (engine/level/load_art.emp:88), i.e. the fixture IS
+    # $0000000C` (12) while `s4.stress.bin` emitted `cmpi.w #$0009,d6` at what was then the
+    # one site in `Level_LoadArt` that used that name (there are three today, see the block
+    # at LATCH_END_LABEL), i.e. the fixture IS
     # clamped to 9 and the listing says it is not. The listing's other three constants are
     # consistent with 9 (`PAGE_FRAMES` 12, `STRESS_EVICT` 1, `STRESS_EVICT_FRAMES` 9, and
     # constants.emp folds those to 12 - 1*(12-9) = 9), so it is the FOLDED publication that
@@ -184,21 +232,45 @@ async def main(sock, rom_path: Path, lst_path: Path):
     # So the authority here is the emitted immediate: the number the 68000 actually compares
     # against. The EQU is read anyway and printed beside it, because an instrument that
     # silently prefers one of two disagreeing authorities is how a disagreement stays
-    # invisible. The scan is bounded and requires EXACTLY ONE `cmpi.w #imm,d6` in the window
-    # — zero or two is a refusal, never a guess, because a routine that grew a second one
-    # would otherwise hand back whichever came first.
+    # invisible. The scan is bounded BY LOCAL LABELS (see the block at LATCH_END_LABEL) and
+    # requires EXACTLY ONE `cmpi.w #imm,d6` per span — zero or two is a refusal, never a
+    # guess, because a routine that grew a second one would otherwise hand back whichever
+    # came first. The three immediates in the two spans must also agree.
     rom_image = rom_path.read_bytes()
-    win = rom_image[a_loadart:a_loadart + CLAMP_SCAN_BYTES]
-    hits = [i for i in range(0, len(win) - 3, 2) if win[i:i + 2] == CMPI_W_D6]
-    if len(hits) != 1:
-        print(f"FAIL: SETUP — {len(hits)} `cmpi.w #imm,d6` site(s) in the "
-              f"{CLAMP_SCAN_BYTES} bytes at Level_LoadArt (${a_loadart:06X}); this witness "
-              f"reads the residency clamp off exactly one and refuses to pick. Re-derive "
-              f"the site from engine/level/load_art.emp before widening the window.")
+    a_latch_end = lst_local_label(lst_path, "Level_LoadArt", LATCH_END_LABEL)
+    a_cap_end = lst_local_label(lst_path, "Level_LoadArt", CAP_END_LABEL)
+    if not a_loadart < a_latch_end < a_cap_end <= len(rom_image):
+        print(f"FAIL: SETUP — Level_LoadArt ${a_loadart:06X}, .{LATCH_END_LABEL} "
+              f"${a_latch_end:06X}, .{CAP_END_LABEL} ${a_cap_end:06X} are not in routine "
+              f"order inside a {len(rom_image)}-byte ROM; refusing to scan a span the source "
+              f"does not describe. Re-derive the site from engine/level/load_art.emp.")
         return 1
-    clamp = int.from_bytes(win[hits[0] + 2:hits[0] + 4], "big")
+    latch = span_sites(rom_image, a_loadart, a_latch_end, lambda w: w == CMPI_W_D6)
+    cap = span_sites(rom_image, a_latch_end, a_cap_end, lambda w: w == CMPI_W_D6)
+    cap_moveq = span_sites(rom_image, a_latch_end, a_cap_end, lambda w: w[0] == MOVEQ_D6)
+    for what, lo, hi, sites, insn in (
+            ("fully-resident latch", a_loadart, a_latch_end, latch, "cmpi.w #imm,d6"),
+            ("bulk-load cap", a_latch_end, a_cap_end, cap, "cmpi.w #imm,d6"),
+            ("bulk-load cap", a_latch_end, a_cap_end, cap_moveq, "moveq #imm,d6")):
+        if len(sites) != 1:
+            print(f"FAIL: SETUP — {len(sites)} `{insn}` site(s) in the {what} span "
+                  f"[${lo:06X}, ${hi:06X}) of Level_LoadArt (bounded by its local labels); "
+                  f"this witness reads the residency clamp off exactly one and refuses to "
+                  f"pick. Re-derive the site from engine/level/load_art.emp; never widen the "
+                  f"span.")
+            return 1
+    clamp = int.from_bytes(rom_image[latch[0] + 2:latch[0] + 4], "big")
+    cap_cmpi = int.from_bytes(rom_image[cap[0] + 2:cap[0] + 4], "big")
+    cap_mq = rom_image[cap_moveq[0] + 1]
+    if not clamp == cap_cmpi == cap_mq:
+        print(f"FAIL: SETUP — Level_LoadArt's three PAGE_FRAMES_CLAMP immediates disagree: "
+              f"latch cmpi ${latch[0]:06X}={clamp}, cap cmpi ${cap[0]:06X}={cap_cmpi}, cap "
+              f"moveq ${cap_moveq[0]:06X}={cap_mq}. They are one constant in "
+              f"engine/level/load_art.emp; refusing to pick one.")
+        return 1
     print(f"PAGE_FRAMES_CLAMP(emitted) = {clamp}, read off `cmpi.w #${clamp:04X},d6` at "
-          f"${a_loadart + hits[0]:06X} in Level_LoadArt")
+          f"${latch[0]:06X} (the fully-resident latch, before .{LATCH_END_LABEL}); the "
+          f"bulk-load cap's cmpi ${cap[0]:06X} and moveq ${cap_moveq[0]:06X} agree")
     if clamp != clamp_equ:
         print(f"  !! DISAGREEMENT: the listing publishes PAGE_FRAMES_CLAMP = {clamp_equ}, the "
               f"ROM compares against {clamp}. Going with the ROM — it is the one that runs — "

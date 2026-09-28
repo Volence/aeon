@@ -41360,6 +41360,38 @@ there plus a `[not_wired]` → `[wired]` move with a surface baseline. Not done 
 repaired three instruments, and wiring one of them into a lane is a different proof obligation
 with different accounting.
 
+**`EVICT-WITNESS-SITE`: the SETUP half is FIXED 2026-09-28 (`fix/evict-witness-site`). The
+witness's Phase 1 is now a GENUINE FAIL, and that half stays OPEN (`EVICT-WITNESS-PHASE1-PREMISE`
+below).** Found by the 2026-09-28 nightly (origin/master `514c3546`): `FAIL: SETUP — 2 cmpi.w
+#imm,d6 site(s) in the 64 bytes at Level_LoadArt`. **The nightly did not pass the night before.**
+`nightly.log` records 09-27 at `3238fb47` as `EVICTION WITNESS FAILED` too, and a rebuild of
+`3238fb47` (crc32 `e33c856f`) gives the same SETUP refusal. The 09-26 build failed. So the leg
+has not produced a real verdict since it was wired.
+
+*Cause, bisected by building both sides.* `787a9980` (2026-09-25 10:56, five hours after the
+wiring landed) added the streaming act's bulk-load cap: a second `cmpi.w #PAGE_FRAMES_CLAMP,d6`
+at +$30 in `Level_LoadArt`, inside the 64-byte window. At its parent `75170561` (crc32
+`914a705e`) the old witness gives `PASS (with known famine)`: 10 distinct pages, page 2 evicted
+at +51. At `787a9980` (crc32 `969eec17`) it refuses SETUP.
+
+*Fix (tools only).* The site is now located by the listing's local labels
+(`$<module>$Level_LoadArt$streaming_pool` / `$bulk_count_ok`). The clamp is read off the one
+`cmpi.w #imm,d6` in `[Level_LoadArt, .streaming_pool)`, which is the fully-resident latch. The
+cap's `cmpi` and `moveq` in `[.streaming_pool, .bulk_count_ok)` must agree with it. Zero or two
+sites, a missing or duplicate label, or disagreeing immediates are all the same loud SETUP
+refusal. The `.lst` has no per-instruction source text, so the labels are the structural anchor.
+No engine edit.
+
+**`EVICT-WITNESS-PHASE1-PREMISE` (OPEN, found by the fix above).** With the locator fixed, the
+witness gives a genuine FAIL at `787a9980`, `3238fb47` and `6e1f6cca` (crc32 `93bd2a52`): `no
+eviction proven — distinct resident pages [0..8] (= 9) never exceeded the 9-frame clamp (868
+samples)`. This is not an engine bug. Phase 1's premise ("the init load itself evicts") is what
+`787a9980` removed on purpose: a streaming act now bulk-loads only its first
+`PAGE_FRAMES_CLAMP` pages, so the load cannot evict. The eviction proof has to move to a
+post-init stimulus, such as a scroll or warp that demands page 9+ (Phase 2 hits the known P-1
+famine today). That is a change to the witness's design, and the witness owner has to decide
+it. Until then the nightly's STRESS_EVICT witness leg stays red for this reason.
+
 **`PARALLAX-ANCHOR-COEFFS-REPUBLISH`: `effects_budget_model.toml` has no record for today's
 fit.** Its own standing rule is that a parcel touching a `Parallax_*` routine re-measures; this
 parcel touched no engine code, only the fixture that was mis-measuring. The new pair
