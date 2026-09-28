@@ -604,7 +604,14 @@ ensure(((sizeof(band_ext) * BAND_EXT_N + sizeof(band_curve) * BAND_CURVE_N + siz
 // Parallax_VP_Lean, one long, to the ceiling-independent head of the region. It became 112
 // on 2026-09-28 (PERF-PARALLAX-PERBAND): Step 4a's frame-coherence key, two longs
 // (Parallax_Shadow_Key_Config, then the Key_VS/Key_K word pair) at the tail of the region.
-const PARALLAX_STATE_LONGS = (112 + 18 * MAX_PARALLAX_BANDS) / 4 + ((sizeof(band_ext) * BAND_EXT_N + sizeof(band_curve) * BAND_CURVE_N + sizeof(band_drift) * BAND_DRIFT_N + sizeof(band_remap) * BAND_REMAP_N) * MAX_PARALLAX_BANDS) / 4 + BAND_CURVE_N + BAND_DRIFT_N * MAX_PARALLAX_BANDS + 2 * BAND_REMAP_N
+// The curve term is `2 * BAND_CURVE_N` since PPB-5 (2026-09-28): the carry's long plus
+// Parallax_Curve_Walk's (the hoist's remembered [first slot, slot count] word pair), after
+// the key at the tail of the region.
+const PARALLAX_STATE_LONGS = (112 + 18 * MAX_PARALLAX_BANDS) / 4 + ((sizeof(band_ext) * BAND_EXT_N + sizeof(band_curve) * BAND_CURVE_N + sizeof(band_drift) * BAND_DRIFT_N + sizeof(band_remap) * BAND_REMAP_N) * MAX_PARALLAX_BANDS) / 4 + 2 * BAND_CURVE_N + BAND_DRIFT_N * MAX_PARALLAX_BANDS + 2 * BAND_REMAP_N
+// The hoist walk's own reservation, pinned for the curve carry's reason (a short one is named,
+// not just summed). It is the LAST field of the span, so the pin is against the end mark.
+ensure(extern("Parallax_State_End") - extern("Parallax_Curve_Walk") == 4 * BAND_CURVE_N,
+       "the curve hoist walk reserves {extern(\"Parallax_State_End\") - extern(\"Parallax_Curve_Walk\")} bytes, not the {4 * BAND_CURVE_N} this capability needs (a first-slot word and a slot-count word) — set CURVE_WALK_WORDS in engine/ram.emp. A short reservation makes Step 4a's rebuild store the slot count past the end of Parallax_State, outside Parallax_Init's clear")
 ensure(extern("Parallax_Shadow_Bands") - extern("Parallax_Curve_Carry") == 4 * BAND_CURVE_N,
        "the curve carry reserves {extern(\"Parallax_Shadow_Bands\") - extern(\"Parallax_Curve_Carry\")} bytes, not the {4 * BAND_CURVE_N} this capability needs — set CURVE_CARRY_WORDS in engine/ram.emp (it is derived from BAND_CURVE_BYTES, so the real fault is that derivation, a mask or a size out of step with this file's count). A short reservation makes the fill's cross-band carry alias the shadow band array")
 // The drift accumulator's own reservation, the exact twin of the curve-carry pin above and
@@ -2383,6 +2390,50 @@ proc Parallax_Step4_Fill () clobbers(d0-d7/a0-a6) {
         move.w  d3, -sizeof(band_record)(a4)
         dbf     d6, .copy_band
     .shadow_built:
+        // -- THE CURVE HOIST'S WALK, derived from the view just built (PPB-5, 2026-09-28) --
+        // The hoist below needs only the slots whose band is a curve layer, and which slots
+        // those are is a property of THIS view (the rotation k decides where each ROM band
+        // lands), so it is found here, once per rebuild, and a key hit keeps it with the view.
+        // It is a RANGE, [first, first + count), not a list: the hoist walks it with the loop
+        // it always had, so a non-curve slot inside the range is still skipped by its own
+        // `btst`. Emerald Hill's one curve layer makes the range one slot where the hoist used
+        // to walk seven; a view with no curve layer makes it empty (count 0).
+        // Why here and not in the hoist: the hoist cannot tell a hit from a rebuild without a
+        // flag carried across `.reorder_scroll`, and this block runs on every rebuild,
+        // including a RAM config's (never keyed), before either path reaches the hoist.
+        // Why it can never describe a SPLIT view: Step 4b splits AFTER the hoist, and drops the
+        // key when it does, so the next tick rebuilds and re-derives this.
+        // In: d7 = n. Clobbers d2-d4/d6/a4 only; d0 (vs) and d1 (k) are live to the key publish.
+    if (Game.SCANLINE_CAPS & CAP_FACTOR_CURVE) != 0 {
+    .cap_factor_curve_walk_begin:
+        lea     Parallax_Shadow_Bands, a4           // (Parallax_Shadow_Bands).w
+        moveq   #-1, d4                             // d4 = first curve slot, -1 = none yet
+        moveq   #0, d2                              // d2 = this slot's index
+        move.w  d7, d6
+        subq.w  #1, d6                              // dbf count over the view
+    .curve_scan:
+        btst    #CURVE_FLAG_ACTIVE_BIT, band_curve_flags(a4)
+        beq     .curve_scan_next
+        tst.w   d4
+        bpl     .curve_scan_last
+        move.w  d2, d4                              // the first one
+    .curve_scan_last:
+        move.w  d2, d3                              // d3 = the last one so far
+    .curve_scan_next:
+        lea     sizeof(band_record)(a4), a4
+        addq.w  #1, d2
+        dbf     d6, .curve_scan
+        moveq   #0, d2                              // count 0: no curve layer in the view
+        tst.w   d4
+        bmi     .curve_walk_store
+        move.w  d3, d2
+        sub.w   d4, d2
+        addq.w  #1, d2                              // count = last - first + 1
+    .curve_walk_store:
+        move.w  d4, Parallax_Curve_Walk             // (Parallax_Curve_Walk).w — first slot
+        move.w  d2, Parallax_Curve_Walk+2           // (Parallax_Curve_Walk+2).w — slot count
+    .cap_factor_curve_walk_end:
+    }
         // -- publish the key: this view now belongs to (a0, vs), with rotation k.
         //    A RAM config is never keyed (clause 1 of the banner): its bytes can change under
         //    the same pointer, so it keeps the rebuild-every-tick behaviour it always had.
@@ -2470,19 +2521,32 @@ proc Parallax_Step4_Fill () clobbers(d0-d7/a0-a6) {
         // curve_rom_exact.py. A layer, split or not, never emits more than 224 lines from
         // its own start, which is the k the argument needs.
         //
-        // COST: this loop runs over EVERY shadow band and pays one `btst` for the bands
-        // that are not curves. A frame with no curve layer at all still walks it — the
-        // capability gate is what removes it from a game that authors none, which is the
-        // whole point of the bit.
+        // COST: the loop walks only Parallax_Curve_Walk's range of slots (PPB-5, 2026-09-28),
+        // the span from the view's first curve layer to its last, which Step 4a's rebuild
+        // derives (`.cap_factor_curve_walk`). It walked EVERY shadow band until then, paying
+        // a `btst` and the cursor steps, ~56 cycles, for each band that was not a curve: six
+        // of Emerald Hill's seven, every tick. A view with no curve layer at all (every
+        // canonical OJZ config) now skips the loop at its first test. A slot inside the range
+        // that is not a curve is still skipped by its own `btst`, so the walk is the old one
+        // restricted to where it could do anything. The capability gate removes the whole
+        // hoist from a game that authors no curve.
     if (Game.SCANLINE_CAPS & CAP_FACTOR_CURVE) != 0 {
     .cap_factor_curve_hoist_begin:
+        move.w  Parallax_Curve_Walk+2, d6           // (Parallax_Curve_Walk+2).w — slot count
+        beq     .curve_hoist_done                   // no curve layer in this view
+        subq.w  #1, d6                              // dbf count over the range
         move.l  Camera_X, d0                        // (Camera_X).w
         swap    d0                                  // d0.w = camX (signed pixels)
-        lea     Parallax_Shadow_Bands, a1           // (Parallax_Shadow_Bands).w
+        move.w  Parallax_Curve_Walk, d5             // (Parallax_Curve_Walk).w — first slot
+        move.w  d5, d1
+        add.w   d1, d1
         lea     Parallax_Shadow_Scroll_B, a3        // (Parallax_Shadow_Scroll_B).w
-        move.w  d7, d6
-        subq.w  #1, d6                              // dbf count over the shadow view
-        moveq   #1, d5                              // d5 = index of the NEXT band
+        adda.w  d1, a3                              // a3 = &shadow scroll B[first]
+        move.w  d5, d1
+        mul_const.w d1, #sizeof(band_record), d2    // d1 = first x sizeof(band_record); d2 trashed
+        lea     Parallax_Shadow_Bands, a1           // (Parallax_Shadow_Bands).w
+        adda.w  d1, a1                              // a1 = &shadow band[first]
+        addq.w  #1, d5                              // d5 = index of the NEXT band
     .curve_band:
         btst    #CURVE_FLAG_ACTIVE_BIT, band_curve_flags(a1)
         beq     .curve_next
@@ -2625,6 +2689,7 @@ proc Parallax_Step4_Fill () clobbers(d0-d7/a0-a6) {
         addq.l  #2, a3
         addq.w  #1, d5
         dbf     d6, .curve_band
+    .curve_hoist_done:
     .cap_factor_curve_hoist_end:
     }
 

@@ -76,6 +76,11 @@ const BAND_CURVE_BYTES      = if (GAME_SCANLINE_CAPS & $0040) != 0 { 10 } else {
 // tail means no carry and no bytes. The two-value pin is what keeps the division honest.
 ensure(BAND_CURVE_BYTES == 0 || BAND_CURVE_BYTES == 10, "BAND_CURVE_BYTES is {BAND_CURVE_BYTES}, which is neither 0 (no curve tail) nor sizeof(band_curve) = 10 — CURVE_CARRY_WORDS below divides it, and parallax.emp's reservation guard is what checks the 10")
 const CURVE_CARRY_WORDS     = BAND_CURVE_BYTES / 5
+// CURVE_WALK_WORDS — the curve hoist's remembered walk (Parallax_Curve_Walk: the first shadow
+// slot holding a curve layer, then how many slots from it to walk), derived from the same
+// tail mirror for CURVE_CARRY_WORDS' reason: a curve tail means the two words, no tail means
+// no hoist and no bytes (PPB-5, 2026-09-28).
+const CURVE_WALK_WORDS      = BAND_CURVE_BYTES / 5
 // BAND_DRIFT_BYTES — the per-band DRIFT tail (band drift), a FOURTH constant for the reason
 // BAND_CURVE_BYTES is a third one: it mirrors a DIFFERENT capability bit (CAP_BAND_DRIFT), and
 // a game may declare any subset of the three. A shadow band occupies
@@ -555,6 +560,12 @@ pub vars upper_ram {
     Parallax_Shadow_Key_Config:  u32,   // ROM parallax_config* the shadow view is valid for; 0 = none
     Parallax_Shadow_Key_VS:      u16,   // the plane line (Vscroll_BG & PLANE_B_SPAN-1) it was rotated at
     Parallax_Shadow_Key_K:       u16,   // the rotation's start band k at that line
+    // THE CURVE HOIST'S WALK (PPB-5, 2026-09-28): [0] the first shadow slot whose band is a
+    // curve layer, [1] how many slots from it the hoist walks (0 = no curve layer in the view).
+    // Derived by Step 4a's REBUILD path from the view it just built, so it is exactly as valid
+    // as that view: a key hit keeps both. Step 4b's split runs after the hoist and drops the
+    // key, so the walk never describes a split view. Zero words under no CAP_FACTOR_CURVE.
+    Parallax_Curve_Walk:         [u16; CURVE_WALK_WORDS],
     mark Parallax_State_End,
 
     // EFFECTS-W1 item 10b — the plane-role swap flag. 0 = normal roles (FG on Plane A,
