@@ -2,11 +2,6 @@
   "focus": "Owner asleep. Tall-area background guard landed; tonight is code optimizations plus check fixes.",
   "inFlight": [
     {
-      "what": "Collision check reads the tables the cartridge actually carries, not only the files",
-      "where": "branch fix/gpp-collision-rom-tables",
-      "agent": true
-    },
-    {
       "what": "Insta-shield check also runs the walk-off code, so a walk-off can never trigger it",
       "where": "branch fix/gpp-instashield-walkoff",
       "agent": true
@@ -44,7 +39,7 @@
       "since": "2026-09-28"
     }
   ],
-  "nextBoundary": "When the four agents (collision check, insta-shield check, bounce lag, parallax cost) return and land.",
+  "nextBoundary": "When the three agents (insta-shield check, bounce lag, parallax cost) return and land.",
   "queue": [
     {
       "id": "PERF-OSCILLATION-THRASH",
@@ -58,6 +53,13 @@
       "title": "Parallax still costs 14.6k cycles a tick in Emerald Hill, mostly per-band work: make it cheaper",
       "state": "doing",
       "size": "M",
+      "blockedBy": null
+    },
+    {
+      "id": "CLIP-MANIFEST-OWNER-LABEL",
+      "title": "Duplicate-name errors in the Sonic 2 clip list can name the wrong owner (\"already used by 0\"); aurora shows the text as-is",
+      "state": "open",
+      "size": "S",
       "blockedBy": null
     },
     {
@@ -120,7 +122,7 @@
     },
     {
       "id": "GATE-PREDICATE-VS-PROMISE",
-      "title": "Checks guarding something near their subject: 11 fixed; collision tables and insta-shield walk-off being fixed now",
+      "title": "Checks guarding something near their subject: 12 fixed (collision tables tonight); insta-shield walk-off being fixed now",
       "state": "doing",
       "size": "M",
       "blockedBy": null
@@ -172,5 +174,5 @@
   ],
   "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-09-28T06:40:17Z"
+  "updatedAt": "2026-09-28T07:03:43Z"
 }
