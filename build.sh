@@ -622,7 +622,8 @@ if [[ "$FAST" == "1" ]]; then
     echo "            verify_level_bin · art_rom_report · s4budget · bganim_room (the"
     echo "            BG-anim ceiling is NOT checked) · sprite_tilt_gate (the tilt is NOT"
     echo "            executed) · instashield_gate (NEITHER the insta-shield NOR the"
-    echo "            Tails-flight precondition is executed) · layer_line_gate (the layer"
+    echo "            Tails-flight precondition is executed, NOR are the walk-off state"
+    echo "            writers derived) · layer_line_gate (the layer"
     echo "            lines' read site is NOT executed) · ctags · effects_seam_gate's"
     echo "            REACHABILITY half (its witnesses need this build's listing — see below)"
     echo "   run:     emit_sound_blob · gen_compression_vectors · sigil build (+checksum,"
@@ -1937,6 +1938,15 @@ if [[ "$FAST" == "0" ]]; then
         # same --fixture discipline as the two gates above (one fixture FILE per
         # subject, so re-stamping one cannot quietly re-stamp the other). sonic4-only:
         # `demo` has no player.
+        # THIRD PASS, the WRITERS (GPP-INSTASHIELD-WALKOFF, 2026-09-28; the default
+        # `--ability all`): the two passes above prove the abilities refuse every state
+        # but JUMP/ROLLJUMP, which reaches the walk-off promise only if no non-jump path
+        # INSTALLS one. tools/pstate_writers.py derives every Player_SetState site from
+        # THIS ROM (cross-checked against the source this build read) and the state each
+        # installs; any routine outside instashield_gate.GRANTERS installing a state the
+        # EXECUTED abilities accept fails (exit 1), and anything it cannot derive is
+        # UNMEASURABLE (exit 2, which `strict` also fails). Ground_DetachState is
+        # executed concretely with a Player_SetState stub as well.
         if ! gate strict "instashield_gate.py" python3 "${TOOLS}/instashield_gate.py" --lst "${ROM_NAME}.lst" \
                 --rom "${ROM_NAME}.bin" --built-after "${SIGIL_T0}" \
                 --fixture "${TOOLS}/fixtures/instashield_cut.json" \
@@ -1979,7 +1989,8 @@ if [[ "$FAST" == "1" ]]; then
     echo "   · emp_expect_fail · verify_level_bin · art_rom_report · s4budget"
     echo "   · bganim_room (BG-anim ceiling NOT checked)"
     echo "   · sprite_tilt_gate (the tilt routine is NOT executed)"
-    echo "   · instashield_gate (neither ability jump-gate is executed) · ctags."
+    echo "   · instashield_gate (neither ability jump-gate is executed; walk-off"
+    echo "     state writers NOT derived) · ctags."
     if [[ "${GAME}" == "sonic4" ]]; then
     echo "   effects_seam_gate ran its --source-only half (seam spelling + raster binding);"
     echo "   its REACHABILITY witnesses were NOT checked — they read this build's listing."
