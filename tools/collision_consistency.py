@@ -1062,13 +1062,17 @@ def parse_listing_labels(path):
     return out
 
 
-def _span(labels, name):
+def _span(labels, name, phased):
     """[start, end) of global label `name`: end is the next GLOBAL label (no `$`)
-    above it. Raises GateError when the label is absent or is the last one."""
+    above it that is not PHASED (a phased symbol carries a bank-local VMA, not a ROM
+    address, so it can land inside an unrelated routine by coincidence:
+    scene_spans.vma_phased_symbol_names, tools/test_routine_extent_phased.py).
+    Raises GateError when the label is absent or is the last one."""
     if name not in labels:
         raise GateError(f"label {name} is not in the listing")
     start = labels[name]
-    above = [a for n, a in labels.items() if "$" not in n and a > start]
+    above = [a for n, a in labels.items()
+             if "$" not in n and n not in phased and a > start]
     if not above:
         raise GateError(f"{name} has no global label after it, so its extent is unknown")
     return start, min(above)
@@ -1085,8 +1089,9 @@ def _local(labels, lo, hi, suffix):
     return hits[0]
 
 
-def _next_label(labels, addr):
-    above = [a for a in labels.values() if a > addr]
+def _next_label(labels, addr, phased):
+    """The next label of ANY kind above `addr` (locals included), phased ones excluded."""
+    above = [a for n, a in labels.items() if n not in phased and a > addr]
     if not above:
         raise GateError(f"no label after ${addr:X}, so the span is unknown")
     return min(above)
@@ -1112,6 +1117,11 @@ def check_rom_tables(lst, rom_path, root=None):
         raise GateError(f"cannot read ROM {rom_path}: {exc}") from exc
     coll = coll_dir_for(root)
     problems, facts = [], []
+    from scene_spans import vma_phased_symbol_names
+    phased = vma_phased_symbol_names()
+    if not phased:
+        raise GateError("scene_spans.vma_phased_symbol_names() is empty, so a phased "
+                        "symbol could cut a routine extent; refusing to measure")
 
     def u32(a):
         return a.to_bytes(4, "big")
@@ -1152,9 +1162,9 @@ def check_rom_tables(lst, rom_path, root=None):
     # `AngleTable[attr]`, and both rules read heights from HeightMaps. Checked in
     # Collision_ProbeDown's `.cell` only: that is the floor probe the rules derive
     # from (the other three cores are ceiling/wall reads the gate does not audit).
-    lo, hi = _span(labels, "Collision_ProbeDown")
+    lo, hi = _span(labels, "Collision_ProbeDown", phased)
     cell = _local(labels, lo, hi, "cell")
-    cell_end = _next_label(labels, cell)
+    cell_end = _next_label(labels, cell, phased)
     body = rom[cell:cell_end]
     sites = (
         ("SolidityTable", _LEA_ABS_L_A1, _MOVE_B_A1_D3W_D0 + _AND_B_D6_D0,
@@ -1181,7 +1191,7 @@ def check_rom_tables(lst, rom_path, root=None):
     # all resolve there): between `.pair` and `.substitute`, exactly one
     # `btst #0,d1` immediately followed by a `bne` to `.substitute`, whose first
     # instruction is `move.b d3,d1`.
-    lo, hi = _span(labels, "Player_SensorSurface")
+    lo, hi = _span(labels, "Player_SensorSurface", phased)
     pair = _local(labels, lo, hi, "pair")
     sub = _local(labels, lo, hi, "substitute")
     if not pair < sub:
@@ -1229,9 +1239,11 @@ def rom_tables_main(argv):
     a = ap.parse_args(argv)
     if a.built_after is not None:
         import artifact_provenance
+        # No expect_game: the primitive derives the shape from the canonical artifact
+        # name (s4.bin / s4.debug.bin), as layer_line_gate's call does. A non-sonic4
+        # pair then reads FRESH and this arm refuses it at the first missing label (2).
         rc = artifact_provenance.gate_check("collision_consistency --rom-tables",
-                                            a.rom, a.lst, a.built_after,
-                                            expect_game="sonic4")
+                                            a.rom, a.lst, a.built_after)
         if rc:
             return rc
     try:

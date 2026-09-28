@@ -2006,6 +2006,7 @@ if [[ "$FAST" == "1" ]]; then
     echo "   · effects_seam_gate (sonic4 only — ${GAME} has no act descriptor)."
     fi
     echo "   · layer_line_gate (the layer lines' read site is NOT executed)."
+    echo "   · collision_consistency --rom-tables (ROM collision tables NOT compared)."
     echo "   This is a DEV artifact. It is byte-identical to the canonical ROM on this"
     echo "   tree, but NOTHING here checked that — run ./build.sh before you land it."
     echo "================================================================================"

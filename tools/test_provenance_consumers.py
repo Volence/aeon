@@ -62,6 +62,10 @@ GATES = {
     # S2CLIP only (d-35-revised, 2026-09-25): the clip anchor staleness check. On a demo
     # pair it reaches the primitive, reads FRESH, then refuses the non-clip listing (1).
     "clip_anchors": (["--clip", "s2_ehz_cpz"], False),
+    # GPP-COLLISION-ROM-TABLES (2026-09-28): the post-sigil arm of the collision gate. No
+    # --gate switch. On a demo pair it reaches the primitive, reads FRESH, then finds no
+    # HeightMaps label (COULD NOT MEASURE, 2).
+    "collision_consistency": (["--rom-tables"], False),
 }
 
 
