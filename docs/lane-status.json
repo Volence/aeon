@@ -1,14 +1,9 @@
 {
-  "focus": "Giving Metropolis its song in the woven act, and measuring whether the art-room shortage can hit real levels.",
+  "focus": "Metropolis's song for the woven act is in progress. Real levels are proven safe from running out of art room.",
   "inFlight": [
     {
       "what": "Metropolis plays its own song in the woven act",
       "where": "branch parcel/woven-mtz-song",
-      "agent": true
-    },
-    {
-      "what": "Measure whether pinned art pages can crowd out a screen's art in the Sonic 2 levels",
-      "where": "branch research/p1-famine-reach",
       "agent": true
     }
   ],
@@ -155,9 +150,9 @@
     },
     {
       "id": "P1-FAMINE-PINNED-CAPACITY",
-      "title": "Streaming acts: measuring whether pinned art pages can crowd out a screen's pages in the Sonic 2 levels, not just the stress test",
-      "state": "doing",
-      "size": "M",
+      "title": "Stress-test setup only: re-pin it for its smaller cache and make the build refuse a mismatch (real levels are proven safe)",
+      "state": "open",
+      "size": "S",
       "blockedBy": null
     },
     {
@@ -170,5 +165,5 @@
   ],
   "awaiting": "your retest of the woven act's start music on the fresh ROM (aeon/s4.s2clip.debug.bin, crc 0b8c65d7), and which emulator you heard it in",
   "atBoundary": false,
-  "updatedAt": "2026-09-28T19:42:59Z"
+  "updatedAt": "2026-09-28T19:57:22Z"
 }
