@@ -1643,7 +1643,9 @@ def test_s2_generator_default_output_is_the_embedded_sound_dir():
     mt_bank = open(os.path.join(root, "games/sonic4/data/sound/mt_bank.emp")).read()
     for name in ("song_s2_ehz.bin", "s2_ehz_patches.bin",
                  "song_s2_cpz.bin", "s2_cpz_patches.bin"):
-        assert f'embed("{name}")' in mt_bank, f"mt_bank.emp does not embed {name}"
+        # aeon-root relative since song bank 2 step 1 (the ROM build places mt_bank.emp)
+        assert f'embed("games/sonic4/data/sound/{name}")' in mt_bank, \
+            f"mt_bank.emp does not embed {name}"
 
 
 def test_s2_committed_songs_are_the_generators_output(tmp_path):

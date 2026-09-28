@@ -17,12 +17,19 @@
 // The embed content also differs per shape (the SfxTable pointer cells hold the
 // per-shape absolute Sfx_NN addresses), so the embed selects on DEBUG.
 //
-// NON-PHASED, NO CROSS-SEAM LABELS: like the MT body, the block is emitted after
-// `dephase/restore` (plain LMA). Unlike the MT body it has NO consumed labels —
-// no surviving AS/emp code reads SfxTable (sound_sfx.emp's SfxBlobWinTab reads are
-// native, in the head). So this module owns only the BYTES + the head label Sfx_33
-// (placement head / map-order / frozen boundary key; no runtime consumer). No syms
-// file needed.
+// NON-PHASED: the block is plain LMA. No code reads SfxTable (sound_sfx.emp's
+// SfxBlobWinTab reads are native, in the head), so the SFX bytes carry only the head
+// label Sfx_33 (placement head / map-order / fold-gate key; no runtime consumer).
+//
+// THE SONG TABLES RIDE THIS SECTION'S TAIL (song bank 2, step 1, 2026-09-28).
+// `SongTable` / `SongPatchTable` (song id -> song / patch-bank ROM address) are read by
+// ONE reader, the 68k `Sound_PlayMusic` (engine/sound/sound_api.emp), which turns each
+// entry into a bank id + $8000-window pointers and posts those to the Z80; the Z80 never
+// reads the tables. So they need no particular bank. They sit here, after the SFX block,
+// because (a) they must name songs in ANY song bank, which only the ROM build's link can
+// resolve (seam-2 lowers mt_bank.emp alone), and (b) a new section would need its own
+// sigil `section_align` row, while this one is declared (`Sfx_33`, 8). They came out of
+// the MT bank's tail, so the SFX block starts 8*SONG_COUNT B lower than before.
 //
 // STRUCTURAL EXCLUSIVITY (spec §6, inherited): the native section is the SOLE SFX
 // placement — the AS BINCLUDE is DELETED (can't-both), the section is unconditional
@@ -32,12 +39,15 @@
 
 module games.sonic4.sfx_bank_blob in sfx_bank_blob
 
+use engine.types.{SongId}
+
 const _sfx       = embed("engine/sound/generated/sfx_bank.bin")
 const _sfx_debug = embed("engine/sound/generated/sfx_bank_debug.bin")
+const _sfx_active = if DEBUG == 1 { _sfx_debug } else { _sfx }
 
 // The whole SFX block (9 blobs + patch banks + the sparse SfxTable) — the head is
 // Sfx_33 (the first SFX, id $33).
-pub data Sfx_33 = if DEBUG == 1 { _sfx_debug } else { _sfx }
+pub data Sfx_33 = _sfx_active
 
 // Base-alignment wall (package 3 fix, 2026-08-10): the embedded SfxTable pointer
 // cells + the head's SfxBlobWinTab window pointers were folded by seam-2 under a
@@ -54,3 +64,42 @@ pub data Sfx_33 = if DEBUG == 1 { _sfx_debug } else { _sfx }
 // winptr passes the low 15 address bits through, so the mod-8 parity is exact.)
 ensure((winptr(Sfx_33) & 7) == 0,
        "SFX block base must be 8-aligned — seam-2's pointer folds pack contiguously, a misaligned base desyncs them from the chainer's 8-aligned placement (see the dac_sample_tab.emp/mt_bank.emp pads)")
+
+// ---------------------------------------------------------------------------
+// The song tables (see the header). Song ids are games.sonic4.sound_ids'; these typed
+// local mirrors document the TABLE ORDER (entry[id-1] = that song; id 0 = stop) and are
+// drift-guarded against that authority at link. SONG_COUNT sizes both arrays, so a
+// mismatched element count is a comptime error. The plain table is a PREFIX of the
+// debug one (the ids every shape carries come first).
+// ---------------------------------------------------------------------------
+const SONG_MOVINGTRUCKS: SongId = 1
+const SONG_S2_EHZ: SongId       = 2
+const SONG_S2_CPZ: SongId       = 3
+const SONG_DRUMTEST: SongId     = 4   // DEBUG shape only
+const SONG_HCZ2: SongId         = 5   // DEBUG shape only
+const SONG_COUNT = if DEBUG == 1 { 5 } else { 3 }   // a bound, not a song id
+ensure(extern("SONG_MOVINGTRUCKS") == SONG_MOVINGTRUCKS, "SONG_MOVINGTRUCKS drifted from games.sonic4.sound_ids: {SONG_MOVINGTRUCKS}")
+ensure(extern("SONG_S2_EHZ") == SONG_S2_EHZ, "SONG_S2_EHZ drifted from games.sonic4.sound_ids: {SONG_S2_EHZ}")
+ensure(extern("SONG_S2_CPZ") == SONG_S2_CPZ, "SONG_S2_CPZ drifted from games.sonic4.sound_ids: {SONG_S2_CPZ}")
+ensure(extern("SONG_DRUMTEST") == SONG_DRUMTEST, "SONG_DRUMTEST drifted from games.sonic4.sound_ids: {SONG_DRUMTEST}")
+ensure(extern("SONG_HCZ2") == SONG_HCZ2, "SONG_HCZ2 drifted from games.sonic4.sound_ids: {SONG_HCZ2}")
+ensure(extern("SONG_COUNT") == SONG_COUNT, "SONG_COUNT drifted from games.sonic4.sound_ids: {SONG_COUNT}")
+ensure(SONG_COUNT < $FF, "SONG_COUNT must be < $FF ($FF is the stop sentinel)")
+
+// The 68k reads the entries with `movea.l (a0), a1`: an odd table address is an address
+// error. The SFX block is odd-length today (1,603 B), so a self-adjusting pad byte.
+data _song_tables_align = if _sfx_active.len % 2 == 1 { byte(0) } else { Data.empty }
+
+// song id -> SongHeader ROM address, indexed SongTable[id-1].
+pub data SongTable: [*u8; SONG_COUNT] = if DEBUG == 1 {
+    ["Song_MovingTrucks", "Song_S2_EHZ", "Song_S2_CPZ", "Song_DrumTest", "Song_HCZ2"]
+} else {
+    ["Song_MovingTrucks", "Song_S2_EHZ", "Song_S2_CPZ"]
+}
+// The parallel per-song FM patch bank, which must share its song's bank (the Z80 reads
+// both through one window). DrumTest reuses Moving Trucks' bank.
+pub data SongPatchTable: [*u8; SONG_COUNT] = if DEBUG == 1 {
+    ["MovingTrucks_Patches", "S2_EHZ_Patches", "S2_CPZ_Patches", "MovingTrucks_Patches", "HCZ2_Patches"]
+} else {
+    ["MovingTrucks_Patches", "S2_EHZ_Patches", "S2_CPZ_Patches"]
+}

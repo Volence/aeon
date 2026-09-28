@@ -429,6 +429,12 @@ section sound_sfx (cpu: z80) {
         // channel, re-apply sc_volume through the duck-aware writer (which re-folds
         // the current SND_SFX_DUCK_LEVEL for ix < SND_SFX_BASE — do NOT add the duck
         // again here). Overridden channels are silent (SFX owns them) -> skip.
+        // SONG-BANK BRACKET (song bank 2): Fm_SetVolume re-reads each music channel's
+        // patch through the window (Fm_PatchPtr), and this runs inside Sfx_Frame with
+        // the SFX bank in. Bank the song's bank in for the walk and put the caller's back
+        // after it (cached no-ops while the song shares the SFX bank).
+        call    SndDrv_SongBankIn        // a = the caller's bank
+        push    af
         ld      ix, SND_SEQ_CHANNELS
         ld      b, CHROUTE_COUNT         // 11 music channels
     .dr_loop:
@@ -454,7 +460,10 @@ section sound_sfx (cpu: z80) {
         ld      de, SeqChannel_len
         add     ix, de
         djnz    .dr_loop
-        ret
+        pop     af                       // the caller's bank
+        call    SndDrv_SetBank           // window -> the caller's bank again
+        ret                              // (call + ret, not a tail `jp`: 8 B keeps the
+                                         // resident blob even-sized, boot_data.emp)
     }
 
     // ----------------------------------------------------------------------
@@ -1297,20 +1306,21 @@ section sound_sfx (cpu: z80) {
         push    ix
         push    iy
         pop     ix                       // ix = music FM channel
-        // SONG-BANK BRACKET (song bank 2, step 2): the music patch lives in the SONG's
-        // bank, which is not the SFX bank once a song lives in bank 2. Every caller
-        // (Sfx_Frame, the cap-kill and the steal in SfxDispatch/Sfx_BeginSound) has the
-        // SFX bank in the window, so switch to SND_SONG_BANK for the patch read and put
-        // back the bank the CALLER had (read from the SetBank cache, not assumed), so
-        // the caller's blob cursor keeps reading its own bank. Both SetBanks are cached
-        // no-ops while the song shares the SFX bank. Fm_SetVolume below reads only the
-        // patch already on the chip path + the head LUTs, which every song bank carries.
+        // SONG-BANK BRACKET (song bank 2): the music patch lives in the SONG's bank,
+        // which is not the SFX bank once a song lives in bank 2. Every caller (Sfx_Frame,
+        // the cap-kill and the steal in SfxDispatch/Sfx_BeginSound) has the SFX bank in
+        // the window, so the song's bank is banked in for this WHOLE hand-back and the
+        // bank the CALLER had (read from the SetBank cache, not assumed) is put back at
+        // .fm_done, so the caller's blob cursor keeps reading its own bank. The whole
+        // hand-back, not just the upload: Fm_SetVolume re-reads the patch (Fm_PatchPtr:
+        // algorithm, carrier mask, base TL) through the window. (The first cut closed the
+        // bracket before Fm_SetVolume; tools/song_bank_witness.py caught it as wrong TLs
+        // on the handed-back voice, 2026-09-28.) Both SetBanks are cached no-ops while
+        // the song shares the SFX bank.
         call    SndDrv_SongBankIn        // window -> the song's bank; a = the caller's bank
-        push    af
+        push    af                       // popped at .fm_done (both exits below)
         call    Fm_PatchPtr              // hl = music FmPatch ptr (SND_SEQ_PATCHTAB, read-only)
         call    Fm_PatchLoad             // re-upload the music voice (re-asserts op-bias)
-        pop     af
-        call    SndDrv_SetBank           // window -> the caller's bank again
         // pan shadow resync: the patch upload just re-derived $B4, so a
         // song-commanded MEV_PAN (sc_pan != 0) is lost on the chip while the
         // write-on-change shadow still matches -> it would never refire. Zero the
@@ -1344,6 +1354,8 @@ section sound_sfx (cpu: z80) {
     .fm_silence:
         call    Fm_NoteOff               // no music note -> key the stolen FM voice off
     .fm_done:
+        pop     af                       // the caller's bank (pushed after SongBankIn)
+        call    SndDrv_SetBank           // window -> the caller's bank again
         pop     ix                       // ix = SFX slot
         jr      .deactivate
 
