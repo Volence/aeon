@@ -52,9 +52,10 @@ WHAT IS ASSERTED (exit 1 on any failure):
       v[n] == clamp_model(target(camY[n]), v[n-1], ceiling[n]) exactly, with target computed
       from the ACTIVE parallax_config's own pcfg_v_factor_bg / v_center_y / v_offset read out
       of the ROM. This is the assertion that would catch a clamp applied in the wrong order.
-  A4  THE RATE DISCRIMINATOR (leg W). After a DEBUG warp that jumps the camera far enough for
-      the unclamped target to move more than 2 * BG_VSCROLL_MAX_STEP, there is a run of at
-      least two consecutive ticks whose |step| is EXACTLY BG_VSCROLL_MAX_STEP. Without the
+  A4  THE RATE DISCRIMINATOR (leg W). After a raw Camera_Y write under Debug_Scene_Freeze (a
+      DEBUG warp until 2026-09-28; a warp now snaps, WARP-VSCROLL-PRIME) that jumps the camera
+      far enough for the unclamped target to move more than 2 * BG_VSCROLL_MAX_STEP, there is
+      a run of at least two consecutive ticks whose |step| is EXACTLY BG_VSCROLL_MAX_STEP. Without the
       rate clamp the jump completes in one tick and no such run exists, so A4 is red on a tree
       with (b) reverted. Aimed at a TALL-map row since 2026-09-27, the only kind the clamp acts
       on (DEBUG OJZ's step-5 tall region); red too if the one-plane arm leaks onto tall maps. BOTH THE COLUMN AND THE ENDPOINTS ARE CHOSEN FROM THE ACT'S OWN REGION
@@ -484,10 +485,13 @@ def snapped_pair(prev: dict | None, src: dict) -> bool:
     read out of the ROM. A sample without `layout` (a hand-built fixture) is never snapped, nor is
     one whose previous row is null (the engine's own rule: a null row means a synchronous prime).
 
-    NOT MODELLED, and it fails LOUD rather than green: a DEBUG warp nulls Region_Current before
-    its crossing, so the engine never snaps on a warp, while this reads the two SAMPLED rows. A
-    sampled warp between two layouts would show up as an A3 mismatch. No leg samples one today
-    (leg W warps inside its one tall row; its first, cross-row warp is in the unsampled settle)."""
+    NOT MODELLED, and it fails LOUD rather than green: a DEBUG warp. Since WARP-VSCROLL-PRIME
+    (2026-09-28) the warp consumer sets Parallax_BG_Snap around its own Parallax_Update, so a
+    warp on a tall map ALWAYS snaps that one store, whatever the two sampled rows say; this
+    predicate would call it clamped and A3 would go red. No leg samples a tall-map warp today:
+    leg W's arrival warp is in its unsampled settle and its sampled jump is a raw Camera_Y
+    write, and leg X's sampled warp is on a one-plane map, where the model does not rate at
+    all."""
     if prev is None or prev.get("layout") is None or src.get("layout") is None:
         return False
     if not prev["region"]:
@@ -649,7 +653,8 @@ def jump_verdict(rec, cfg, cy_lo, cy_hi, step_max):
 async def warp_to(b, sym, rig: "Rig", x: int, y: int, tick: bool = True) -> None:
     """Fill the DEBUG warp mailbox and (by default) spend the one long tick that consumes it.
     `tick=False` leaves the mailbox armed for a caller that wants to sample the pre-warp frame
-    first — leg W does, because the step ACROSS the warp is the one A1 is about."""
+    first — leg X does, because the step ACROSS the warp is the one A6 is about (leg W did
+    too until WARP-VSCROLL-PRIME, 2026-09-28; its sampled jump is a raw Camera_Y write now)."""
     for nm, v, w in (("Warp_Req_X", x, 2), ("Warp_Req_Y", y, 2), ("Warp_Req_Flag", 1, 1)):
         await _c(b, "emulator/write_memory", {"addr": hex(sym[nm]), "value": v, "width": w})
     if tick:
@@ -1001,7 +1006,7 @@ async def run(args) -> int:
                  "Camera_X", "Camera_Y", "Camera_X_Max", "Camera_Y_Max", "Region_Current",
                  "Parallax_Current_Vscroll_BG", "Parallax_Current_Config",
                  "Parallax_Target_Config", "Parallax_Transition_Frames",
-                 "Warp_Req_X", "Warp_Req_Y", "Warp_Req_Flag", "Logic_Tick",
+                 "Warp_Req_X", "Warp_Req_Y", "Warp_Req_Flag", "Logic_Tick", "Debug_Scene_Freeze",
                  "Lag_Frame_Count", "OJZ_Act1_Descriptor", "Parallax_Step5_Vscroll"):
         if need not in sym:
             raise SetupError(f"symbol {need} is not in {args.lst} — this witness needs the "
@@ -1164,7 +1169,21 @@ async def run(args) -> int:
         await run_leg("X_plan", _plan_x)
         plan = plans["W"]
 
-        # ---- leg W: the rate DISCRIMINATOR — a DEBUG warp that must ratchet ---------------
+        # ---- leg W: the rate DISCRIMINATOR — a raw camera jump that must ratchet ----------
+        #
+        # ⚠ THE DRIVER CHANGED 2026-09-28 (WARP-VSCROLL-PRIME), AND WHY IT HAD TO. Until then
+        # leg W jumped the camera with a second DEBUG warp inside the row, because a warp was
+        # the one path whose target jump the clamp had to ratchet. That ratchet WAS the booked
+        # defect BG-RATE-PRIME-EXEMPTION: the warp now stores the BG scroll at its target and
+        # primes the plane from it, so a warp can no longer force the clamp at all. The driver is
+        # now what the booking prescribed: Debug_Scene_Freeze (it pins Camera_Update, so a
+        # written Camera_Y stays put, the same pin clip_bg_scroll_witness uses) and a raw
+        # Camera_Y write to the bottom of the same tall row. No player path moves the camera
+        # that far in one frame, which is exactly why it is a DISCRIMINATOR: the frame after the
+        # write asks Step 5 for the whole jump, the plane was NOT re-primed, and only the rate
+        # clamp stands between that and an unbounded step. The arrival warp to the top of the
+        # row stays (unsampled; it snaps now). Red-first on the new driver: see the MUTATIONS
+        # block at the foot of this file, mutation (b).
         async def _legW():
             if plan is None:
                 raise LegBlocked("no region qualified for the vertical legs — see W_plan.")
@@ -1173,20 +1192,33 @@ async def run(args) -> int:
             await warp_to(b, sym, rig, wx, y_top)
             for _ in range(SETTLE_TICKS):
                 await rig.tick()
-            await warp_to(b, sym, rig, wx, y_bot, tick=False)
-            # PER INVOCATION, NOT PER TICK — see leg_step5's header. The warp tick runs
-            # Parallax_Update twice, so per-tick sampling reports two clamped stores as one
-            # 32 px step and A1 goes red on a clamp that is working. Enough samples to cover
-            # the whole ratchet with margin: one store per BG_VSCROLL_MAX_STEP of the jump.
-            n = plan["clamped_jump"] // step_max + 8
-            legW = await leg_step5(rig, "W", n, WARP_MAX_FRAMES)
-            flag = await rd(b, sym["Warp_Req_Flag"], 1)
-            if flag:
+            here = await rig.sample("W_arrive")
+            if here["region"] != plan["row"]["addr"]:
+                raise LegBlocked(f"the arrival warp left Region_Current on row {here['row']}, "
+                                 f"not the planned tall row {plan['row']['index']}")
+            await _c(b, "emulator/write_memory", {"addr": hex(sym["Debug_Scene_Freeze"]),
+                                                  "value": 1, "width": 1})
+            try:
+                await _c(b, "emulator/write_memory", {"addr": hex(sym["Camera_Y"]),
+                                                      "value": plan["cam_y_hi"] << 16,
+                                                      "width": 4})
+                # PER INVOCATION, NOT PER TICK — see leg_step5's header (it was written for the
+                # warp tick's two Parallax_Updates; this driver's ticks run one, and the
+                # per-invocation read is still the one that names what the clamp bounds).
+                # Enough samples to cover the whole ratchet with margin: one store per
+                # BG_VSCROLL_MAX_STEP of the jump.
+                n = plan["clamped_jump"] // step_max + 8
+                legW = await leg_step5(rig, "W", n, WARP_MAX_FRAMES)
+                held = await rd(b, sym["Camera_Y"], 4) >> 16
+            finally:
+                await _c(b, "emulator/write_memory", {"addr": hex(sym["Debug_Scene_Freeze"]),
+                                                      "value": 0, "width": 1})
+            if held != plan["cam_y_hi"] or legW[0]["cam_y"] != plan["cam_y_hi"]:
                 raise LegBlocked(
-                    f"Warp_Req_Flag is still {flag} after the warp tick — the warp never "
-                    "happened, and a warp that never happened looks exactly like a warp that "
-                    "changed nothing.")
-            report["W"] = check_leg(fails, K, "W (warp ratchet, per Parallax_Update)", legW,
+                    f"the written Camera_Y {plan['cam_y_hi']} did not hold (first sample read "
+                    f"{legW[0]['cam_y']}, last {held}): Debug_Scene_Freeze is not pinning "
+                    "Camera_Update, so this leg's jump is not the one it planned.")
+            report["W"] = check_leg(fails, K, "W (raw camera jump, per Parallax_Update)", legW,
                                     granularity="step5")
             report["W"].update({"x": wx, "from_player_y": y_top, "to_player_y": y_bot,
                                 "samples_requested": n,
@@ -1199,7 +1231,7 @@ async def run(args) -> int:
             report["W"]["longest_run_at_the_bound"] = run_at_bound
             if run_at_bound < 2:                                               # A4
                 fails.append(
-                    f"A4: after a warp whose derived target jump is {plan['jump']} px "
+                    f"A4: after a raw Camera_Y jump whose derived target jump is {plan['jump']} px "
                     f"(> 2 * {step_max}), the longest run of consecutive INVOCATIONS stepping "
                     f"exactly {step_max} px is {run_at_bound}. The rate clamp did not bind, so "
                     f"leg W's green is vacuous and A1 is untested. Steps: "
@@ -1211,7 +1243,7 @@ async def run(args) -> int:
                 # final partial step. A bypass reaches the target in one store and has no run.
                 travel = legW[-1]["v"] - legW[0]["v"]
                 findings.append(
-                    f"A4: the warp forced the rate clamp to the bound for {run_at_bound} "
+                    f"A4: the raw Camera_Y jump forced the rate clamp to the bound for {run_at_bound} "
                     f"consecutive Parallax_Update invocations at exactly {step_max} px — this is "
                     "the leg that is red with the rate clamp reverted. Conservation: the ratchet "
                     f"travelled {travel} px over {len(legW) - 1} invocations "
@@ -1571,6 +1603,12 @@ if __name__ == "__main__":
 #       the bound) AND A1 red on leg W (a single tick moving the whole jump) AND A3 red (the
 #       model still clamps the step). If only A4 goes red, leg W's jump is not actually landing
 #       and the leg needs re-aiming before anything here is trusted.
+#       RUN 2026-09-28 ON LEG W'S NEW DRIVER (the raw Camera_Y write under Debug_Scene_Freeze,
+#       WARP-VSCROLL-PRIME): mutant DEBUG crc c64ffa14 (source restored from the branch commit
+#       before the run, so the shape checks read the real clamp): exit 1 with A1 (366 px in
+#       invocation 1, 178 -> 544), A3 (model 194) and A4 (longest run at 16: 0) on leg W, every
+#       other leg green. The fixed tree, DEBUG crc ef4a4385: PASS, exit 0, 22 invocations at
+#       exactly 16 px, travel 366 = the position-clamped jump.
 #
 #   (a) THE POSITION CLAMP. In the same proc, delete the five instructions from
 #       `move.l Region_Current, d0` through `subi.w #SCREEN_HEIGHT, d3`, leaving

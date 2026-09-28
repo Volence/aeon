@@ -1294,15 +1294,18 @@ pub proc Parallax_CheckBoundary () clobbers(d0-d4/a0-a3) {
         //    see Parallax_BG_Snap there. Read BEFORE Region_Current is overwritten, since the
         //    old row is the other side. Only SET here; Step 5 clears it every frame.
         //
-        //    A NULL PREVIOUS ROW NEVER SNAPS, and that is the predicate being exact rather than a
-        //    shortcut. Region_Current is null only before the first resolve (the boot ladder) and
-        //    after the DEBUG warp clears it to force this crossing (Debug_Warp_Consume); both
-        //    paths have just primed Plane B SYNCHRONOUSLY through Section_RedrawPlanes, which
-        //    sets BG_Plane_Layout to this row's layout, so no wipe follows and the window it
-        //    primed is the one the UNSNAPPED scroll selects. Snapping there would leave that
-        //    window behind the scroll by the whole jump (measured on the first cut: a warp inside
-        //    DEBUG OJZ's tall region jumped 366 px in one store over a window primed for the old
-        //    value). That is BG-RATE-PRIME-EXEMPTION, still open, and not this. --
+        //    A NULL PREVIOUS ROW NEVER SNAPS HERE, and that is the predicate being exact rather
+        //    than a shortcut. Region_Current is null only before the first resolve (the boot
+        //    ladder) and after the DEBUG warp clears it to force this crossing
+        //    (Debug_Warp_Consume). The two ladders differ in ORDER, which is why this proc
+        //    cannot answer for both: the boot ladder has already primed Plane B SYNCHRONOUSLY
+        //    through Section_RedrawPlanes from the scroll it had, so a snap on its first crossing
+        //    would leave that window behind the scroll by the whole jump (measured on the first
+        //    cut: a warp inside DEBUG OJZ's tall region, when the warp still primed first,
+        //    jumped 366 px in one store over a window primed for the old value). The warp ladder
+        //    now runs this crossing BEFORE its prime and sets Parallax_BG_Snap itself around its
+        //    own Parallax_Update, because it knows the prime follows (WARP-VSCROLL-PRIME,
+        //    2026-09-28, which closed BG-RATE-PRIME-EXEMPTION). --
         movea.l Region_Current, a1                  // (Region_Current).w — the row being left
         cmpa.w  #0, a1
         beq     .new_picture                        // a synchronous prime path: see above
@@ -3092,29 +3095,30 @@ proc Parallax_Step5_Vscroll () clobbers(d0-d7/a0-a6) {
         // ⚠ ONLY ON A MAP TALLER THAN THE PLANE since 2026-09-27: (b0) below skips it everywhere
         // else, and the two paragraphs that follow now describe the TALL-MAP case alone.
         //
-        // WHAT IT ALSO RATE-LIMITS, AND IS NOT YET PAIRED WITH. A DEBUG warp teleports the
-        // camera; the plane is re-primed synchronously (`Section_RedrawPlanes`) but the SCROLL
-        // now ratchets to its new value at 16 px a frame — up to ~20 frames of visible slide
-        // after a warp across a tall map (on a one-plane map it snaps, (b0)). `Parallax_Snap_Pending` is the obvious
-        // exemption signal and it is NOT AVAILABLE HERE: Step 3's band loop consumes it
+        // WHAT IT USED TO ALSO RATE-LIMIT: A DEBUG WARP (BG-RATE-PRIME-EXEMPTION, CLOSED
+        // 2026-09-28 by WARP-VSCROLL-PRIME). A warp teleports the camera and re-primes the
+        // plane synchronously (`Section_RedrawPlanes`). Until 2026-09-28 that prime ran BEFORE
+        // the warp's Parallax_Update, from the PRE-warp scroll, so this clamp then walked the
+        // scroll to its target 16 px a frame; on Hidden Palace's band chain that was 15 / 31 /
+        // 44 frames of slide, most of them torn. Now the warp runs its Parallax_Update FIRST,
+        // with Parallax_BG_Snap set, so (b1) below stores the target outright and the prime
+        // seeds the window from that store — the S3K order (a background init computes the BG
+        // camera, THEN redraws the plane from it). Only the warp consumer's own invocation is
+        // exempt; the same tick's body runs after the prime and is clamped as usual.
+        //
+        // THE SIGNALS THAT WERE NOT USED, and why, kept because each looks right at a glance.
+        // `Parallax_Snap_Pending` is not available here: Step 3's band loop consumes it
         // (`clr.b Parallax_Snap_Pending`) immediately before its `jbra` into this proc, so the
         // `tst.b` at the top of this routine already reads 0 on every path (see the note
-        // there). Rather than invent a private "this frame is a prime" flag — a second
-        // authority for a question step 6 was expected to answer — the ratchet is left
-        // visible and booked in DEFERRED_WORK as BG-RATE-PRIME-EXEMPTION.
-        //
-        // STEP 6 LANDED (2026-09-16) AND DID NOT ANSWER IT, which is worth recording here
-        // because the booking predicted it would. `BG_Wipe_Cursor` means "a crossing wipe is
-        // in flight", and a PRIME is exactly the case where it is definitionally ZERO: both
+        // there; PARALLAX-STEP5-SNAP-DEAD). `BG_Wipe_Cursor` means "a crossing wipe is in
+        // flight", and a PRIME is exactly the case where it is definitionally ZERO: both
         // synchronous Plane B writers retire the cursor with `clr.w BG_Wipe_Cursor` as part
-        // of priming. So the flag this site would have to test says "not being rebuilt" on
-        // precisely the frame the plane was just rebuilt. Exempting the clamp during a WIPE
-        // would also be the wrong direction — the window is HELD while a sweep runs (since
-        // WOVEN-TALL-ENTRY), so a faster scroll there only eats the lead the hold relies on.
-        // The booking stands. What WOVEN-TALL-ENTRY did add is the ONE frame a crossing
-        // changes the layout, (b1) below: the wipe then re-seeds the window from the scroll,
-        // so there is nothing to outrun. A warp still ratchets (its prime seeds the window
-        // BEFORE this runs; see Parallax_CheckBoundary's null-row rule).
+        // of priming. Exempting the clamp during a WIPE would also be the wrong direction — the
+        // window is HELD while a sweep runs (since WOVEN-TALL-ENTRY), so a faster scroll there
+        // only eats the lead the hold relies on. A "camera jumped more than N" test was
+        // rejected as a heuristic with an underived threshold. Parallax_BG_Snap is none of
+        // those: it already meant "the plane is repainted from THIS store" when the warp
+        // became its second writer, so this site still has one authority for that question.
         //
         // ---- (b0) NO WINDOW, NO RATE CLAMP (SHORT-TUNNEL-VSCROLL-RATCHET, 2026-09-27) ----
         //
@@ -3128,8 +3132,9 @@ proc Parallax_Step5_Vscroll () clobbers(d0-d7/a0-a6) {
         // zone crossing whose two scroll mappings disagree (112 px on s2_mtz_cpz, 87 on
         // s2_ehz_cpz), which at the camera cap was still sliding when the far zone reached the
         // screen and is why the connecting tunnels had to be 480 px instead of 384. It also
-        // bought BG-RATE-PRIME-EXEMPTION's slide after a DEBUG warp, which this retires for
-        // every map the plane holds (the tall-map half stays: the clamp is real there).
+        // bought BG-RATE-PRIME-EXEMPTION's slide after a DEBUG warp, which this retired for
+        // every map the plane holds (the tall-map half closed 2026-09-28, WARP-VSCROLL-PRIME:
+        // the warp now primes after a snapped store, see above).
         //
         // WHAT MOVES THE SCROLL INSTEAD is the author's own choice, unchanged: a scene with a
         // transition LERPS through the arm above (1/16 of the gap a frame), and a TRANS_INSTANT
@@ -3167,7 +3172,8 @@ proc Parallax_Step5_Vscroll () clobbers(d0-d7/a0-a6) {
         cmpi.w  #BG_TALL_MAP_MIN_SPAN - SCREEN_HEIGHT, d3
         blt     .v_store                            // the plane holds the map: no rate to bound
         tst.b   Parallax_BG_Snap                    // (Parallax_BG_Snap).w
-        bne     .v_store                            // the layout changed: the plane is repainted
+        bne     .v_store                            // the plane is repainted from this store
+                                                    //   (a layout-changing crossing, or the warp)
         move.w  Parallax_Current_Vscroll_BG, d0     // (Parallax_Current_Vscroll_BG).w — previous
         sub.w   d0, d2                              // d2 = the step this frame wants
         cmp.w   #BG_VSCROLL_MAX_STEP, d2

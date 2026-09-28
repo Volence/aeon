@@ -249,13 +249,16 @@ async def _entry_leg(b, sym, rom, act, chains, specs, plan, spec_at, blob_lab, r
     live camera X, plus its drift accumulator). Rows whose 64 cells are all transparent are
     free (derive_tall's rule). The nametable leg runs on every frame too.
 
-    GRADED: every frame whose vscroll is AT its target (engine_vscroll). A frame still sliding
-    to it (Step 5's rate clamp after a warp: BG-RATE-PRIME-EXEMPTION, booked) is COUNTED and,
-    if it shows a wrong band, REPORTED by name, but not failed: on a chained tall map the slide
-    carries rows outside the live layout's stretch, which is that booking's open question and
-    reachable only through the DEBUG warp. What this leg exists to catch is a frame with the
-    scroll where Sonic 2 has it and the picture still torn (WOVEN-HPZ-BG-MISALIGNED: another
-    zone's band-drift accumulators added to this zone's bands, on every frame, forever).
+    GRADED, TWO WAYS. (1) Every frame whose vscroll is AT its target (engine_vscroll) must be
+    exact: what this leg was written to catch is a frame with the scroll where Sonic 2 has it
+    and the picture still torn (WOVEN-HPZ-BG-MISALIGNED: another zone's band-drift accumulators
+    added to this zone's bands, on every frame, forever). (2) Since WARP-VSCROLL-PRIME
+    (2026-09-28) NO frame may be sliding at all: the warp stores the BG scroll at its target
+    and primes the plane from it, so a frame whose vscroll is not at its target is the
+    BG-RATE-PRIME-EXEMPTION ratchet come back (on the chained tall map most of those frames
+    show a band on rows Sonic 2 scrolls differently, so they are torn as well as late). Until
+    that parcel the slide was REPORTED, NOT GRADED; RED on the unfixed ROM (crc 615ff7ff):
+    layouts 1 / 2 / 3 slid 15 / 31 / 44 frames, 14 / 30 / 38 of them torn.
 
     Returns (fails, lines): the number of frames with a wrong line or row, and printable rows."""
     out, fails = [], 0
@@ -354,19 +357,19 @@ async def _entry_leg(b, sym, rom, act, chains, specs, plan, spec_at, blob_lab, r
                             first = (f, vs, target, li, len(wrong), wrong[:1] + wrong[-1:],
                                      rows[:4])
                 await b.call("emulator/run_frames", {"frames": 1})
-            fails += bad_frames > 0
+            fails += bad_frames > 0 or slide > 0
             out.append(
                 (f"FAIL entry {zone} layout {i} ({origin[1]} ({origin[3]},{origin[4]}) -> "
                  f"({x},{y})): {bad_frames} of {ENTRY_FRAMES} frames, the scroll AT its "
                  f"target, show a line Sonic 2 scrolls differently or a wrong plane row; first "
                  f"at frame {first[0]}: vscroll {first[1]}, layout {first[3]}, {first[4]} "
                  f"line(s) {first[5]}, rows {first[6]}" if bad_frames else
-                 f"OK   entry {zone} layout {i} ({origin[1]} -> ({x},{y})): every frame with "
-                 f"the scroll at its target exact")
+                 f"{'FAIL' if slide else 'OK  '} entry {zone} layout {i} ({origin[1]} -> "
+                 f"({x},{y})): every frame with the scroll at its target exact")
                 + f"; the scroll slid to its target over {slide} frame(s)"
-                + (f", and {slide_bad} of THOSE showed a band on rows Sonic 2 scrolls "
-                   f"differently: BG-RATE-PRIME-EXEMPTION (a DEBUG warp's ratchet across a "
-                   f"band chain), REPORTED, NOT GRADED" if slide_bad else ""))
+                + (f" ({slide_bad} of them torn): BG-RATE-PRIME-EXEMPTION is back — the warp "
+                   f"must store the BG scroll at its target and prime the plane from it, so "
+                   f"no frame after it may slide (WARP-VSCROLL-PRIME)" if slide else ""))
     return fails, out
 
 

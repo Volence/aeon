@@ -22,15 +22,19 @@ THE THREE LEGS.
      `st Section_Plane_Dirty`. This is the precondition `Section_RedrawPlanes`' windowed
      prime is written against, and nothing inside either routine can see it.
 
-  2. THE WARP LADDER'S PREMISE. `Debug_Warp_Consume` does NOT call `Parallax_Init`, and its
-     blit pair still stands ABOVE its parallax calls. Both halves are load-bearing for the
-     design that landed: the first is why "move `Parallax_Init` above the blits on both
-     ladders" was not executable (that ladder has none), and the second is why the warp
-     path needed no reorder at all — step 4's rate clamp deliberately holds the BG scroll
-     near its pre-warp value across a teleport, so the live cell at the prime IS what the
-     next displayed frame uses. If a `Parallax_Init` ever appears there, or the pair moves
-     below the parallax calls, the reasoning written at both sites is stale and someone has
-     to re-derive it rather than inherit it.
+  2. THE WARP LADDER'S ORDER. `Debug_Warp_Consume` does NOT call `Parallax_Init`, and since
+     WARP-VSCROLL-PRIME (2026-09-28) its blit pair stands BELOW its parallax crossing, with
+     `st Parallax_BG_Snap` set immediately before that crossing's `Parallax_Update` and cleared
+     immediately after it. The reorder is the fix for BG-RATE-PRIME-EXEMPTION: with the prime
+     ABOVE the crossing (the order this leg pinned until then) the window was seeded from the
+     PRE-warp scroll and Step 5's rate clamp ratcheted the scroll to its target 16 px a frame
+     (MEASURED on s2_woven DEBUG crc 615ff7ff: Hidden Palace layouts 1 / 2 / 3 slid 15 / 31 /
+     44 frames, 14 / 30 / 38 of them torn). Below, the scroll the prime reads is the post-warp
+     one, stored at its target, so the window is exact and nothing slides. The snap bracket is
+     pinned with it because either half alone is the bug again: the reorder without the snap
+     primes from a scroll only 16 px along, and the snap without the reorder jumps the scroll
+     away from a window primed for the old one. `tools/clip_bg_scroll_witness.py --warp-entry`
+     grades the picture; this grades the order, which that cannot name.
 
   3. THE PRIME STILL DERIVES ITS SEED. `Section_RedrawPlanes` reads
      `Parallax_Current_Vscroll_BG` and writes `BG_Plane_Top` from a register — it does not
@@ -120,38 +124,50 @@ class BootLadderOrder(unittest.TestCase):
             f"which is why it is pinned here.")
 
 
-class WarpLadderPremise(unittest.TestCase):
+class WarpLadderOrder(unittest.TestCase):
 
-    def test_the_warp_ladder_has_no_parallax_init_and_primes_before_its_parallax_calls(self):
+    def test_the_warp_ladder_has_no_parallax_init_and_primes_after_a_snapped_update(self):
         body = _proc_body(_text(LADDER), "Debug_Warp_Consume", LADDER)
         joined = "\n".join(body)
         self.assertIsNone(
             re.search(r"\bjbsr\s+Parallax_Init\b", joined),
-            "Debug_Warp_Consume now calls Parallax_Init. Two pieces of reasoning written "
-            "at engine/level/section.emp and games/sonic4/test/ojz_scroll_test.emp rest on "
-            "it NOT doing so: (a) the brief's 'move Parallax_Init above the blits on both "
-            "ladders' was recorded as unexecutable because this ladder has no such call, "
-            "and (b) this ladder deliberately re-enters through Parallax_CheckBoundary so "
-            "the destination region reads as a CROSSING — Parallax_Init would re-seed the "
-            "region sentinel that makes that work. Re-derive both before assuming the "
-            "comments still hold.")
+            "Debug_Warp_Consume now calls Parallax_Init. This ladder deliberately re-enters "
+            "through Parallax_CheckBoundary so the destination region reads as a CROSSING — "
+            "Parallax_Init would re-seed the region sentinel that makes that work, and zero "
+            "Parallax_State (Parallax_BG_Snap included) under the snap bracket below. Re-derive "
+            "the ladder before assuming the comments at both sites still hold.")
+        where = "Debug_Warp_Consume"
         dirty_at, n_dirty = _index_of(body, r"\bst\s+Section_Plane_Dirty\b",
-                                      "the warp's plane prime trigger", "Debug_Warp_Consume")
-        check_at, _ = _index_of(body, r"\bjbsr\s+Parallax_CheckBoundary\b",
-                                "the warp's region crossing", "Debug_Warp_Consume")
-        self.assertEqual(n_dirty, 1,
-                         f"expected exactly one `st Section_Plane_Dirty` in "
-                         f"Debug_Warp_Consume, found {n_dirty}")
-        self.assertLess(
-            dirty_at, check_at,
-            f"the warp ladder's plane prime (proc line {dirty_at}) no longer stands above "
-            f"its Parallax_CheckBoundary (line {check_at}). That order is WHY the warp path "
-            f"needed no hoist: step 4's rate clamp holds Parallax_Current_Vscroll_BG near "
-            f"its pre-warp value across the teleport, so the cell the prime reads is the "
-            f"one the next displayed frame uses, to within BG_VSCROLL_MAX_STEP. Moving the "
-            f"prime below the parallax calls is not wrong in itself — it would make the "
-            f"read EXACT rather than within-a-lead — but it changes what the comments at "
-            f"both sites claim, and it must be measured rather than assumed.")
+                                      "the warp's plane prime trigger", where)
+        check_at, n_check = _index_of(body, r"\bjbsr\s+Parallax_CheckBoundary\b",
+                                      "the warp's region crossing", where)
+        upd_at, n_upd = _index_of(body, r"\bjbsr\s+Parallax_Update\b",
+                                  "the warp's own Parallax_Update", where)
+        set_at, n_set = _index_of(body, r"\bst\s+Parallax_BG_Snap\b",
+                                  "the snap that stores the scroll at its target", where)
+        clr_at, n_clr = _index_of(body, r"\bclr\.b\s+Parallax_BG_Snap\b",
+                                  "the snap's clear after its one Update", where)
+        stream_at, _ = _index_of(body, r"\bjbsr\s+BG_Stream_Update\b",
+                                 "the tracker check after the prime", where)
+        self.assertEqual((n_dirty, n_check, n_upd, n_set, n_clr), (1, 1, 1, 1, 1),
+                         "expected exactly one each of `st Section_Plane_Dirty`, `jbsr "
+                         "Parallax_CheckBoundary`, `jbsr Parallax_Update`, `st Parallax_BG_Snap` "
+                         "and `clr.b Parallax_BG_Snap` in Debug_Warp_Consume, found "
+                         f"{(n_dirty, n_check, n_upd, n_set, n_clr)}. With more than one of any, "
+                         "'before' is not a well-formed question.")
+        self.assertTrue(
+            check_at < set_at < upd_at < clr_at < dirty_at < stream_at,
+            f"THE WARP LADDER ORDER IS BROKEN (proc lines: CheckBoundary {check_at}, "
+            f"st Parallax_BG_Snap {set_at}, Parallax_Update {upd_at}, clr.b Parallax_BG_Snap "
+            f"{clr_at}, st Section_Plane_Dirty {dirty_at}, BG_Stream_Update {stream_at}). The "
+            f"order WARP-VSCROLL-PRIME needs is crossing -> snap -> Update -> clear -> prime -> "
+            f"BG_Stream_Update. Section_RedrawPlanes seeds the Plane B window from "
+            f"Parallax_Current_Vscroll_BG, so the scroll must be at its post-warp TARGET before "
+            f"the prime reads it; the snap is what skips Step 5's rate clamp for that one store, "
+            f"and its clear keeps the same tick's body (which runs after the prime) clamped. "
+            f"With the prime above the Update, the warp ratchets again: MEASURED on s2_woven "
+            f"DEBUG crc 615ff7ff, 15 / 31 / 44 frames of slide into Hidden Palace layouts "
+            f"1 / 2 / 3, most of them torn (BG-RATE-PRIME-EXEMPTION).")
 
 
 class ThePrimeDerivesItsSeed(unittest.TestCase):
