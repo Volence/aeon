@@ -42966,7 +42966,7 @@ MCZ, OOZ, MTZ, WFZ 0/0; prototype HPZ 0 of 43. Only Wing Fortress changes.
   34 marked ran and passed, 1 EXEMPTED `test_deb2_appendix[demo.bin]`). s4.bin `8319c1b4`,
   s4.debug.bin `0c271190`: identical to master, as predicted (only the clip bake moved).
 
-## WOVEN-CROSSING-PATH: nothing sets the collision path at a zone crossing; a path-B arrival in Chemical Plant's west edge passes a wall Sonic 2's path A has (found 2026-09-27, OPEN)
+## WOVEN-CROSSING-PATH: nothing sets the collision path at a zone crossing; a path-B arrival in Chemical Plant's west edge passes a wall Sonic 2's path A has (found 2026-09-27; CLOSED 2026-09-27 by fix/woven-crossing-path for the one arrival proven to matter)
 
 Booking item 2 of WOVEN-WFZ-PLANE-B, MEASURED on the woven DEBUG ROM `d6ce40fb` with
 `path_b_floor_witness.py --connectors` (each crossing driven twice, placed RUN_MARGIN 400 px inside
@@ -42990,3 +42990,39 @@ wrong case where none is measured. Candidate: reset to A only at arrivals where 
 derivation (or the witness) shows A is Sonic 2's path (CPZ west is one); priority bits come with
 it (LayerLine has no keep-priority flag). Witness: `path_b_floor_witness.py --connectors` (manual;
 exit 1 today on mtz_to_cpz).
+
+**CLOSED 2026-09-27 (`fix/woven-crossing-path`, base master `cd0641aa`), scoped to CPZ west.**
+Mechanism, data only (no engine code): a corridor may DECLARE, per mouth, the donor Obj03 that
+Sonic 2 has at that arrival (`clips.json` corridor `path_lines` [{mouth, donor_obj03, why}],
+clip_manifest K11 + PATH LINES; written by `build_woven_act.py`, clips.json regenerated).
+`s2_layer_lines.connector_lines` copies that Obj03's own subtype into a vertical LayerLine 32 px
+(PATH_LINE_INSET_PX) inside the corridor before the mouth, over [ceiling_y, floor_y), through the
+one bake path; L7 refuses a declaration whose donor premise fails. mtz_to_cpz declares CPZ
+(6536, 1152) $22: row x 5072, y 2784..2879, flags $20 (right -> A high, left -> A low).
+- **Why declared, not inferred:** over every final-game mouth of the woven act the L7 premise
+  (outside the crop on the corridor's side, extent over the standing body, no path-setter in
+  between) admits exactly TWO lines: this one and Emerald Hill's east edge (8968, 576) $11, the
+  estimate measured wrong above. So the premise is necessary, not sufficient; the witness admits
+  a declaration (`test_l7_the_premise_is_necessary_not_sufficient` pins that).
+- **The LEFT 1 px was the witness's landing:** measured per frame, the layer-1 landing at the
+  left run-up (x 5368, beside plane A's loop back at 5367) settled 2 px east of the layer-0
+  one, before the drive. `--connectors` now lands on layer 0 and then writes the start layer,
+  and a pair that begins apart is UNMEASURED (exit 2). On the unfixed ROM that makes LEFT agree
+  and keeps RIGHT red.
+- **Witness** (`path_b_floor_witness.py --connectors`, now wired `keepalive_manifest.toml`
+  `#woven-connectors`; also grades each declared arrival against the RAW donor subtype):
+  before, d6ce40fb (old harness): 13/15 agree, mtz_to_cpz right DIFFER (L0 5367 / L1 5513),
+  left DIFFER (4283 / 4284); d6ce40fb (new harness): RED, right DIFFER only; mutant bake
+  re-packing the line as B (bbc9c256): RED, right agrees at 5513 but WRONG PATH; after,
+  615ff7ff: GREEN 15/15, right L1 crosses the mouth on layer 0 and stops at 5367. The 13 other
+  crossings' entry/exit/end rows are identical to the before run.
+- **Unit (pre-build lane):** `test_s2_layer_lines.py` +15 rows (the woven declaration, L7 x5,
+  necessary-not-sufficient, the witness expectation, K11 x7); the declaration row was RED on the
+  pre-regeneration manifest and on the mutant.
+- **Still open, by design:** every other arrival. None is shown to need a path (13 crossings
+  end identically on either layer), and none is shown to be A; a declaration elsewhere needs
+  its own witness proof. The line serves the corridor only: in the donor, a player could
+  also reach that edge from above on B (the x 6000 $49 line sets B higher up; not measured
+  whether any route drops him between donor x 6536 and 7040), and that is Sonic 2's own layout,
+  not a crossing. **On-screen (TAGGED):** entering CPZ from mtz_to_cpz
+  now sets HIGH sprite priority ($22's right side), leaving it LOW; not looked at on screen.

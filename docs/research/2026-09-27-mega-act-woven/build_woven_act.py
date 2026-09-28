@@ -191,6 +191,19 @@ def build(mutant=False):
         tunnel("cpz_to_mtz", right(cpz), mte_x, cpz_y + CPZ_FLOOR),
         tunnel("hpz_to_ooz", right(hpe), OOZ_X, hpz_y + HPZ_FLOOR),
     ]
+    # WOVEN-CROSSING-PATH: the ONE arrival whose path is proven to matter and proven A. Declared
+    # here, never inferred for every mouth (clip_manifest PATH LINES says why; the same premise
+    # would also admit Emerald Hill's east edge, (8968, 576) $11, which is measured WRONG).
+    corridors[1]["path_lines"] = [{
+        "mouth": "east", "donor_obj03": {"x": 6536, "y": 1152},
+        "why": "WOVEN-CROSSING-PATH (2026-09-27). Arriving at Chemical Plant's west edge, the path "
+               "MATTERS: path_b_floor_witness --connectors on woven d6ce40fb, mtz_to_cpz right, "
+               "layer 0 stops at x 5367 (the plane-A back of a loop, donor x ~7303) and layer 1 "
+               "runs on to 5513. Sonic 2's path there is A: this Obj03 ($22: right -> A, high "
+               "priority; left -> A, low) spans donor y 1024..1279, the corridor's standing height "
+               "(1050..1087), and no other path-setting Obj03 across that band lies between it and "
+               "the crop edge (x 7040). Its copy is placed in the corridor so the player crosses "
+               "the mouth on A whatever he left Metropolis on."}]
 
     LEDGES = {"pitch": 64, "w": 64}
 

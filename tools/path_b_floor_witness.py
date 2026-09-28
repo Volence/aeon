@@ -37,8 +37,14 @@ TWO MODES.
     lines on the run-up act as they would), and records the layer at the connector's entry
     mouth, at its exit mouth and at the end of the run-out, and the player's (x, y) at the end.
     The two drives AGREE when they end at the same place: then the path he carried across made
-    no collision difference on that crossing. Exit 0 every connector agreed · 1 one did not
-    (printed with both trajectories' ends) · 2 could not run.
+    no collision difference on that crossing. A corridor drive LANDS on layer 0 and only then
+    takes its start layer, so both drives begin from one state (checked: two drives that begin
+    apart are UNMEASURED, and any unmeasured crossing makes the run COULD NOT RUN). Where the manifest DECLARES a path line at the
+    arrival mouth (clip_manifest PATH LINES; WOVEN-CROSSING-PATH), agreeing is not enough: both
+    drives must also cross that mouth on the path the named donor Obj03's subtype gives
+    (`declared_arrivals`), else WRONG PATH. Exit 0 every connector agreed (and every declared
+    arrival was on its path) · 1 one did not (printed with both trajectories' ends) · 2 could
+    not run (incl. a declared path line the bake would refuse).
 
 Usage:
     python3 tools/path_b_floor_witness.py --rom s4.s2clip.debug.bin --lst s4.s2clip.debug.lst \\
@@ -239,9 +245,19 @@ async def drive_connectors(sock, syms, equs, act, legs):
                 else:
                     side = "left" if direction == "right" else "right"
                     sx, feet = T.run_up(act, co, side, RUN_MARGIN)
+                    # LAND ON LAYER 0, THEN write the start layer (WOVEN-CROSSING-PATH): both
+                    # drives must begin from ONE state, or a difference at the end can come
+                    # from the landing instead of the crossing. MEASURED on woven d6ce40fb /
+                    # 615ff7ff: landing on layer 1 at mtz_to_cpz's left run-up (x 5368, beside
+                    # plane A's loop back at 5367) settled 2 px east of the layer-0 landing,
+                    # and that 2 px became the 1-px LEFT "DIFFER" the booking called a
+                    # placement artefact. The run-up still lies ahead, so the source's own
+                    # lines act on it as before.
                     await T.place(b, bus, syms, sx, feet - radius - 2)
-                    await bus.write(A["layer"], start_layer, 1)
+                    await bus.write(A["layer"], 0, 1)
                     await bus.frames(LAND_FRAMES * 4)
+                    await bus.write(A["layer"], start_layer, 1)
+                    rec["start_pos"] = (await pos())[:2]
                     await b.call("emulator/hold", {"buttons": [direction], "down": True})
                     sign = 1 if direction == "right" else -1
                     await bus.write(A_GSP, (sign * equs["PHYS_TOP_SPEED"]) & 0xFFFF, 2)
@@ -356,6 +372,28 @@ def main_decks(a):
     return 0
 
 
+def declared_arrivals(act):
+    """{(connector id, direction): (layer, why)} — the path each declared corridor path line
+    (clip_manifest PATH LINES) must put the player on at the mouth it serves, DERIVED from the
+    donor Obj03's own subtype (s2_layer_lines.connector_lines reads it out of the object
+    layout): arriving through the EAST mouth is a rightward crossing, so subtype bit 3 (path
+    B on a rightward crossing); through the WEST mouth, leftward, bit 4. Read off the raw
+    subtype, NOT off the baked flags, so a bake that re-packs the bits wrong is caught."""
+    import s2_layer_lines as SLL
+    try:
+        lines = SLL.connector_lines(act)
+    except SLL.LayerLineError as e:
+        raise CouldNotRun(f"the act's declared path lines do not bake: {e}")
+    out = {}
+    for ln in lines:
+        d = "right" if ln["mouth"] == "east" else "left"
+        bit = 0x08 if d == "right" else 0x10
+        out[(ln["connector"], d)] = (1 if ln["subtype"] & bit else 0,
+                                     f"{ln['donor_zone']} Obj03 at {ln['src']} subtype "
+                                     f"${ln['subtype']:02X}")
+    return out
+
+
 def main_connectors(a):
     import clip_manifest as CM
     syms, equs = _load(a)
@@ -380,13 +418,17 @@ def main_connectors(a):
         zone_of[co.id] = tuple(
             (c.zone, "1-path" if CM.zone_path_b_switchers(c) == 0 else "2-path") if c else ("-", "")
             for c in ends)
+    arrivals = declared_arrivals(act)
+    for (cid, d), (want, why) in sorted(arrivals.items()):
+        print(f"declared arrival path: {cid} {d}: path {'AB'[want]} ({why})")
+    print(f"{len(arrivals)} declared arrival path(s) graded (clip_manifest PATH LINES)")
     from aether_instance import aether_emulator
     with aether_emulator(a.rom, symbols=a.lst) as sock:
         res = asyncio.run(drive_connectors(sock, syms, equs, act, legs))
     by = {}
     for r in res:
         by.setdefault((r["id"], r["dir"]), {})[r["start"]] = r
-    bad = 0
+    bad = unmeasured = 0
     print(f"{'connector':14s} {'dir':5s} {'from':14s} {'to':14s} start  entry exit  end(x,y,layer)"
           f"          verdict")
     for (cid, d), pair in by.items():
@@ -396,17 +438,31 @@ def main_connectors(a):
         if not (pair[0]["arrived"] and pair[1]["arrived"]):
             verdict = "DID NOT ARRIVE"
             bad += 1
+        elif pair[0].get("start_pos") != pair[1].get("start_pos"):
+            verdict = (f"UNMEASURED: the drives began apart ({pair[0].get('start_pos')} vs "
+                       f"{pair[1].get('start_pos')})")
+            unmeasured += 1
         elif e0[:2] != e1[:2]:
             verdict = "DIFFER"
+            bad += 1
+        elif (cid, d) in arrivals and any(pair[s]["exit"] != arrivals[(cid, d)][0]
+                                          for s in (0, 1)):
+            verdict = f"WRONG PATH (Sonic 2's is {'AB'[arrivals[(cid, d)][0]]})"
             bad += 1
         for s in (0, 1):
             r = pair[s]
             print(f"{cid:14s} {d:5s} {src[0] + ' ' + src[1]:14s} {dst[0] + ' ' + dst[1]:14s} "
                   f"L{s}     {r['entry']!s:5s} {r['exit']!s:5s} {r['end']!s:22s} "
                   f"{verdict if s else ''}")
-    print(f"{len(by)} crossing(s) driven twice: {len(by) - bad} agree, {bad} differ or did not "
-          f"arrive")
-    return 1 if bad else 0
+    print(f"{len(by)} crossing(s) driven twice: {len(by) - bad - unmeasured} agree, {bad} differ, did not "
+          f"arrive, or arrived on a path other than the declared one; {unmeasured} "
+          f"unmeasured")
+    if bad:
+        return 1
+    if unmeasured:
+        raise CouldNotRun(f"{unmeasured} crossing(s) could not be compared: their two drives "
+                          f"did not begin from one state")
+    return 0
 
 
 def main(argv=None):

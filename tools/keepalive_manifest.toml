@@ -307,6 +307,19 @@ column (5133, deck y 1152). RED on the woven ROM from master 06185e04 (crc 1bce0
 Wing Fortress spots FELL on layer 1, 30 of 30 Metropolis / Hidden Palace / Oil Ocean spots held.
 GREEN after the bake keyed the one-path rule to the donor's object layout."""
 
+[wired."path_b_floor_witness.py#woven-connectors"]
+args = ["--rom", "{repo}/s4.s2clip_woven.debug.bin", "--lst", "{repo}/s4.s2clip_woven.debug.lst", "--clip", "s2_woven", "--connectors"]
+expect = 0
+timeout = 900
+note = """WOVEN-CROSSING-PATH (2026-09-27). Every connector of the woven act driven twice (layer 0
+and layer 1, landed on 0 first so both begin from one state): the two must end at the same
+place, and at a mouth where the manifest DECLARES a path line (clips.json `path_lines`,
+clip_manifest PATH LINES) both must cross it on the path the named donor Obj03's raw subtype
+gives. RED on the woven ROM from master cd0641aa (crc d6ce40fb): mtz_to_cpz right DIFFER, layer
+1 ran through Chemical Plant's plane-A loop back (5513 against 5367). RED on a mutant bake that
+re-packs the declared line as path B (crc bbc9c256): both drives agree at 5513, graded WRONG
+PATH. GREEN after the mtz_to_cpz declaration (crc 615ff7ff): 15 of 15."""
+
 [wired."balance_witness.py"]
 args = ["--rom", "{rom}", "--lst", "{lst}"]
 expect = 0

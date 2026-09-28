@@ -338,3 +338,154 @@ def test_the_neutral_module_binds_no_table():
     # LINES-EVERYWHERE: the neutral chooser hands back `hand`, which is now the canonical
     # act's own authored table (a Label), not 0.
     assert "pub comptime fn ojz_clip_act_layer_lines(hand: Label) -> Label {\n    return hand\n}" in text
+
+
+# ---- corridor path lines (clip_manifest PATH LINES, WOVEN-CROSSING-PATH 2026-09-27) ----------
+#
+# The shipped woven manifest's ONE declaration, read out of its raw JSON (the geometry and the
+# declaration), placed on a stand-in act so no converted donor tree is needed. Every
+# expectation is derived: the subtype from the donor layout, the bits from constants.emp, the
+# placement from PATH_LINE_INSET_PX and the corridor's own rect.
+
+WOVEN_JSON = os.path.join(CLIPS, "s2_woven", "clips.json")
+
+
+def _woven_stand_in(**change):
+    """(act, corridor) for the woven act's Metropolis-west | mtz_to_cpz | Chemical Plant row,
+    from the shipped clips.json. `change` overrides fields: cpz_src (the crop), path_lines."""
+    import json
+    from types import SimpleNamespace as NS
+    raw = json.load(open(WOVEN_JSON))
+    clips = []
+    for c in raw["clips"]:
+        if c["id"] not in ("mtz_west", "cpz_loop_cluster"):
+            continue
+        r = lambda k: tuple(c[k][f] for f in ("x", "y", "w", "h"))  # noqa: E731
+        src = change.get("cpz_src", r("src_rect")) if c["zone"] == "CPZ" else r("src_rect")
+        dst = r("dst_rect")
+        clips.append(NS(id=c["id"], donor=c["donor"], zone=c["zone"], src=src,
+                        dst=(dst[0], dst[1], src[2], src[3])))
+    k = next(k for k in raw["corridors"] if k["id"] == "mtz_to_cpz")
+    pls = change.get("path_lines", [{"mouth": p["mouth"], "why": p["why"],
+                                     "donor_obj03": (p["donor_obj03"]["x"],
+                                                     p["donor_obj03"]["y"])}
+                                    for p in k.get("path_lines", [])])
+    co = NS(id=k["id"], axis="x", dst=tuple(k["dst_rect"][f] for f in ("x", "y", "w", "h")),
+            floor_y=k["floor_y"], tunnel=NS(ceiling_y=k["tunnel"]["ceiling_y"]),
+            path_lines=pls)
+    act = NS(clips=clips, corridors=[co], section_px=2048,
+             grid_w=raw["act"]["grid_w"], grid_h=raw["act"]["grid_h"])
+    return act, co
+
+
+def _decl(x, y, mouth="east"):
+    return [{"mouth": mouth, "donor_obj03": (x, y), "why": "test"}]
+
+
+def test_the_woven_declaration_bakes_to_a_path_a_line_before_chemical_plants_west_mouth():
+    _donor_or_skip()
+    act, co = _woven_stand_in()
+    assert [p["donor_obj03"] for p in co.path_lines] == [(6536, 1152)]
+    asm = SLL._s2_asm(s2_donor.S2_FINAL)
+    recs = SLL.read_layout(SLL.object_layout_path(asm, s2_donor.S2_FINAL, "CPZ"))
+    st = next(r[4] for r in recs if (r[0], r[1]) == (6536, 1152) and r[3] == SLL.obj03_id(asm))
+    ls = SLL.connector_lines(act)
+    assert len(ls) == 1
+    ln = ls[0]
+    c = SLL.engine_constants()
+    assert ln["subtype"] == st
+    assert ln["flags"] == SLL.flags_of(st, 0, c)
+    # Sonic 2's path on a rightward crossing is A (subtype bit 3 clear), and that is what the
+    # row carries: no FWD_B, no keep bit
+    assert not st & 0x08
+    assert not ln["flags"] & ((1 << c["LL_FWD_B"]) | (1 << c["LL_KEEP_PATH"]))
+    # placed inside the corridor, PATH_LINE_INSET_PX before the east mouth, over its open height
+    assert ln["x"] == co.dst[0] + co.dst[2] - SLL.PATH_LINE_INSET_PX
+    assert co.dst[0] <= ln["x"] < co.dst[0] + co.dst[2]
+    assert (ln["lo"], ln["hi"]) == (co.tunnel.ceiling_y, co.floor_y)
+    # and it reaches the rows through the one bake path, after every clip line
+    p = SLL.plan(act)
+    assert p["lines"][-1]["connector"] == "mtz_to_cpz"
+    assert any(r["key"] == ln["x"] and r["flags"] == ln["flags"] for r in p["rows"])
+
+
+@pytest.mark.parametrize("decl,cpz_src,match", [
+    # no Obj03 at that point
+    (_decl(6536, 1153), None, r"^L7 .*0 Obj03 record\(s\) there"),
+    # an x-flipped (keep-path) Obj03 sets no path
+    (_decl(6400, 864), None, r"^L7 .*subtype \$39 is x-flipped"),
+    # inside the crop: already baked by lines()
+    (_decl(7272, 832), None, r"^L7 .*is not west of clip 'cpz_loop_cluster'"),
+    # extent y 768..895 misses the corridor's standing body (donor 1050..1087)
+    (_decl(6048, 832), None, r"^L7 .*does not cover the standing body"),
+    # crop moved to x 7500: (7408, 1088) $79 now lies between the line and the edge
+    (_decl(6536, 1152), (7500, 128, 1716, 1920), r"^L7 .*\(7408, 1088\) subtype \$79 lies between"),
+])
+def test_l7_refuses_a_declaration_whose_donor_premise_fails(decl, cpz_src, match):
+    _donor_or_skip()
+    change = {"path_lines": decl}
+    if cpz_src:
+        change["cpz_src"] = cpz_src
+    act, _co = _woven_stand_in(**change)
+    with pytest.raises(SLL.LayerLineError, match=match):
+        SLL.connector_lines(act)
+
+
+def test_l7_the_premise_is_necessary_not_sufficient():
+    """Why a path line is DECLARED per mouth and never inferred: over every Obj03 of the zone,
+    the premise admits the declared Chemical Plant line and nothing else at that mouth, but the
+    same premise at Emerald Hill's east edge admits (8968, 576) $11, which WOVEN-CROSSING-PATH
+    measured to disagree with the route Sonic 2 actually leaves on. Pinned so an 'infer it for
+    every connector' change has to face that row."""
+    _donor_or_skip()
+    act, co = _woven_stand_in()
+    asm = SLL._s2_asm(s2_donor.S2_FINAL)
+    recs = [r for r in SLL.read_layout(SLL.object_layout_path(asm, s2_donor.S2_FINAL, "CPZ"))
+            if r[3] == SLL.obj03_id(asm)]
+    admitted = []
+    for r in recs:
+        co.path_lines = _decl(r[0], r[1])
+        try:
+            SLL.connector_lines(act)
+        except SLL.LayerLineError:
+            continue
+        admitted.append((r[0], r[1]))
+    assert admitted == [(6536, 1152)]
+
+
+def test_the_witness_grades_the_declared_arrival_off_the_raw_subtype():
+    """path_b_floor_witness --connectors: the declared mtz_to_cpz east line is graded as a
+    RIGHTWARD arrival that must be on path A (subtype bit 3 clear), read off the donor subtype,
+    not the baked flags; a subtype with bit 3 set would expect B."""
+    _donor_or_skip()
+    import path_b_floor_witness as W
+    act, _co = _woven_stand_in()
+    got = W.declared_arrivals(act)
+    assert set(got) == {("mtz_to_cpz", "right")}
+    assert got[("mtz_to_cpz", "right")][0] == 0
+    # a declaration the bake refuses makes the witness COULD NOT RUN, never silently ungraded
+    bad, _ = _woven_stand_in(path_lines=_decl(6536, 1153))
+    with pytest.raises(W.CouldNotRun):
+        W.declared_arrivals(bad)
+
+
+@pytest.mark.parametrize("raw,match", [
+    ([], r"non-empty list"),
+    ([{"mouth": "east", "donor_obj03": {"x": 1, "y": 2}}], r"exactly \{mouth, donor_obj03, why\}"),
+    ([{"mouth": "north", "donor_obj03": {"x": 1, "y": 2}, "why": "w"}], r"not 'east' or 'west'"),
+    ([{"mouth": "east", "donor_obj03": {"x": 1, "y": True}, "why": "w"}], r"\{x, y\} integers"),
+    ([{"mouth": "east", "donor_obj03": {"x": 1, "y": 2}, "why": " "}], r"say what admitted"),
+    ([{"mouth": "east", "donor_obj03": {"x": 1, "y": 2}, "why": "w"}] * 2, r"a second line"),
+])
+def test_k11_refuses_a_malformed_path_lines_block(raw, match):
+    act, co = _woven_stand_in()
+    with pytest.raises(CM.ClipManifestError, match=r"^K11 .*" + match):
+        CM._load_path_lines(co.id, raw, co, act.clips, [])
+
+
+def test_k11_refuses_a_mouth_no_clip_meets():
+    act, co = _woven_stand_in()
+    clips = [c for c in act.clips if c.zone != "CPZ"]
+    with pytest.raises(CM.ClipManifestError, match=r"^K11 .*no clip meets the corridor's east"):
+        CM._load_path_lines(co.id, [{"mouth": "east", "donor_obj03": {"x": 1, "y": 2},
+                                     "why": "w"}], co, clips, [])

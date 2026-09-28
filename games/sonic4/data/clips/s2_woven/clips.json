@@ -219,7 +219,17 @@
             "h": 32
           }
         }
-      }
+      },
+      "path_lines": [
+        {
+          "mouth": "east",
+          "donor_obj03": {
+            "x": 6536,
+            "y": 1152
+          },
+          "why": "WOVEN-CROSSING-PATH (2026-09-27). Arriving at Chemical Plant's west edge, the path MATTERS: path_b_floor_witness --connectors on woven d6ce40fb, mtz_to_cpz right, layer 0 stops at x 5367 (the plane-A back of a loop, donor x ~7303) and layer 1 runs on to 5513. Sonic 2's path there is A: this Obj03 ($22: right -> A, high priority; left -> A, low) spans donor y 1024..1279, the corridor's standing height (1050..1087), and no other path-setting Obj03 across that band lies between it and the crop edge (x 7040). Its copy is placed in the corridor so the player crosses the mouth on A whatever he left Metropolis on."
+        }
+      ]
     },
     {
       "id": "cpz_to_mtz",
