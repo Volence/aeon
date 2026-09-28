@@ -1,5 +1,5 @@
 {
-  "focus": "Owner asleep. Tonight: Sonic 2 songs in a second sound bank, code optimizations, and check fixes.",
+  "focus": "Owner asleep. Seven fixes landed tonight; now the second song bank, one step at a time.",
   "inFlight": [
     {
       "what": "Why bouncing in place in Emerald Hill lags (98 lag frames in 1500), and fix it if contained",
@@ -7,9 +7,9 @@
       "agent": true
     },
     {
-      "what": "Second song bank so Metropolis's song fits (assembler rebuilt, resumed)",
+      "what": "Landing song-bank step 2: the sound driver can switch to a song's own bank (inert today); music checks on the Sonic 2 test level",
       "where": "branch parcel/song-bank-2",
-      "agent": true
+      "agent": false
     }
   ],
   "blockedOnOwner": [
@@ -34,7 +34,7 @@
       "since": "2026-09-28"
     }
   ],
-  "nextBoundary": "When the three agents (insta-shield check, bounce lag, parallax cost) return and land.",
+  "nextBoundary": "When song-bank step 2 lands; step 1 then waits on one small assembler change (taken by that lane).",
   "queue": [
     {
       "id": "WOVEN-EDITABLE-IN-AURORA",
@@ -148,5 +148,5 @@
   ],
   "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-09-28T09:30:59Z"
+  "updatedAt": "2026-09-28T09:31:35Z"
 }
