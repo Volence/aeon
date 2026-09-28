@@ -1,5 +1,5 @@
 {
-  "focus": "Owner asleep. Tall-area background guard landed; tonight is code optimizations plus check fixes.",
+  "focus": "Owner asleep. Tonight: Sonic 2 songs in a second sound bank, code optimizations, and check fixes.",
   "inFlight": [
     {
       "what": "Why bouncing in place in Emerald Hill lags (98 lag frames in 1500), and fix it if contained",
@@ -14,6 +14,16 @@
     {
       "what": "Check that Sonic's collision sensors really read the loop layer he is on (the old check for it was retired)",
       "where": "branch fix/gpp-layer-sensors",
+      "agent": true
+    },
+    {
+      "what": "Landing the cheaper parallax (18% fewer cycles a tick, same picture): full build + effects checks",
+      "where": "branch perf/parallax-perband",
+      "agent": false
+    },
+    {
+      "what": "Second song bank so Metropolis's song fits (assembler rebuilt, resumed)",
+      "where": "branch parcel/song-bank-2",
       "agent": true
     }
   ],
@@ -50,7 +60,7 @@
     },
     {
       "id": "PERF-PARALLAX-PERBAND",
-      "title": "Parallax still costs 14.6k cycles a tick in Emerald Hill, mostly per-band work: make it cheaper",
+      "title": "Cheaper parallax: 18% fewer cycles a tick with a byte-identical picture; landing now",
       "state": "doing",
       "size": "M",
       "blockedBy": null
@@ -72,10 +82,10 @@
     },
     {
       "id": "S2CLIP-MTZ-SONG-BANK",
-      "title": "Sonic 2 zone songs: a second song bank is the plan (small engine change); waiting on the assembler lane's side",
-      "state": "blocked",
+      "title": "Sonic 2 zone songs: building the second song bank and Metropolis's song now",
+      "state": "doing",
       "size": "M",
-      "blockedBy": "sigil: alignment row, shape gate and seam-2 table change (asked with the exact ask, 2026-09-28)",
+      "blockedBy": null,
       "project": "REGIONS"
     },
     {
@@ -167,5 +177,5 @@
   ],
   "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-09-28T07:49:27Z"
+  "updatedAt": "2026-09-28T08:17:01Z"
 }
