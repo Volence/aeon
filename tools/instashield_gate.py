@@ -1258,6 +1258,311 @@ def pass_tailsflight(args, rom, syms, equs, offs, overlay_len):
     return 0
 
 
+# --------------------------------------------------------------------------
+# THE THIRD PASS: the writers  (GPP-INSTASHIELD-WALKOFF, 2026-09-28)
+# --------------------------------------------------------------------------
+#
+# The two passes above prove each ability refuses every state outside its accepted set.
+# The PROMISE is "a jump press after WALKING OFF A LEDGE must not fire the ability", and
+# the step between them — no non-jump path installs an accepted state — was a one-time
+# hand enumeration (player_instashield.emp's header). The audit measured the hole:
+# Ground_DetachState's `moveq #PSTATE_AIR` -> `#PSTATE_JUMP` kept this gate at exit 0.
+#
+# This pass derives the writer set and what each writer installs (tools/pstate_writers.py:
+# a ROM-wide transfer scan, cross-checked routine-for-routine against the source, and a d0
+# dataflow per site), derives the ACCEPTED set by executing the two ability routines, and
+# fails on any writer outside GRANTERS that can install an accepted state. The walk-off
+# decision itself is also EXECUTED concretely with a Player_SetState stub (the executor
+# of the two passes above), and its executed outputs must equal the dataflow's.
+#
+# GRANTERS is the one semantic input: which routines ARE jumps. It cannot be derived —
+# "is this launch a jump" is the rule being enforced, not a property of the bytes — so it
+# is declared, and checked BOTH ways every build: a routine outside it that installs an
+# accepted state fails (that is the walk-off promise), and a routine inside it that no
+# longer installs one, or is gone, fails too, so the list cannot rot into a blanket pass.
+
+GRANTERS = {
+    "Player_Jump": "the jump itself (S3K Sonic_Jump sets `jumping`, sonic3k.asm:23335)",
+    "Climb_JumpOff": "Knuckles' wall jump (S3K sets `jumping` there too, :31428)",
+    "Ability_InstaShield": "its own ROLLJUMP -> JUMP lockout cancel (S3K :23408); it runs "
+                           "only from an already-accepted state",
+}
+
+# The audit's named subject. It MUST be executed concretely, not only analysed: if the
+# micro-executor ever stops being able to run it, that is a loud failure, not a quiet
+# fall-back to the dataflow alone.
+MUST_EXECUTE = ("Ground_DetachState",)
+
+WRITER_CALLEE = "Player_SetState"
+
+
+def accepted_states(rom, syms, equs, offs):
+    """{state: [ability names]} — the states for which an ability ENGAGES, by executing
+    each ability routine in its most permissive setting: the insta-shield READY with no
+    suppression bit; flight with y_vel 0 against S3K's surface release cap -$400 (y_vel
+    >= cap engages, so this passes the cap). Neither is compared against a literal."""
+    k = constants(equs)
+    out = {}
+    s, e = routine_extent(syms, ROUTINE, LOCAL_PREFIX)
+    prog, _ = decode(rom, s, e)
+    stubs = {syms[n]: n for n in ("Player_SetState", "InstaShield_Spawn",
+                                  "Sound_PlaySFX") if n in syms}
+    for st in range(256):
+        got = run_case(rom, prog, s, e, stubs, offs, st, k["INSTASHIELD_READY"], 0)
+        if got["spawned"]:
+            out.setdefault(st, []).append(ROUTINE)
+    tk, cap_off, y_vel_off = tails_inputs(equs)
+    s, e = routine_extent(syms, TAILS_ROUTINE, TAILS_LOCAL_PREFIX)
+    prog, _ = decode(rom, s, e)
+    stubs = {syms["Player_SetState"]: "Player_SetState"}
+    for st in range(256):
+        got = run_case(rom, prog, s, e, stubs, offs, st,
+                       sst_words={y_vel_off: 0}, blk_words={cap_off: -0x400})
+        if got["set_state"] == [tk["PSTATE_FLY"]]:
+            out.setdefault(st, []).append(TAILS_ROUTINE)
+    return out
+
+
+def execute_writer(rom, syms, ext, name, offs):
+    """Run writer routine `name` concretely for every entry player_state with a
+    Player_SetState stub. Returns ((installed-state set, complete), None) or
+    (None, why-not). `complete` is True when the only input the routine READ was the
+    state byte itself (no other SST byte, nothing through a4): then the 256 entry states
+    ARE its whole input space and the executed set is exact, not a sample."""
+    import pstate_writers as pw
+    ex = ext.extent(name)
+    if ex is None:
+        return None, "no extent in the listing"
+    try:
+        prog, _ = decode(rom, ex[0], ex[1])
+    except (SystemExit, UnsupportedInstruction) as e:
+        return None, str(e)
+    stubs = {syms[WRITER_CALLEE]: WRITER_CALLEE}
+    out, reads, blk = set(), set(), set()
+    for st in range(256):
+        try:
+            got = run_case(rom, prog, ex[0], ex[1], stubs, offs, st)
+        except (UnsupportedInstruction, Refusal, pw.Unmeasurable) as e:
+            return None, str(e)
+        out.update(got["set_state"])
+        reads |= got["sst_reads"]
+        blk |= got["blk_reads"]
+    return (out, reads <= {offs["player_state"]} and not blk), None
+
+
+def pass_walkoff(args, rom, syms, equs, offs):
+    import pstate_writers as pw
+    if args.write_fixture:
+        return 0                          # this pass has no committed cut
+
+    named = {v: n for n, v in equs.items() if n.startswith("PSTATE_")
+             and n != "PSTATE_COUNT"}
+
+    def nm(vals):
+        return ", ".join(named.get(v, "$%02X" % v) for v in sorted(vals)) or "(none)"
+
+    unmeasured, violations, notes = [], [], []
+
+    target = syms.get(WRITER_CALLEE)
+    if target is None:
+        print("  walk-off writers: UNMEASURABLE — %s is not in the listing" % WRITER_CALLEE)
+        return 2
+
+    accepted = accepted_states(rom, syms, equs, offs)
+    if not accepted:
+        print("  walk-off writers: UNMEASURABLE — neither ability engages from ANY state "
+              "when executed, so 'installs an accepted state' could never be true and "
+              "this pass would be vacuous")
+        return 2
+
+    ext = pw.Extents(syms, vma_phased_symbol_names())
+    srcs = pw.digest_sources(args.lst, ROOT)
+    if not srcs:
+        print("  walk-off writers: UNMEASURABLE — %s records no DIGEST-READ .emp rows, so "
+              "the source half of the derivation has nothing to read" % args.lst)
+        return 2
+    noreturn = pw.source_noreturn(srcs)
+    flow = pw.Flow(rom, ext, target, {syms[n] for n in noreturn if n in syms})
+
+    # --- 1. the ROM's sites, attributed to their routines
+    hits = pw.scan_transfers(rom, target)
+    rom_routines = {}
+    for a, form in hits:
+        head, _ = ext.head_at_or_below(a)
+        rom_routines.setdefault(head, []).append((a, form))
+
+    # --- 2. the source's sites, and the two derivations must agree
+    src_sites, refused, direct = pw.source_scan(srcs, WRITER_CALLEE)
+    unmeasured += refused
+    for proc in sorted(set(src_sites) - set(rom_routines)):
+        if proc in syms:
+            unmeasured.append("%s transfers to %s in source (%s) but no transfer to $%06X "
+                              "was found in its built bytes"
+                              % (proc, WRITER_CALLEE,
+                                 ", ".join("%s:%d" % (pathlib.Path(f).name, l)
+                                           for f, l in src_sites[proc]), target))
+        else:
+            notes.append("%s calls %s in source but is not in this build's listing "
+                         "(not built into this shape)" % (proc, WRITER_CALLEE))
+    for r in sorted(set(rom_routines) - set(src_sites), key=str):
+        unmeasured.append("the ROM transfers to %s from %s (%s), which no source proc "
+                          "names as a caller — a path this pass cannot attribute"
+                          % (WRITER_CALLEE, r, ", ".join("$%06X" % a
+                                                          for a, _ in rom_routines[r])))
+
+    # --- 3. what each routine installs
+    installs = {}
+    for r in sorted(set(rom_routines) & set(src_sites)):
+        ex = ext.extent(r)
+        if ex is None:
+            unmeasured.append("%s: no extent in the listing" % r)
+            continue
+        try:
+            res = flow.analyse(ex[0], ex[1])
+        except pw.Unmeasurable as e:
+            unmeasured.append("%s: %s" % (r, e))
+            continue
+        vals = set()
+        for a, form in rom_routines[r]:
+            if a not in res["visited"]:
+                unmeasured.append("%s: the transfer at $%06X (%s) is never reached by "
+                                  "control flow from $%06X — a coincidental byte "
+                                  "pattern, or an entry this pass does not know"
+                                  % (r, a, form, ex[0]))
+                continue
+            v = res["sites"].get(a)
+            if v is None or v == pw.TOP or not v:
+                unmeasured.append("%s: cannot derive the state installed at $%06X (%s) — "
+                                  "d0 there is %s" % (r, a, form,
+                                                      "unknown" if v == pw.TOP
+                                                      else "never defined"))
+                continue
+            vals |= set(v)
+        installs[r] = vals
+
+    # --- 4. direct writes of the state byte that bypass Player_SetState
+    for f, line, proc, mn, size, src in direct:
+        where = "%s:%d (%s)" % (pathlib.Path(f).name, line, proc)
+        if proc == WRITER_CALLEE and mn == "move" and src == "d0":
+            continue                                   # the writer itself
+        if size not in (None, "b"):
+            unmeasured.append("%s: `%s.%s` writes the state byte at a width this pass "
+                              "does not model" % (where, mn, size))
+            continue
+        if mn == "clr":
+            val = 0
+        elif mn in ("move", "moveq") and src and src.startswith("#"):
+            tok = src[1:].strip()
+            val = (int(tok[1:], 16) if tok.startswith("$") else
+                   int(tok) if tok.isdigit() else equs.get(tok))
+            if val is None:
+                unmeasured.append("%s: `%s %s` — %s is not an equate of this build"
+                                  % (where, mn, src, tok))
+                continue
+        else:
+            unmeasured.append("%s: `%s` writes the state byte from %s, which this pass "
+                              "cannot evaluate" % (where, mn, src))
+            continue
+        installs.setdefault(proc, set()).add(val & 0xFF)
+
+    if not installs:
+        unmeasured.append("the derived writer set is EMPTY — nothing installs a "
+                          "player_state, which cannot be true of a running game")
+
+    # --- 5. the judgement
+    for r, vals in sorted(installs.items()):
+        hit = vals & set(accepted)
+        if hit and r not in GRANTERS:
+            violations.append(
+                "%s installs %s, which %s ACCEPTS — a path that is not a jump grants the "
+                "ability (the walk-off promise). If %s really is a jump, add it to "
+                "GRANTERS with its S3K reference; if not, it must install a not-from-a-"
+                "jump state (PSTATE_AIR / PSTATE_AIRBALL)"
+                % (r, nm(hit), " and ".join(sorted({a for s in hit for a in accepted[s]})),
+                   r))
+    for g, why in sorted(GRANTERS.items()):
+        if g not in installs:
+            violations.append("GRANTERS names %s (%s), but it installs no player_state in "
+                              "this build — a stale entry; remove it" % (g, why))
+        elif not installs[g] & set(accepted):
+            violations.append("GRANTERS names %s, but it installs only %s, none of which "
+                              "an ability accepts — a stale entry; remove it"
+                              % (g, nm(installs[g])))
+
+    # --- 6. concrete execution, cross-checked against the dataflow
+    executed = {}
+    for r in sorted(installs):
+        if r not in rom_routines:
+            continue
+        res, why = execute_writer(rom, syms, ext, r, offs)
+        if res is None:
+            if r in MUST_EXECUTE:
+                unmeasured.append("%s could not be EXECUTED (%s) — it is the audit's "
+                                  "named walk-off subject and must run, not only be "
+                                  "analysed" % (r, why))
+            continue
+        got, complete = res
+        executed[r] = complete
+        if r in MUST_EXECUTE and not complete:
+            unmeasured.append("%s read an input other than player_state, so 256 entry "
+                              "states no longer cover what it can install — the "
+                              "execution is a sample, and the audit's named subject "
+                              "needs the whole space" % r)
+        # The dataflow over-approximates; an execution can only ever find a subset of
+        # what it derived — and exactly what it derived when the input space was whole.
+        if not got <= installs[r] or (complete and got != installs[r]):
+            unmeasured.append("%s: EXECUTED over all 256 entry states it installs %s, but "
+                              "the dataflow derived %s — the two methods disagree"
+                              % (r, nm(got), nm(installs[r])))
+        hit = got & set(accepted)
+        if hit and r not in GRANTERS:
+            violations.append("%s, EXECUTED with a %s stub, installs %s — which the "
+                              "executed ability accepts" % (r, WRITER_CALLEE, nm(hit)))
+    for r in MUST_EXECUTE:
+        if r not in installs:
+            unmeasured.append("%s is not among the derived writers at all — the audit's "
+                              "named walk-off subject vanished or stopped writing" % r)
+
+    # --- report
+    print("  walk-off writers: %d routine(s) install a player_state (%d transfer site(s) "
+          "to %s found in the ROM, agreeing routine-for-routine with the source; %d "
+          "direct write(s) of the byte)" % (len(installs), len(hits), WRITER_CALLEE,
+                                            len(direct)))
+    print("  accepted (EXECUTED): %s" % "; ".join(
+        "%s by %s" % (named.get(s, "$%02X" % s), "+".join(a)) for s, a in
+        sorted(accepted.items())))
+    for r, vals in sorted(installs.items()):
+        tag = ("GRANTER (a jump)" if r in GRANTERS else
+               "ACCEPTED - VIOLATION" if vals & set(accepted) else "refused by both")
+        print("    %-28s -> %-40s %s%s" % (r, nm(vals), tag,
+                                            "  [executed]" if executed.get(r) else ""))
+    print("  EXECUTED concretely with a %s stub over all 256 entry states, reading no "
+          "input but the state byte (so the executed set is exact and equals the "
+          "dataflow's): %s" % (WRITER_CALLEE, ", ".join(sorted(
+              r for r, c in executed.items() if c)) or "(none)"))
+    part = sorted(r for r, c in executed.items() if not c)
+    if part:
+        print("  executed as a SAMPLE only (they read other inputs; executed set checked "
+              "as a subset of the dataflow's): %s" % ", ".join(part))
+    for n in notes:
+        print("    note: %s" % n)
+    rc = 0
+    if unmeasured:
+        print("  walk-off writers: UNMEASURABLE — %d thing(s) this pass could not derive:"
+              % len(unmeasured))
+        for u in unmeasured:
+            print("    %s" % u)
+        rc = 2
+    if violations:
+        print("  walk-off writers: FAIL — %d:" % len(violations))
+        for v in violations:
+            print("    %s" % v)
+        rc = 1 if args.gate else rc
+    if rc == 0:
+        print("  OK")
+    return rc
+
+
 def _named_states(equs, hit):
     named = {v: n for n, v in equs.items() if n.startswith("PSTATE_")
              and n != "PSTATE_COUNT"}
@@ -1276,8 +1581,11 @@ def main():
     ap.add_argument("--fixture", default=str(TOOLS / "fixtures" / "instashield_cut.json"))
     ap.add_argument("--tails-fixture",
                     default=str(TOOLS / "fixtures" / "tailsflight_cut.json"))
-    ap.add_argument("--ability", choices=("instashield", "tailsflight", "both"),
-                    default="both")
+    # `all` (the default, what build.sh runs) = the two abilities + the walk-off writer
+    # pass. `both` keeps its old meaning — the two abilities only — for debugging.
+    ap.add_argument("--ability",
+                    choices=("instashield", "tailsflight", "walkoff", "both", "all"),
+                    default="all")
     ap.add_argument("--write-fixture", action="store_true")
     ap.add_argument("--built-after", type=int, default=None,
                     help="unix ts; both artifacts must be newer (staleness guard)")
@@ -1315,10 +1623,12 @@ def main():
 
     print("instashield_gate [%s]:" % args.lst)
     rcs = []
-    if args.ability in ("instashield", "both"):
+    if args.ability in ("instashield", "both", "all"):
         rcs.append(pass_instashield(args, rom, syms, equs, offs, overlay_len))
-    if args.ability in ("tailsflight", "both"):
+    if args.ability in ("tailsflight", "both", "all"):
         rcs.append(pass_tailsflight(args, rom, syms, equs, offs, overlay_len))
+    if args.ability in ("walkoff", "all"):
+        rcs.append(pass_walkoff(args, rom, syms, equs, offs))
     # Not `|=`: a pass can now return 2 (COULD NOT RUN, a derived cut for an off-canonical
     # shape that could not be derived), and 1|2 would be an exit 3 no caller defines. A
     # measured failure outranks an unmeasured pass; both passes have printed their own.
