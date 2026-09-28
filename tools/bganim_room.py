@@ -1103,8 +1103,17 @@ def report(lst_path, aeon=None, gate=False, out=sys.stdout, rom_path=None,
         # The second song bank follows the sound bank by one window. Same comparison, same
         # reason: a map or overlay whose third anchor drifts from the rule is refused here,
         # before sigil's walk (which does not read the anchor) disagrees with it.
-        declared_sb2 = anchor_addr(r["map_toml"], SONG_BANK_2_ANCHOR_NAME, r["overlay"])
-        if declared_sb2 != anchor + SONG_BANK_2_OFFSET:
+        # A map with no second song bank (the tests' fixture maps, which predate it) has
+        # nothing to compare; sigil refuses a bank-2 island that no anchor declares
+        # ([map.undeclared-island]), so an absent row here cannot hide a live bank.
+        try:
+            declared_sb2 = anchor_addr(r["map_toml"], SONG_BANK_2_ANCHOR_NAME, r["overlay"])
+        except Unmeasurable:
+            declared_sb2 = None
+        if declared_sb2 is None:
+            print(f"  song bank 2: no `{SONG_BANK_2_ANCHOR_NAME}` anchor in this map (no "
+                  f"second song bank to check)", file=out)
+        elif declared_sb2 != anchor + SONG_BANK_2_OFFSET:
             print(f"bganim_room: FAIL — `{SONG_BANK_2_ANCHOR_NAME}` is 0x{declared_sb2:X}, "
                   f"not `{ANCHOR_NAME}` 0x{anchor:X} + SONG_BANK_2_OFFSET "
                   f"0x{SONG_BANK_2_OFFSET:X} (the window after the sound bank).", file=out)

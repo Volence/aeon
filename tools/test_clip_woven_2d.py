@@ -523,7 +523,9 @@ def test_the_crossing_moves_toward_the_cheaper_side(donors, tmp_path):
 def test_a_one_row_act_still_plans_full_height_strips(donors, tmp_path):
     """The 2-D plan's special case: s2_mtz_cpz (MTZ | tunnel | CPZ | tunnel | MTZ) plans the
     five full-height strips the 1-D plan did, crossings at each tunnel's middle rounded down
-    to 16, CPZ's strip split at the tunnel mouths for its song."""
+    to 16, every zone's strip split at the tunnel mouths for its song (CPZ's since the clip
+    had music; both Metropolis strips since SONG_S2_MTZ joined the second song bank,
+    2026-09-28), so the tunnels name no song."""
     _need(S.S2_FINAL)
     path = os.path.join(REPO, "games", "sonic4", "data", "clips", "s2_mtz_cpz", "clips.json")
     act = CM.load(path, donor_root=donors)
@@ -534,11 +536,13 @@ def test_a_one_row_act_still_plans_full_height_strips(donors, tmp_path):
     W, H = act.grid_w * act.section_px, act.grid_h * act.section_px
     _descriptor_rules(plan["rows"], W, H)
     assert [(r["x0"], r["x1"], r["y0"], r["y1"], r["key"], r["song"]) for r in plan["rows"]] == [
-        (0, c1 - 1, 0, H - 1, 0, None),
+        (0, mw.dst[0] + mw.dst[2] - 1, 0, H - 1, 0, "SONG_S2_MTZ"),
+        (mw.dst[0] + mw.dst[2], c1 - 1, 0, H - 1, 0, None),
         (c1, cpz.dst[0] - 1, 0, H - 1, 1, None),
         (cpz.dst[0], cpz.dst[0] + cpz.dst[2] - 1, 0, H - 1, 1, "SONG_S2_CPZ"),
         (cpz.dst[0] + cpz.dst[2], c2 - 1, 0, H - 1, 1, None),
-        (c2, W - 1, 0, H - 1, 0, None)]
+        (c2, me.dst[0] - 1, 0, H - 1, 0, None),
+        (me.dst[0], W - 1, 0, H - 1, 0, "SONG_S2_MTZ")]
 
 
 def test_music_on_a_shaft_changes_at_its_mouths(donors, tmp_path):
