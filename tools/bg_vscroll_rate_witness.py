@@ -1231,7 +1231,7 @@ async def run(args) -> int:
             report["W"]["longest_run_at_the_bound"] = run_at_bound
             if run_at_bound < 2:                                               # A4
                 fails.append(
-                    f"A4: after a warp whose derived target jump is {plan['jump']} px "
+                    f"A4: after a raw Camera_Y jump whose derived target jump is {plan['jump']} px "
                     f"(> 2 * {step_max}), the longest run of consecutive INVOCATIONS stepping "
                     f"exactly {step_max} px is {run_at_bound}. The rate clamp did not bind, so "
                     f"leg W's green is vacuous and A1 is untested. Steps: "
@@ -1243,7 +1243,7 @@ async def run(args) -> int:
                 # final partial step. A bypass reaches the target in one store and has no run.
                 travel = legW[-1]["v"] - legW[0]["v"]
                 findings.append(
-                    f"A4: the warp forced the rate clamp to the bound for {run_at_bound} "
+                    f"A4: the raw Camera_Y jump forced the rate clamp to the bound for {run_at_bound} "
                     f"consecutive Parallax_Update invocations at exactly {step_max} px — this is "
                     "the leg that is red with the rate clamp reverted. Conservation: the ratchet "
                     f"travelled {travel} px over {len(legW) - 1} invocations "
@@ -1603,6 +1603,12 @@ if __name__ == "__main__":
 #       the bound) AND A1 red on leg W (a single tick moving the whole jump) AND A3 red (the
 #       model still clamps the step). If only A4 goes red, leg W's jump is not actually landing
 #       and the leg needs re-aiming before anything here is trusted.
+#       RUN 2026-09-28 ON LEG W'S NEW DRIVER (the raw Camera_Y write under Debug_Scene_Freeze,
+#       WARP-VSCROLL-PRIME): mutant DEBUG crc c64ffa14 (source restored from the branch commit
+#       before the run, so the shape checks read the real clamp): exit 1 with A1 (366 px in
+#       invocation 1, 178 -> 544), A3 (model 194) and A4 (longest run at 16: 0) on leg W, every
+#       other leg green. The fixed tree, DEBUG crc ef4a4385: PASS, exit 0, 22 invocations at
+#       exactly 16 px, travel 366 = the position-clamped jump.
 #
 #   (a) THE POSITION CLAMP. In the same proc, delete the five instructions from
 #       `move.l Region_Current, d0` through `subi.w #SCREEN_HEIGHT, d3`, leaving

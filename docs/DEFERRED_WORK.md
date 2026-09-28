@@ -108,7 +108,11 @@ holds where it applies. Per-frame cost unchanged; a picture change pays a 16-lon
 - The owner's recorded state (camera (588, 2515), `BG_Plane_Top` 0, V-scroll 0..24) is Emerald Hill
   directly above `ehz_to_hpz`, with a window that is correct for that scroll; the tear was horizontal
   scroll, which none of those words shows.
-- **STILL OPEN, narrowed and measured: BG-RATE-PRIME-EXEMPTION on a band chain.** After a DEBUG warp
+- **CLOSED 2026-09-28 (WARP-VSCROLL-PRIME, `fix/warp-vscroll-prime`): BG-RATE-PRIME-EXEMPTION.** The
+  warp now stores the BG scroll at its target and primes the plane from it; `clip_bg_scroll_witness
+  --warp-entry` GRADES the slide now and reads **0 slide frames** into every Hidden Palace layout
+  (woven DEBUG crc `4f996403`, `s2_hpz_solo` `8dff61c1`). See that entry. The original bullet:
+- ~~**STILL OPEN, narrowed and measured: BG-RATE-PRIME-EXEMPTION on a band chain.**~~ After a DEBUG warp
   into Hidden Palace's layouts 1-3 the V-scroll ratchets 15 / 31 / 44 frames to its target, and on
   14 / 30 / 38 of those frames the live layout's bands sit on rows Sonic 2 scrolls differently (the
   scroll is outside the layout's stretch). DEBUG-warp only; the ENTRY leg reports it by name and does not
@@ -35997,7 +36001,8 @@ and Plane B at `$E000`; wired into `tools/effects_gates.py` as `bg_window` (and 
 emulator cannot see (the boot prime's correct window is 0 on every reachable path, so a boot
 sample passes either way).
 
-**STILL OPEN, AND NEITHER IS THIS:** **BG-RATE-PRIME-EXEMPTION** (the scroll ratchets to its
+**STILL OPEN, AND NEITHER IS THIS:** **BG-RATE-PRIME-EXEMPTION** (CLOSED 2026-09-28 by
+WARP-VSCROLL-PRIME; the warp no longer slides. Was: the scroll ratchets to its
 post-warp target 16 px a frame with no prime exemption, so a warp still slides even though the
 nametable is now right; since 2026-09-27 on a TALL map only, a one-plane map snaps) and **BG-BAND-PLANE-ANCHOR** (the parallax band tops alias against plane
 space on a taller map). Step 8's `PLANE_V_CELLS` 64 → 32 shrink still needs the window, and now
@@ -36207,7 +36212,60 @@ branch to be wrong) and because a gate leg that has never been red is worth less
 but a successor extending the gate should add it, and the derived expectation is simply that
 `BG_Plane_Top` reaches 0 within `ceil(32 / BG_STREAM_MAX_ROWS)` ticks of the crossing.
 
-## BG-RATE-PRIME-EXEMPTION — the rate clamp has no "this frame is a prime" escape, and the signal it wants is already dead (booked 2026-09-16, regions part 2 step 4; NARROWED 2026-09-27 to maps taller than the plane)
+## BG-RATE-PRIME-EXEMPTION — the rate clamp has no "this frame is a prime" escape, and the signal it wants is already dead (booked 2026-09-16, regions part 2 step 4; NARROWED 2026-09-27 to maps taller than the plane; CLOSED 2026-09-28, WARP-VSCROLL-PRIME)
+
+**CLOSED 2026-09-28 (WARP-VSCROLL-PRIME, branch `fix/warp-vscroll-prime`). The fix is the one this
+entry named: the prime runs after Step 5.** `Debug_Warp_Consume` (games/sonic4/test/ojz_scroll_test.emp)
+now runs its region crossing + `Parallax_Update` as step 6 and its plane prime (`Plane_Buffer_Reset`,
+`st Section_Plane_Dirty`, `Section_UpdateColumns`) as step 7, then `BG_Stream_Update`. The one
+`Parallax_Update` is bracketed by `st Parallax_BG_Snap` / `clr.b Parallax_BG_Snap`, so Step 5's (b1)
+arm stores the scroll at its target and `Section_RedrawPlanes` seeds the window from that store. The
+same order as S3K / S.C.E.: a `BackgroundInit` computes the BG camera, then
+`Reset_TileOffsetPosition*` + `Refresh_PlaneFull` draw from it (S.C.E. `Levels/DEZ/Events/DEZ1 -
+Events.asm`, `Engine/Core/Draw Level.asm`).
+
+* **Why this signal and not the rejected ones.** `Parallax_BG_Snap` did not exist when this was booked;
+  WOVEN-TALL-ENTRY (2026-09-27) gave it exactly the meaning this entry wanted, "the plane is repainted
+  from THIS store, so the clamp has no rows to bound". The warp is its second writer, not a second
+  authority: the meaning is unchanged and it is true of the warp by construction (its prime follows
+  the store). The "camera moved more than N" heuristic stays rejected (underived threshold), and
+  `BG_Wipe_Cursor` stays the wrong signal (zero exactly on a prime, and a wipe must stay clamped).
+  `Parallax_CheckBoundary`'s null-row rule is unchanged, deliberately: its other null-row caller, the
+  boot ladder, primes BEFORE its first crossing, so a snap there would be the 366-px-over-a-stale-window
+  failure this entry's first cut measured. The clear after the Update is there because
+  `Parallax_Update`'s `.no_config` return skips Step 5's clear, and a snap left armed would exempt the
+  frame body's store.
+* **The open question, answered: ONLY THE CONSUMER'S INVOCATION.** A warp tick runs `Parallax_Update`
+  twice. The consumer's is the store the prime reads, so it has nothing to stream. The body's runs
+  after the prime like any steady-state frame, and the streamer must follow whatever it moves, so it
+  stays clamped. It moves nothing in practice (the camera sits on the player inside the deadzone).
+* **Measured, before and after (headless, `tools/clip_bg_scroll_witness.py --warp-entry`).** Controls on
+  the parent engine: woven DEBUG crc `615ff7ff` (FAST-built, as the booking's solo clips were), layouts
+  1 / 2 / 3 slid **15 / 31 / 44** frames, **14 / 30 / 38** torn (the booking's numbers exactly);
+  `s2_hpz_solo` crc `ba18c0c8` **16 / 31 / 43**, **15 / 30 / 37**. After: woven `4f996403` 164/164
+  probes, ENTRY + FLIGHT 7 rows 0 FAIL, **0 slide frames on every entry**; `s2_hpz_solo` `8dff61c1`
+  72/72, ENTRY 5 rows 0 FAIL, **0 slide frames**.
+* **Gates.** `clip_bg_scroll_witness --warp-entry` now FAILS a sliding frame (it reported and did not
+  grade it); red-first on `ba18c0c8`: 3 FAIL, rc 1. `tools/test_bg_plane_window.py`'s warp leg is
+  inverted to pin crossing -> snap -> Update -> clear -> prime -> `BG_Stream_Update` (it pinned the
+  prime ABOVE the crossing); red on the parent's source (no snap) and on a doctored copy of the fixed
+  ladder with the prime moved back up (order assert). `tools/bg_vscroll_rate_witness.py` leg W lost its
+  driver, as this entry warned: a second warp inside the tall row now snaps. It is now a raw `Camera_Y`
+  write under `Debug_Scene_Freeze` inside row 11 (the arrival warp stays, unsampled). Fixed DEBUG crc
+  `ef4a4385`: PASS, exit 0, **22** invocations at exactly 16 px, travel 366 = the clamped jump.
+  Red-first with the rate clamp deleted (mutant DEBUG crc `c64ffa14`, source restored from the branch
+  commit before the run): exit 1, A1 (366 px in one invocation), A3, A4 (run 0) on leg W.
+* **Crossings unchanged** (`tools/crossing_witness.py`, woven DEBUG `4f996403`, all 11 connectors):
+**0 glitch ticks, 0 faulted, rc 0 on each** (38 runs: 6 on each of the 4 corridors, 2 on each of the 7 shafts), the same 0 the booking recorded before this change.
+* **NOT folded in:** PARALLAX-STEP5-SNAP-DEAD (Step 5's dead `Parallax_Snap_Pending` test). This fix
+  does not touch that test and needs nothing from it: a lerping config on the warp tick would still
+  lerp, but no witnessed entry lerps (0 slide frames). **Suspected, NOT measured:** the BOOT ladder can
+  show the same ratchet when an act boots deep inside a tall map, because `Parallax_Init`'s tail Update
+  runs with a null `Region_Current` (act-default ceiling, 288) and the first crossing comes after the
+  prime. No witness boots there; unverified.
+
+The original entry follows, unedited except where marked.
+
 
 **2026-09-27, `fix/woven-hpz-bg`: "Nothing is incorrect" (below) is FALSE on a band CHAIN, MEASURED.** On
 a tall map split into several band layouts (s2_woven's and s2_hpz_solo's Hidden Palace, 4 layouts), the
@@ -36486,6 +36544,8 @@ cheaper than flying the traverse — and flying still exercises the steady state
 does not, so the procedure below keeps the flight for legs 1 and 3. What a warp still does NOT
 fix is the SCROLL: it ratchets to its post-warp target at 16 px a frame (BG-RATE-PRIME-EXEMPTION),
 so the picture is right while the position slides. Do not read that slide as a streaming defect.
+(**Corrected 2026-09-28:** WARP-VSCROLL-PRIME closed that; a warp now lands with the scroll at its
+target and no slide.)
 
 **What to do on the machine.** Fly (DEBUG free flight) into x 5120..6143 and traverse camera Y
 from 2048 to 6143. At three camera Y values compute

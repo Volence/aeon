@@ -281,7 +281,11 @@ ENTRY 4 of 4 Hidden Palace layouts and FLIGHT 160 of 160 frames, Wing Fortress's
 accumulators added to every later zone's bands. RED on a mutant that clears them only on a warp
 (FLIGHT 161 of 161, ENTRY green): the flight is what grades the crossing. GREEN after the fix.
 Before this row the witness was a manual lane (s2_ehz_cpz, 24 probes, 2026-09-25). On a
-canonical ROM it exits 2 (no clip parallax records)."""
+canonical ROM it exits 2 (no clip parallax records). WARP-VSCROLL-PRIME (2026-09-28): the ENTRY
+leg now also FAILS any frame after a warp whose BG vscroll is not at its target (it was reported,
+not graded). RED on the unfixed s2_hpz_solo DEBUG ROM (crc ba18c0c8): layouts 1/2/3 slid 16/31/43
+frames, 3 FAIL, rc 1; GREEN after the fix on s2_hpz_solo (8dff61c1) and s2_woven (4f996403), 0
+slide frames everywhere."""
 
 [wired."balance_witness.py#woven"]
 args = ["--rom", "{repo}/s4.s2clip_woven.debug.bin", "--lst", "{repo}/s4.s2clip_woven.debug.lst", "--clip", "s2_woven", "--spot", "1609,2848,left"]
