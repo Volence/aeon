@@ -42954,7 +42954,7 @@ MCZ, OOZ, MTZ, WFZ 0/0; prototype HPZ 0 of 43. Only Wing Fortress changes.
 - **Baselines:** woven `collision_baseline.json` 123 -> 119 entries (RULE B 11 -> 7: WFZ's four
   plane-B notches left with its plane B), 0 new violations; s2_wfz_solo 4 -> 0, file deleted
   (`collision_consistency.py` OK with no clip baseline).
-- **Woven witnesses on `d6ce40fb`:** crossing_witness 0 glitch ticks on all 11 connectors (46 runs,
+- **Woven witnesses on `d6ce40fb`:** crossing_witness 0 glitch ticks on all 11 connectors (38 runs: 6 per tunnel, 2 per shaft;
   0 faulted); woven_route_witness (ehz_to_mtz,mtz_to_cpz,cpz_to_mtz,mtz_to_ooz) GREEN;
   balance_witness GREEN 15/16 graded, 1 unmeasured; first_screen_fg_witness PASS 9 stops.
 - **Landing:** `tools/landing_build.sh` exit 0, `finished=0` (pytest 3767 passed / 3 skipped;
