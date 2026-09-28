@@ -960,40 +960,356 @@ WRITERS = {
 }
 
 
-def check_anim_dplc_pairings():
-    """A test object that animated Sonic's SCRIPTS against Tails' DPLC would make
-    the per-subject script set a lie. Every routine that hard-binds both an
-    `Ani_*` table and a `DPLC_*` table must bind the MATCHING pair."""
-    symbol = re.compile(r'^\s*(?:pub\s+)?(?:proc|comptime\s+fn|fn)\s+([A-Za-z_]\w*)')
-    ani = re.compile(r'#Ani_(\w+)\b')
-    dplc = re.compile(r'#DPLC_(\w+)\b')
-    bad = []
+# ------------------------------------------------ anim/DPLC pairing, by slot
+#
+# GATE-PREDICATE-VS-PROMISE row 13 (GPP-DPLC-PAIRING-IDIOM), 2026-09-28.
+#
+# THE PROMISE: every slot that streams its art through `Perform_DPLC*` is animated by
+# the animation table that belongs with the DPLC table it streams. A subject's DPLC
+# (the CharacterDef records and the appendage's equ block, `subject_bindings`) is
+# performed only for a slot running THAT subject's `Ani_*`, which is what lets
+# `reachable_sets` build a subject's frame set from its own scripts.
+#
+# THE OLD PREDICATE, measured insufficient: per source routine, the most recent
+# `#Ani_X` immediate and the most recent `#DPLC_Y` immediate had to share X == Y,
+# whatever each was written into (a register, an SST field, which slot). It graded 2
+# routines in the whole tree (TestPlayer, TestAnimated) and nothing that pairs the
+# two across routines, through an `equ` alias, or through a field. Three mutations on
+# one `DEBUG=1 ./build.sh`, rc 0 (crc bce24957):
+#   test_animated.emp:50    `movea.l DplcV.dplc_ptr(a0), a2` -> `movea.l #DPLC_Tails, a2`
+#   tails_appendage.emp:388 `movea.l #DPLC_TAILS_APPENDAGE, a2` -> `movea.l #DPLC_Tails, a2`
+#   test_player.emp:63      `TPlayerV.dplc_ptr(a0)` -> `TPlayerV.dplc_ptr(a1)`
+#
+# THE PREDICATE NOW is keyed by what links the two tables at run time: the SLOT.
+#   1. Population: every call to a `Perform_DPLC*` entry in the scanned tree. Empty is
+#      Unmeasurable, never a pass.
+#   2. The DPLC table is what a2 holds AT THE CALL: the nearest write to a2 above it in
+#      the same routine, with no label (join point) and no call in between. An
+#      immediate is resolved through `equ ... = extern(...)`; `FIELD(a0)` is resolved
+#      through the slot's births (3); `CharacterDef.cd_dplc(aN)` loaded from
+#      `Player_Chardef` is the record idiom (4). Anything else is named, not guessed.
+#   3. The anim table is the one the SLOT holds: every routine that births a slot
+#      running the calling routine (`move.w #R - ObjCodeBase, code_addr(aK)`) must bind
+#      `anim_table(aK)` through THE SAME REGISTER aK (anim_frame_bound's base-register
+#      rule), and a field-held DPLC must be written through that same aK too. A routine
+#      that writes `anim_table(a0)` itself adds its own pair. Any other mention of the
+#      routine (a call, a data descriptor) is a path this does not follow, and is named.
+#   4. Record idiom: a2 = `CharacterDef.cd_dplc` and anim_table = `cd_animtable` of the
+#      SAME `Player_Chardef` record; each CharacterDef literal's pair is then graded.
+#   5. A pair matches when the DPLC is a subject's and the anim is that subject's; when
+#      neither is a subject's and the names agree (Ani_X / DPLC_X); or when it is a
+#      DECLARED_DPLC_PAIRS row whose evidence still reads true. A declared row no site
+#      forms any more is stale and fails.
+#
+# NOT FOLLOWED (named here so a green run is not over-read): an anim_table write in a
+# helper the calling routine calls (only the routine's own `anim_table(a0)` writes and
+# its births are read), and a slot born by a data descriptor (`objroutine(R)`, an objdef
+# `code:`) rather than a `code_addr` immediate — the latter is reported as an unfollowed
+# path, so it fails rather than passing unseen.
+
+#: The one (anim, DPLC) pair whose names disagree by design. Stated with the evidence that
+#: keeps it true; the rows are reported as declared, not derived.
+DECLARED_DPLC_PAIRS = {
+    ("Ani_DustSpindash", "DPLC_Dust"): dict(
+        why="the dust DPLC is named for its art sheet (Art_Dust), which it shares with the "
+            "resident puff; it streams only the charge half, Map_DustSpindash, which "
+            "Ani_DustSpindash animates",
+        evidence=[
+            (r'ensure\(offset_table_frames\(_map_spindash\)\s*==\s*'
+             r'offset_table_frames\(_dplc_dust\)',
+             "LS-9 still binds Map_DustSpindash's frame count to DPLC_Dust's",
+             "games/sonic4/data/dust_data.emp"),
+            (r'^\s*move\.l\s+#MAP_DUST_SPINDASH,\s*Sst\.mappings\(a1\)',
+             "DustSpindash_Spawn still gives the slot Map_DustSpindash",
+             "games/sonic4/objects/dust_spindash.emp"),
+        ]),
+}
+
+_ROUTINE = re.compile(r'^\s*(?:pub\s+)?(?:proc|comptime\s+fn|fn)\s+([A-Za-z_]\w*)')
+_FALLS_INTO = re.compile(r'\bfalls_into\s+([A-Za-z_]\w*)')
+_DPLC_CALL = re.compile(r'^\s*(?:jbsr|jsr|bsr|jbra|jmp|bra)(?:\.[sbwl])?\s+(Perform_DPLC\w*)\s*$')
+_A2_LOAD = re.compile(r'^\s*(?:movea|move|lea)(?:\.l)?\s+(.+?)\s*,\s*a2\s*$')
+_A2_TOUCH = re.compile(r'(?:,\s*a2\s*$|\(a2\)\+|-\(a2\)|\bexg\b.*\ba2\b)')
+_CALL = re.compile(r'^\s*(?:jbsr|jsr|bsr)(?:\.[sbwl])?\s')
+_LABEL = re.compile(r'^\s*\.?[A-Za-z_]\w*:\s*$')
+_ANIM_IMM = re.compile(r'^\s*move\.l\s+#([A-Za-z_]\w*)\s*,\s*(?:Sst\.)?anim_table\((a[0-7])\)\s*$')
+_CHARDEF_LOAD = re.compile(r'^\s*movea\.l\s+Player_Chardef\s*,')
+
+
+def scanned_files():
+    """(relative path, text) for every file the writer census covers: the same roots,
+    suffixes and unshipped exclusion as `scan_write_sites`. anim_frame_bound imports
+    this rather than restating it, so the two populations cannot drift apart."""
     unshipped = unshipped_scan_paths()
     for root in WRITER_SCAN_ROOTS:
-        for p in sorted((AEON / root).rglob("*")):
+        base = AEON / root
+        if not base.is_dir():
+            raise Unmeasurable(f"{root} is not a directory — the pairing scan cannot run")
+        for p in sorted(base.rglob("*")):
             if p.suffix not in WRITER_SCAN_SUFFIXES or not p.is_file():
                 continue
-            if p.relative_to(AEON).as_posix() in unshipped:
+            rel = p.relative_to(AEON).as_posix()
+            if rel in unshipped:
                 continue
-            rel, sym, seen = p.relative_to(AEON).as_posix(), "<file>", {}
-            for n, raw in enumerate(p.read_text(errors="replace").splitlines(), 1):
-                s = symbol.match(raw)
-                if s:
-                    sym, seen = s.group(1), {}
-                line = _strip_comment(raw)
-                for rx, key in ((ani, "ani"), (dplc, "dplc")):
-                    m = rx.search(line)
-                    if m:
-                        seen[key] = m.group(1)
-                if "ani" in seen and "dplc" in seen:
-                    if seen["ani"] != seen["dplc"]:
-                        bad.append(f"{rel}:{n} ({sym}) binds Ani_{seen['ani']} with "
-                                   f"DPLC_{seen['dplc']}")
-                    # Cleared on every completed pair, matched or not: a routine
-                    # that binds two sets in turn must be judged pair by pair,
-                    # not against whatever it named first.
-                    seen = {}
-    return bad
+            yield rel, p.read_text(errors="replace")
+
+
+def equ_aliases(files=None):
+    """`equ NAME = extern("Sym")` across the scanned tree -> {NAME: Sym}. The object
+    modules bind cross-seam data by alias (`equ DPLC_DUST = extern("DPLC_Dust")`)."""
+    rx = re.compile(r'^\s*equ\s+([A-Za-z_]\w*)\s*=\s*extern\("(\w+)"\)', re.M)
+    out = {}
+    for _rel, text in (scanned_files() if files is None else files):
+        for m in rx.finditer(text):
+            out[m.group(1)] = m.group(2)
+    return out
+
+
+def _routines(rel, text):
+    """[{rel, name, n, header, lines: [(n, code)]}] — code is comment-stripped. Lines
+    above the first routine belong to a `<module>` pseudo-routine, so a module-scope
+    reference (an objdef, a descriptor table) is still seen."""
+    cur = {"rel": rel, "name": "<module>", "n": 0, "header": "", "lines": []}
+    out = [cur]
+    for n, raw in enumerate(text.splitlines(), 1):
+        s = _ROUTINE.match(raw)
+        if s:
+            cur = {"rel": rel, "name": s.group(1), "n": n, "header": _strip_comment(raw),
+                   "lines": []}
+            out.append(cur)
+            continue
+        if cur is not None:
+            cur["lines"].append((n, _strip_comment(raw)))
+    return out
+
+
+def _last_write(r, upto, reg):
+    """(index, n, code) of the nearest line above index `upto` whose destination is `reg`."""
+    for i in range(upto - 1, -1, -1):
+        n, code = r["lines"][i]
+        if re.search(r',\s*' + reg + r'\s*$', code):
+            return i, n, code
+    return None
+
+
+def _dplc_pair_ok(anim, dplc, subj_dplc, subj_anim, declared):
+    """(ok, how) for one (anim, DPLC) pair under rule 5 above."""
+    if dplc in subj_dplc:
+        return anim == subj_dplc[dplc], f"the subject record pairs {dplc} with {subj_dplc[dplc]}"
+    if anim in subj_anim:
+        return False, f"{anim} is a subject's table and belongs with {subj_anim[anim]}"
+    if (anim, dplc) in declared:
+        return True, "DECLARED"
+    if anim.startswith("Ani_") and dplc.startswith("DPLC_"):
+        return anim[4:] == dplc[5:], "by name"
+    return False, "not an Ani_*/DPLC_* pair by name, and not declared"
+
+
+def _a2_source(r, idx, where, faults):
+    """(n, index, operand) of the load that sets a2 for the call at `idx`, or None
+    (a fault has been appended)."""
+    for i in range(idx - 1, -1, -1):
+        pn, pc = r["lines"][i]
+        if not pc.strip():
+            continue
+        if _LABEL.match(pc):
+            faults.append(f"{where}: a label ({pc.strip()}) sits between a2's load and the "
+                          f"call, so another path reaches it with another a2 — not followed")
+            return None
+        if _CALL.match(pc):
+            faults.append(f"{where}: a call ({pc.strip()}) sits between a2's load and the "
+                          f"call — not followed")
+            return None
+        lm = _A2_LOAD.match(pc)
+        if lm:
+            return pn, i, lm.group(1).strip()
+        if _A2_TOUCH.search(pc):
+            faults.append(f"{where}: a2 is set by `{pc.strip()}` — not followed")
+            return None
+    faults.append(f"{where}: nothing in {r['name']} loads a2 before the call — the DPLC "
+                  f"table is the caller's and is not followed")
+    return None
+
+
+def anim_dplc_pairings(files=None, bind=None, declared=None):
+    """(pairs, faults, sites) for the promise stated above.
+
+    pairs:  [(anim, dplc, where, how)] every pair the slots really form.
+    faults: [str] every mismatch, every link that could not be followed, and every
+            stale declaration. Empty means the promise holds for every call site found.
+    sites:  [str] the `Perform_DPLC*` call sites graded.
+    Raises Unmeasurable when there is no call site at all.
+    """
+    files = list(scanned_files() if files is None else files)
+    declared = DECLARED_DPLC_PAIRS if declared is None else declared
+    alias = equ_aliases(files)
+    bind = subject_bindings() if bind is None else bind
+    subj_dplc = {b["dplc"]: b["anim"] for b in bind.values()}
+    subj_anim = {b["anim"]: b["dplc"] for b in bind.values()}
+
+    def res(sym):
+        return alias.get(sym, sym)
+
+    routines = [r for rel, text in files for r in _routines(rel, text)]
+    pairs, faults, sites = [], [], []
+
+    def judge(anim, dplc, where):
+        ok, how = _dplc_pair_ok(anim, dplc, subj_dplc, subj_anim, declared)
+        pairs.append((anim, dplc, where, how))
+        if not ok:
+            faults.append(f"{where} pairs {anim} with {dplc} ({how})")
+
+    for r in routines:
+        if r["name"].startswith("Perform_DPLC"):
+            continue                                  # the entries themselves
+        for idx, (n, code) in enumerate(r["lines"]):
+            if re.search(r'\bperform_dplc\s*\(', code):
+                faults.append(f"{r['rel']}:{n} ({r['name']}) expands perform_dplc() inline — "
+                              f"a DPLC entry this pairing does not follow")
+                continue
+            m = _DPLC_CALL.match(code)
+            if not m:
+                if re.search(r'\bPerform_DPLC\w*\b', code):
+                    faults.append(f"{r['rel']}:{n} ({r['name']}) names `{code.strip()}` — a "
+                                  f"Perform_DPLC reference that is not a call is not followed")
+                continue
+            where = f"{r['rel']}:{n} ({r['name']})"
+            sites.append(where)
+
+            src = _a2_source(r, idx, where, faults)
+            if src is None:
+                continue
+            sn, si, operand = src
+            imm = re.fullmatch(r'#([A-Za-z_]\w*)', operand)
+            rec = re.fullmatch(r'CharacterDef\.cd_dplc\((a[0-7])\)', operand)
+            fld = re.fullmatch(r'([A-Za-z_][\w.]*)\(a0\)', operand)
+
+            if rec:
+                # --- 4. the record idiom ---------------------------------------
+                lw = _last_write(r, si, rec.group(1))
+                if not lw or not _CHARDEF_LOAD.match(lw[2]):
+                    faults.append(f"{where}: a2 = CharacterDef.cd_dplc({rec.group(1)}), but "
+                                  f"{rec.group(1)} is not loaded from Player_Chardef above it")
+                    continue
+                anim_writers = []
+                for w in routines:
+                    for j, (wn, wc) in enumerate(w["lines"]):
+                        am = re.match(r'^\s*move\.l\s+CharacterDef\.cd_animtable\((a[0-7])\)\s*,'
+                                      r'\s*(?:Sst\.)?anim_table\(a0\)\s*$', wc)
+                        if am:
+                            lw2 = _last_write(w, j, am.group(1))
+                            if lw2 and _CHARDEF_LOAD.match(lw2[2]):
+                                anim_writers.append(f"{w['rel']}:{wn} ({w['name']})")
+                if not anim_writers:
+                    faults.append(f"{where}: the DPLC comes from the Player_Chardef record, but "
+                                  f"no routine writes that record's cd_animtable into "
+                                  f"anim_table(a0) — the slot's anim table is not the record's")
+                    continue
+                players = [b for b in bind.values() if b["kind"] == "player"]
+                if not players:
+                    faults.append(f"{where}: the record idiom, but no CharacterDef record was read")
+                for b in players:
+                    judge(b["anim"], b["dplc"],
+                          f"{where} via {b['record']} (anim bound at {anim_writers[0]})")
+                continue
+
+            if not imm and not fld:
+                faults.append(f"{where}: a2 = `{operand}` — neither an immediate, a field of the "
+                              f"slot, nor the CharacterDef record; not followed")
+                continue
+
+            # --- 3. the slot's births, keyed by base register -------------------
+            name = re.escape(r["name"])
+            birth_rx = re.compile(r'^\s*move\.w\s+#' + name + r'\s*-\s*ObjCodeBase\s*,'
+                                  r'\s*(?:Sst\.)?code_addr\((a[0-7])\)\s*$')
+            births, followed = [], set()
+            for b in routines:
+                for bn, bc in b["lines"]:
+                    bm = birth_rx.match(bc)
+                    if bm:
+                        births.append((b, bn, bm.group(1)))
+                        followed.add((b["rel"], bn))
+            for b in routines:
+                if b is r:
+                    continue
+                fi = _FALLS_INTO.search(b["header"])
+                if fi and fi.group(1) == r["name"]:
+                    if not any(x is b and reg == "a0" for x, _bn, reg in births):
+                        faults.append(f"{where}: {b['rel']}:{b['n']} ({b['name']}) falls into "
+                                      f"{r['name']} without birthing its slot through a0 — "
+                                      f"not followed")
+                for bn, bc in b["lines"]:
+                    if (b["rel"], bn) in followed:
+                        continue
+                    # Prose inside string literals (ensure messages) names routines without
+                    # reaching them; a string that IS the name (`code: "R"`) is a reference.
+                    if re.search(r'\b' + name + r'\b',
+                                 re.sub(r'"(?!' + name + r'")[^"]*"', '""', bc)):
+                        faults.append(f"{where}: {b['rel']}:{bn} ({b['name']}) reaches "
+                                      f"{r['name']} by `{bc.strip()}` — a path to the slot "
+                                      f"this pairing does not follow")
+            if not births:
+                faults.append(f"{where}: no routine births a slot running {r['name']} "
+                              f"(`move.w #{r['name']} - ObjCodeBase, code_addr(aN)`) — the "
+                              f"slot's anim table cannot be derived")
+                continue
+
+            own = [res(om.group(1)) for _on, oc in r["lines"]
+                   for om in [_ANIM_IMM.match(oc)] if om and om.group(2) == "a0"]
+            for b, bn, reg in births:
+                bw = f"{b['rel']}:{bn} ({b['name']}) through {reg}"
+                anims = [res(am.group(1)) for _n, c in b["lines"]
+                         for am in [_ANIM_IMM.match(c)] if am and am.group(2) == reg]
+                other = sorted({am.group(2) for _n, c in b["lines"]
+                                for am in [_ANIM_IMM.match(c)] if am and am.group(2) != reg})
+                if not anims and not own:
+                    faults.append(f"{where}: the birth at {bw} binds no anim_table through "
+                                  f"{reg}" + (f" (only through {', '.join(other)} — a SPLIT "
+                                              f"binding no slot holds)" if other else ""))
+                    continue
+                if imm:
+                    dplcs = [res(imm.group(1))]
+                else:
+                    frx = re.compile(r'^\s*move\.l\s+#([A-Za-z_]\w*)\s*,\s*' +
+                                     re.escape(fld.group(1)) + r'\((a[0-7])\)\s*$')
+                    hits = [(res(fm.group(1)), fm.group(2)) for _n, c in b["lines"]
+                            for fm in [frx.match(c)] if fm]
+                    dplcs = [d for d, rg in hits if rg == reg]
+                    if not dplcs:
+                        others = sorted({rg for _d, rg in hits})
+                        faults.append(
+                            f"{where}: a2 = {fld.group(1)}(a0), but the birth at {bw} writes no "
+                            f"#table into {fld.group(1)}({reg})"
+                            + (f" (only through {', '.join(others)} — a SPLIT binding: the slot "
+                               f"streams whatever that field already held)" if others else ""))
+                        continue
+                for anim in anims + own:
+                    for dplc in dplcs:
+                        judge(anim, dplc, f"{where} a2 from line {sn}, slot born at {bw}")
+
+    formed = {(a, d) for a, d, _w, _h in pairs}
+    for key, spec in declared.items():
+        if key not in formed:
+            faults.append(f"DECLARED anim/DPLC pair {key[0]} / {key[1]} is formed by no call "
+                          f"site any more — the declaration is stale")
+            continue
+        for rx, why, path in spec["evidence"]:
+            if not re.search(rx, _read(path), re.M):
+                faults.append(f"DECLARED anim/DPLC pair {key[0]} / {key[1]}: {path} no longer "
+                              f"matches `{rx}` ({why})")
+
+    if not sites:
+        raise Unmeasurable("the anim/DPLC pairing scan found NO Perform_DPLC* call site under "
+                           f"{', '.join(WRITER_SCAN_ROOTS)} — the entry names or the call idiom "
+                           f"changed, and a pairing check over nothing is not a pass")
+    return pairs, faults, sites
+
+
+def check_anim_dplc_pairings():
+    """[str] every reason the anim/DPLC pairing promise fails; [] when it holds. See
+    `anim_dplc_pairings` for the promise and the predicate. Raises Unmeasurable when
+    there is nothing to grade."""
+    return anim_dplc_pairings()[1]
 
 
 def subject_bindings():
@@ -1695,6 +2011,11 @@ def report(lst_path, out=sys.stdout, sweep=None, sweep_range=(-512, 512),
     reach = reachable_sets(subs, rom, labels)
 
     print(f"dplc_straddle [{lst_path}]", file=out)
+    _pairs, _pfaults, _psites = anim_dplc_pairings()
+    print(f"  anim/DPLC pairing: {len(_psites)} Perform_DPLC* call site(s), {len(_pairs)} "
+          f"(anim, DPLC) pair(s) keyed by slot, "
+          f"{sum(1 for p in _pairs if p[3] == 'DECLARED')} declared, {len(_pfaults)} fault(s)",
+          file=out)
     print(f"  extents: CHECKED — {len(extents)} label(s) "
           f"({', '.join(l for _n, _k, l, _b, _ln in extents)}) each bind their embed "
           f"whole and are byte-identical to it in {Path(rom_path).name}, so the "
