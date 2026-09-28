@@ -66,6 +66,7 @@ REPO = TOOLS.parent
 sys.path.insert(0, str(TOOLS))
 
 import artifact_provenance                               # noqa: E402
+import layer_sensor_arm                                  # noqa: E402
 import region_table                                      # noqa: E402
 from scene_spans import vma_phased_symbol_names          # noqa: E402
 # The micro-CPU primitives are shared with the sprite-tilt and insta-shield gates rather than
@@ -712,6 +713,15 @@ def main(argv=None):
             ship_notes.append("no shipped layer-line table in this listing")
         if bound is None:
             ship_notes.append("the Act binds no table (act_layer_lines 0)")
+        # THE SENSOR ARM (GPP-CROSSOVER-SENSORS, 2026-09-28): everything above proves the
+        # lines DECIDE Sst.layer; tools/layer_sensor_arm.py proves every collision sensor in
+        # this ROM selects its plane FROM it (static over every path into Collision_GetType,
+        # executed over every self-contained sensor entry). Its own exit code is folded in
+        # below, a 2 outranking a 1.
+        if "quadrant" not in blk:
+            raise CouldNotRun("PlayerBlock has no quadrant")
+        sensor_rc, sensor_lines = layer_sensor_arm.check(rom, syms, e, a.lst, REPO,
+                                                         blk["quadrant"])
     except (CouldNotRun, UnsupportedInstruction, region_table.LayoutError) as exc:
         print("layer_line_gate: COULD NOT RUN — %s" % exc)
         return 2
@@ -762,6 +772,10 @@ def main(argv=None):
                       "max %d, mean %.0f (%s of a frame at the mean)"
                       % (pathlib.Path(a.trajectory).name, len(per), per[0], per[len(per) // 2],
                          per[-1], sum(per) / len(per), pct(sum(per) / len(per))))
+    for line in sensor_lines:
+        print(line)
+    if sensor_rc == 2:
+        return 2
     if fails:
         print("  FAIL — %d disagreement(s) with Obj03's rule:" % len(fails))
         for f in fails[:20]:
@@ -771,6 +785,8 @@ def main(argv=None):
         print("  FAIL — VACUOUS: no frame exercised %s; an all-agree run that never fired "
               "those proves nothing about them" % ", ".join(vacuous))
         return 1
+    if sensor_rc:
+        return sensor_rc
     print("  OK")
     return 0
 
