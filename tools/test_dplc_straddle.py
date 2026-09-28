@@ -387,6 +387,119 @@ class TestSubjectBindings(unittest.TestCase):
     def test_no_routine_animates_one_character_against_another_s_dplc(self):
         self.assertEqual(D.check_anim_dplc_pairings(), [])
 
+    def test_the_tree_s_pairing_population_is_every_dplc_call_site(self):
+        """Derived from the tree, not typed: every `Perform_DPLC*` call is a site, and
+        each site forms at least one pair (the player tail forms one per record)."""
+        pairs, faults, sites = D.anim_dplc_pairings()
+        self.assertEqual(faults, [])
+        self.assertGreaterEqual(len(sites), 1)
+        for s in sites:
+            self.assertTrue(any(w.startswith(s) for _a, _d, w, _h in pairs),
+                            f"{s} forms no pair")
+
+
+class TestAnimDplcPairingBySlot(unittest.TestCase):
+    """GPP-DPLC-PAIRING-IDIOM (2026-09-28): the pair is the anim table and the DPLC
+    table ONE SLOT holds. Each synthetic tree is the shape of a mutation that the old
+    per-routine name matcher passed on a real build (rc 0, crc bce24957)."""
+
+    BIND = {"Art_A": {"dplc": "DPLC_A", "anim": "Ani_A", "kind": "player",
+                      "record": "CharDef_A", "ability": None},
+            "Art_B": {"dplc": "DPLC_B", "anim": "Ani_B", "kind": "player",
+                      "record": "CharDef_B", "ability": None}}
+
+    FIELD_OBJ = """\
+pub proc Obj (a0: *Sst) clobbers(d0-d4/a1-a3) falls_into Obj_Main {
+        move.l  #Ani_A, anim_table(a0)
+        move.l  #DPLC_A, V.dplc_ptr(a0)
+        move.w  #Obj_Main - ObjCodeBase, code_addr(a0)
+}
+pub proc Obj_Main (a0: *Sst) clobbers(d0-d4/a1-a3) {
+        jbsr    AnimateSprite
+        movea.l V.dplc_ptr(a0), a2
+        movea.l V.art(a0), a3
+        jbsr    Perform_DPLC
+}
+"""
+    SPAWN_OBJ = """\
+equ DPLC_KID = extern("DPLC_Kid")
+equ ANI_KID  = extern("Ani_Kid")
+pub proc Kid_Spawn (a0: *Sst) clobbers(d0/a1) {
+        jbsr    AllocEffect
+        move.w  #Kid_Main - ObjCodeBase, Sst.code_addr(a1)
+        move.l  #ANI_KID, Sst.anim_table(a1)
+        rts
+}
+pub proc Kid_Main (a0: *Sst) clobbers(d0-d4/a1-a3) {
+        jbsr    AnimateSprite
+        movea.l #DPLC_KID, a2
+        jbsr    Perform_DPLC_Deferrable
+}
+"""
+
+    def run_on(self, *texts):
+        files = [(f"f{i}.emp", t) for i, t in enumerate(texts)]
+        return D.anim_dplc_pairings(files=files, bind=self.BIND, declared={})
+
+    def test_matched_trees_are_green(self):
+        pairs, faults, sites = self.run_on(self.FIELD_OBJ, self.SPAWN_OBJ)
+        self.assertEqual(faults, [])
+        self.assertEqual(len(sites), 2)
+        self.assertEqual({(a, d) for a, d, _w, _h in pairs},
+                         {("Ani_A", "DPLC_A"), ("Ani_Kid", "DPLC_Kid")})
+
+    def test_performed_table_differs_from_the_bound_field(self):
+        """test_animated.emp:50 shape: Main streams an immediate, not the field."""
+        bad = self.FIELD_OBJ.replace("movea.l V.dplc_ptr(a0), a2", "movea.l #DPLC_B, a2")
+        faults = self.run_on(bad)[1]
+        self.assertTrue(any("pairs Ani_A with DPLC_B" in f for f in faults), faults)
+
+    def test_cross_routine_alias_mismatch(self):
+        """tails_appendage.emp:388 shape: the spawner binds the anim, Main the DPLC."""
+        bad = self.SPAWN_OBJ.replace("movea.l #DPLC_KID, a2", "movea.l #DPLC_A, a2")
+        faults = self.run_on(bad)[1]
+        self.assertTrue(any("pairs Ani_Kid with DPLC_A" in f for f in faults), faults)
+
+    def test_field_written_through_another_register_is_a_split(self):
+        """test_player.emp:63 shape: names still match, the slot's field is never set."""
+        bad = self.FIELD_OBJ.replace("V.dplc_ptr(a0)\n        move.w", "V.dplc_ptr(a1)\n        move.w")
+        faults = self.run_on(bad)[1]
+        self.assertTrue(any("SPLIT" in f and "V.dplc_ptr(a1)" not in f for f in faults), faults)
+
+    def test_anim_through_another_register_is_a_split(self):
+        bad = self.SPAWN_OBJ.replace("Sst.anim_table(a1)", "Sst.anim_table(a0)")
+        faults = self.run_on(bad)[1]
+        self.assertTrue(any("binds no anim_table through a1" in f and "SPLIT" in f
+                            for f in faults), faults)
+
+    def test_an_unfollowed_path_to_the_slot_is_named(self):
+        extra = "pub proc Elsewhere (a0: *Sst) {\n        jbra    Kid_Main\n}\n"
+        faults = self.run_on(self.SPAWN_OBJ, extra)[1]
+        self.assertTrue(any("reaches Kid_Main" in f for f in faults), faults)
+
+    def test_a_data_descriptor_birth_is_named_but_prose_is_not(self):
+        desc = 'pub data ObjDef_Kid: ObjDef = objdef(code: "Kid_Main", map: "Map_Kid")\n'
+        faults = self.run_on(self.SPAWN_OBJ, desc)[1]
+        self.assertTrue(any("reaches Kid_Main" in f for f in faults), faults)
+        prose = 'ensure(1 == 1, "Kid_Main would never retire")\n'
+        self.assertEqual(self.run_on(self.SPAWN_OBJ, prose)[1], [])
+
+    def test_a_join_point_before_the_call_is_named(self):
+        bad = self.SPAWN_OBJ.replace("        jbsr    Perform_DPLC_Deferrable",
+                                     ".join:\n        jbsr    Perform_DPLC_Deferrable")
+        faults = self.run_on(bad)[1]
+        self.assertTrue(any("label (.join:)" in f for f in faults), faults)
+
+    def test_no_call_site_is_unmeasurable_not_green(self):
+        with self.assertRaises(D.Unmeasurable):
+            self.run_on("pub proc Nothing (a0: *Sst) {\n        rts\n}\n")
+
+    def test_a_declared_pair_no_site_forms_is_stale(self):
+        files = [("f0.emp", self.SPAWN_OBJ)]
+        faults = D.anim_dplc_pairings(files=files, bind=self.BIND,
+                                      declared={("Ani_X", "DPLC_Y"): dict(evidence=[])})[1]
+        self.assertTrue(any("stale" in f for f in faults), faults)
+
     def test_every_ability_gated_writer_has_exactly_one_owner(self):
         """A writer routed to one character because only that character's hook
         can reach it is only correct while the hook has ONE owner."""

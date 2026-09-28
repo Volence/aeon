@@ -161,6 +161,8 @@ from dplc_straddle import (                                          # noqa: E40
     anim_opcodes,
     appendage_bank,
     check_anim_dplc_pairings,
+    equ_aliases,
+    scanned_files,
     climb_frames,
     lst_labels,
     scan_write_sites,
@@ -273,39 +275,9 @@ def walk_anim_table(rom, base, who, af, events, mapframe_off):
 
 # ------------------------------------------------------------ pairing, derived
 
-def equ_aliases():
-    """`equ NAME = extern("Sym")` across the scanned tree -> {NAME: Sym}.
-
-    The object modules bind their cross-seam data by alias (`equ
-    MAP_DUST_PUFF = extern("Map_DustPuff")`), so a scan that only matched the
-    linker labels would miss four of the seven co-located pairs.
-    """
-    rx = re.compile(r'^\s*equ\s+([A-Za-z_]\w*)\s*=\s*extern\("(\w+)"\)', re.M)
-    out = {}
-    for rel, text in scanned_files():
-        for m in rx.finditer(text):
-            out[m.group(1)] = m.group(2)
-    return out
-
-
-def scanned_files():
-    """(relative path, text) for every file the writer census covers.
-
-    Same roots, suffixes and unshipped exclusion as dplc_straddle's writer scan,
-    imported rather than restated so the two populations cannot drift apart.
-    """
-    unshipped = unshipped_scan_paths()
-    for root in WRITER_SCAN_ROOTS:
-        base = AEON / root
-        if not base.is_dir():
-            raise Unmeasurable(f"{root} is not a directory — the pairing scan cannot run")
-        for p in sorted(base.rglob("*")):
-            if p.suffix not in WRITER_SCAN_SUFFIXES or not p.is_file():
-                continue
-            rel = p.relative_to(AEON).as_posix()
-            if rel in unshipped:
-                continue
-            yield rel, p.read_text(errors="replace")
+# `equ_aliases` and `scanned_files` live in dplc_straddle (imported above) since
+# GPP-DPLC-PAIRING-IDIOM (2026-09-28): its anim/DPLC pairing check resolves the same
+# aliases over the same population, and one copy cannot drift from the other.
 
 
 def derived_pairs(alias, split=None):
@@ -373,7 +345,7 @@ def derived_pairs(alias, split=None):
                                   f"{rel}:{n} ({cur})"))
                     # Cleared on every completed pair: a routine binding two sets in
                     # turn must be judged pair by pair, not against whatever it named
-                    # first. Same rule as check_anim_dplc_pairings().
+                    # first.
                     seen = {}
         _close(cur, seen, last_n)
 
