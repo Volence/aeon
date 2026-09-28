@@ -11,3 +11,6 @@ cdebug_down rc=0 load=13.79->13.81
 cplain_run rc=0 load=13.81->14.37
 cdebug_run rc=0 load=14.37->17.09
 finished=12
+cdebug_anchor_right rc=0 load=16.87->16.87
+cdebug_anchor_down rc=0 load=16.87->17.04
+finished=2

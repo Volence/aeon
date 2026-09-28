@@ -518,8 +518,8 @@ pub vars upper_ram {
     // The band-drift accumulators: ONE 16.16 long PER BAND, laid out [pixels:i16][fraction:u16]
     // with the pixels in the HIGH word, indexed by CONFIG BAND INDEX exactly as
     // Parallax_Current_Scroll_A/_B above are. It CANNOT live in the shadow band record: that
-    // view is re-copied from ROM every frame AND rotated, so an accumulator there would be
-    // both wiped and mis-attributed (engine/level/parallax.emp's band_drift banner has the
+    // view is re-copied from ROM (every frame until 2026-09-28, now whenever Step 4a's key
+    // moves) AND rotated, so an accumulator there would be both wiped and mis-attributed (engine/level/parallax.emp's band_drift banner has the
     // two-reason derivation). Zero longs — and zero bytes — in a game that declares no drift.
     //
     // PLACED IMMEDIATELY BEFORE Parallax_Curve_Carry ON PURPOSE. parallax.emp pins both arrays

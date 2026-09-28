@@ -255,7 +255,9 @@ pub const CURVE_FLAG_ACTIVE_BIT = 1   // 1 = this band is a curve layer (authore
 // SET AT RUNTIME BY STEP 4b, ON THE SPLIT ENTRY ONLY, and never present in ROM. It is what
 // tells the fill "seed this band's accumulator from the previous band's parked carry
 // instead of from the base scroll" — i.e. do not re-parametrise the ramp at the split.
-// Every frame's shadow view is re-copied from ROM before Step 4b runs, so the bit cannot
+// The view Step 4b receives is always a pure rotation of ROM, where the bit is never
+// authored: rebuilt this tick, or a cached one Step 4a's key vouches for, and a split drops
+// that key (2026-09-28; until then the view was re-copied every frame). So the bit cannot
 // go stale.
 pub const CURVE_FLAG_CONT_BIT   = 2
 pub struct band_curve (size: 10) {
@@ -298,10 +300,11 @@ pub const BAND_CURVE_N = if (GAME_SCANLINE_CAPS & $0040) != 0 { 1 } else { 0 }  
 // The obvious shape — rate here, accumulator beside it — CANNOT BE BUILT, for two
 // independent reasons, both properties of the shadow view this record also lives in:
 //
-//   (a) THE SHADOW VIEW IS DESTROYED AND REBUILT FROM ROM EVERY FRAME. Step 4a walks every
-//       band and calls copy_band_entry_fwd(), which copies the WHOLE record, tails included.
-//       An accumulator in a shadow tail is overwritten with its ROM image (zero) before it is
-//       ever read. band_curve's two derived words survive only because they are RE-DERIVED
+//   (a) THE SHADOW VIEW IS DESTROYED AND REBUILT FROM ROM. Every frame when this was written;
+//       since 2026-09-28 whenever (config, Vscroll_BG & 511) changes or a split drops Step 4a's
+//       key, which is no better for an accumulator. Step 4a walks every band and calls
+//       copy_band_entry_fwd(), which copies the WHOLE record, tails included. An accumulator in
+//       a shadow tail is overwritten with its ROM image (zero) at each rebuild. band_curve's two derived words survive only because they are RE-DERIVED
 //       after the copy by `.cap_factor_curve_hoist`; a value that must ACCUMULATE has no such
 //       escape.
 //   (b) THE SHADOW VIEW IS ROTATED, so slot index != layer index. Step 4a's `.find_k` starts
@@ -322,7 +325,7 @@ pub const BAND_CURVE_N = if (GAME_SCANLINE_CAPS & $0040) != 0 { 1 } else { 0 }  
 //
 // THE DUAL COST, STATED PLAINLY RATHER THAN HIDDEN (band_curve's own convention for its four
 // dead ROM bytes): THE RATE'S SHADOW COPY IS NEVER READ. Step 4a copies these 4 bytes per band
-// per frame and nothing consumes them. The alternative that avoids it — a parallel ROM rate
+// per rebuild (every frame until 2026-09-28) and nothing consumes them. The alternative that avoids it — a parallel ROM rate
 // array reached through a new parallax_config word — was costed and rejected: it widens the
 // config from 30 to 34 bytes, moves every config record in the tree, pulls engine/system/
 // buffers.emp into the parcel, and invents a per-band data shape that exists for one field.
@@ -520,7 +523,7 @@ pub const BAND_OP_BIT_B = 1
 //
 // Two populations of band_entry exist and they measure their top in different units:
 //   ROM entries (games/.../ojz_scenes.emp, lowered) -> Plane-B LINES 0..511
-//   Parallax_Shadow_Bands (rebuilt each frame)      -> SCREEN LINES 0..224
+//   Parallax_Shadow_Bands (rebuilt when its key moves) -> SCREEN LINES 0..224
 // Both fit the u16, so nothing moves; Step 4a's rebase is where plane lines become
 // screen lines.
 //
@@ -2864,8 +2867,9 @@ proc Parallax_Step4_Fill () clobbers(d0-d7/a0-a6) {
         // UNCONDITIONAL, AND CORRECT FOR A NON-CURVE PARENT TOO: the fill reads this bit
         // only after the band's ACTIVE bit says it is a curve at all, so setting it on a
         // flat split is inert. Testing the parent first would cost a branch to save nothing.
-        // It cannot go stale either — Step 4a re-copies the whole shadow view from ROM,
-        // where the bit is never authored, before this overlay runs.
+        // It cannot go stale either: the view this overlay receives is a pure ROM rotation,
+        // where the bit is never authored, because the `clr.l` at `.anchor_have_k` above
+        // drops Step 4a's key on every split and the next tick rebuilds from ROM.
     if (Game.SCANLINE_CAPS & CAP_FACTOR_CURVE) != 0 {
     .cap_factor_curve_split_begin:
         bset    #CURVE_FLAG_CONT_BIT, band_curve_flags(a5)

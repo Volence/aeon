@@ -42940,9 +42940,89 @@ These equal the FAST builds every measurement used. The base `366b777c` FAST bui
 2. **Bouncing in that dead end cost 98 lag frames in 1500 (DEBUG).** This is the perf survey's candidate 7 (the oscillation thrash lead), now seen on the owner's act. Measured once, not diagnosed.
 3. **The remaining run lag (1 release, 6 to 7 DEBUG) is column and row COPY at spindash speed.** `TileCache_FillColumn` measured 50.7k per overrunning tick, of which `PageCache_PatchRun_Col` was 23.9k, with one decode per tick. That is the streaming act's translating copy (bounded-direct), which RESIDENT-PLAIN-COPY does not cover. GENERAL-PATCH-LOOP / RPC-1 are the levers, not measured here.
 4. **Parallax is still 14.6k per tick in EHZ, mostly per-band work** for the 7-band record: Step 4 3.7k, update + factor decodes 3.3k. Stubbing it entirely (an upper bound) takes the DEBUG run 6 -> 1. The perf survey's candidate 5 (cheaper per-band overhead) is not built.
+   **PARTLY DONE 2026-09-28, PERF-PARALLAX-PERBAND (section below):** 14,461 -> 11,814 cycles a tick on the EHZ DEBUG run, output byte-identical, run lag unchanged (6). The survey's parallax row is its candidate **2**, not 5 (candidate 5 is `Canopy_Probe`); the line above has said 5 since it was written.
 5. **Content options, priced, not done (the owner's look).** On the after build, flattening the ripple band or the curve each buys 0 frames on the run and 2 on the fly-diagonal EHZ band (31 -> 29); both together buy 4.
 6. **`Canopy_Probe`: 4,026 cycles every tick.** It is worth 5 lag frames on the DEBUG run before this parcel and 1 after. It stays armed (owner's call).
 7. **The choice of soft value and lead is measured, not modelled.** Soft 2 and 3, and lead 12/15, all measured worse; the response is not monotone.
+
+## PERF-PARALLAX-PERBAND: parallax's per-band overhead, cut 18% with identical output (branch `perf/parallax-perband`, 2026-09-28)
+
+This is PERF-EHZ-RUN-LAG's open item 4. Findings and every number are in
+`docs/research/2026-09-28-parallax-perband.md`; tools and raw results are in the directory
+beside it. Base `origin/master` `3db049cd`.
+
+**What landed.**
+
+1. **Step 4a's frame-coherence key.** The rotated shadow band view is a pure function of the
+   config's ROM bytes and `Vscroll_BG & 511`. It is now rebuilt only when that pair changes
+   (`Parallax_Shadow_Key_Config` / `_VS` / `_K`, 8 bytes at the tail of `Parallax_State`), and
+   the scroll words are re-rotated every tick. The rules that keep the cache exact:
+   - A RAM config is never keyed.
+   - Step 4b's split drops the key.
+   - `Parallax_Init` clears it.
+
+   The Step 4a banner has the four-clause argument. On EHZ this part went 2,617 -> 430 cycles
+   a tick.
+2. **Per-frame decisions stop being made per band.**
+   - The lerp decision is made once, into bit 31 of d6.
+   - The cursors step by post-increment.
+   - `adda.l #imm` becomes `lea`.
+   - The role-swapped pack is the normal pack plus one `swap`.
+3. **`tools/parallax_shadow_key_witness.py`**, wired in `keepalive_manifest.toml`. It checks that
+   the cached view equals a forced rebuild, tick by tick, as a differential on the machine (no
+   model). Coverage classes hit / vs-moved / split must each be non-zero. It was red-first on two
+   rebuilt mutants: A (the key ignores vs) at 13/180 and B (the split keeps the key) at 118/180.
+
+**Measured** (lag / video frames over the same tick span; `Parallax_Update` inclusive
+cycles/tick; base -> branch):
+
+| leg | lag | parallax cyc/tick |
+|---|---|---|
+| clip run, release | 0 -> 0 | 14,344 -> 11,697 |
+| clip run, DEBUG | 6 -> 6 | 14,461 -> 11,814 |
+| clip fly diagonal, EHZ band (DEBUG) | 18/74 -> 16/72 | 14,293 -> 11,679 |
+| canonical run, release / DEBUG | 0 -> 0 | 10,000 -> 8,154 / 10,117 -> 8,270 |
+| canonical fly diagonal (DEBUG) | 12 -> 12 | 9,727 -> 8,200 |
+
+- **Output.** `Hscroll_Buffer`, the VSRAM column buffer and `Vscroll_Factor` are byte-identical
+  at every compared tick of all 14 legs. The 14 include two new anchored legs in OJZ region 5,
+  where the split is live every tick.
+- **Fixture identity.** `parallax_hscroll_identity.py --ref <base>` reports OK.
+- **Upper bound.** Stubbing Step 5, Step 4 and the fill takes the DEBUG run 6 -> 0. So the
+  remaining run lag needs more than the 2.65k saved here.
+
+**Files another lane reads.**
+- `engine/ram.emp`: +8 B RAM in `Parallax_State`. `PARALLAX_STATE_LONGS`' head is 104 -> 112.
+- New cross-seam RAM names, for sigil's `*_port` lists: `Parallax_Shadow_Key_Config`,
+  `Parallax_Shadow_Key_VS`, `Parallax_Shadow_Key_K`.
+- Unchanged: `engine/structs.emp`, `engine/effects/*`, and the record or config format.
+
+**Open riders.**
+- **PPB-1 (sigil lane): the decode inline is BLOCKED.**
+  - What it buys: inlining `Parallax_Update`'s `jbsr Decode_Factor_A/_B` saves ~0.5k a tick on
+    EHZ.
+  - What blocks it: removing the calls turns two frozen closure-baseline rows GONE, and the build
+    fails. The rows are `("Parallax_Update", "Decode_Factor_A", "d2")` in `D1C_BASELINE` and
+    `(.., "Decode_Factor_B", "d2")` in `D1C_DEMO_EXTRA`, both in
+    `crates/sigil-harness/src/contract_baseline.rs`.
+  - Measured: stubbing the whole routine is refused with `GONE firings: Parallax_Update @
+    Decode_Factor_A :: d2`.
+  - It needs a paired sigil commit that drops both rows.
+- **PPB-2 (design note first): a factor progression encoding.** It follows S3K's `sub.l` per
+  band, which is ~10 cycles against ~100 for a band decode. It changes the band record that
+  aurora/`effects_gen` emit.
+- **PPB-3: cache the fill's per-band loop selection under the same key.** About 80 cycles a
+  band, ~0.5k a tick on EHZ.
+- **PPB-4: keep the view across an anchored split.** Today an anchored region rebuilds every tick
+  (1.4k). The alternative is a pristine copy, +528 B of RAM at MAX 16.
+- **PPB-5: the curve hoist's walk over non-curve bands.** About 0.3k a tick on EHZ.
+- **PPB-6: flat lines by `movem.l`.** About 0.5k a tick on EHZ, less the setup. The fill has few
+  free registers.
+- **PPB-7: `[parallax.cost_model]` in `tools/effects_budget_model.toml` is stale.** Every band
+  term moved down. It is not gated anywhere and was not re-fitted.
+- **PPB-8: the replay net's RAM-hash checkpoints.** The DEBUG RAM layout moved: 8 B inside
+  `Parallax_State`, and everything after it moves 8 B. The GPL-A3-3 question again. Not measured
+  here.
 
 ## OJZ-FEEL: the lag he still feels playing OJZ act 1, and the fall cap (branch `perf/ojz-feel`, booked 2026-09-26T22:34:06Z)
 

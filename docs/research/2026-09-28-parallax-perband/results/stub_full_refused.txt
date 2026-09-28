@@ -1,0 +1,5 @@
+error: [call.live-clobbered] (D1c) moved against the frozen baseline.
+  NEW firings (a real violation, or an analysis that just got sharper): []
+  GONE firings (a STALE pin, or the analysis NARROWED, which is the destructive direction: the same closure feeds find_dead_saves, so a dropped row can mean a load-bearing save is now reported dead): ["Parallax_Update @ Decode_Factor_A :: d2 (got 0, want 1)"]
+  If the change is intended, adjudicate each row and update the baseline in crates/sigil-harness/src/contract_baseline.rs in the SAME commit.
+error: contract closure gate FAILED. Set SIGIL_CONTRACTS=0 (aeon: CONTRACTS=0) to build anyway, that is an emergency hatch, not a fix.

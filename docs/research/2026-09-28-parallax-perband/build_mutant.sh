@@ -7,6 +7,11 @@
 #      is deleted, so a view built at one Vscroll_BG is reused at another (stale band tops).
 #   B  Step 4b's split does not drop the key: its `clr.l Parallax_Shadow_Key_Config` is deleted, so
 #      the tick after a split reuses (and re-splits) the rewritten view.
+#   S  NOT a correctness mutant: Parallax_Update returns after its band loop instead of running
+#      Step 5, Step 4 and the fill (the picture stops scrolling). An UPPER BOUND on what a parallax
+#      saving can buy in lag. The 2026-09-27 study stubbed the WHOLE routine; that no longer
+#      builds: the calls to Decode_Factor_A/B become unreachable and sigil's frozen closure
+#      baseline refuses the build with `GONE: Parallax_Update @ Decode_Factor_A :: d2`.
 # The mutated file is kept beside the ROMs as parallax.emp.mutant, and its diff against HEAD as
 # mutant.diff, so the mutation is ON DISK for the record. Outputs $HOME/pxperf/<tag>/.
 export TMPDIR=/home/volence/.cache/aeon-tmp
@@ -22,14 +27,15 @@ python3 - "$F" "$2" <<'EOF' || { git show HEAD:$F > $F; exit 4; }
 import sys
 p, m = sys.argv[1], sys.argv[2]
 s = open(p).read()
-cut = {"A": "        cmp.w   Parallax_Shadow_Key_VS, d0          // (Parallax_Shadow_Key_VS).w\n"
+cut = {"S": "        jbra    Parallax_Step5_Vscroll\n",
+       "A":"        cmp.w   Parallax_Shadow_Key_VS, d0          // (Parallax_Shadow_Key_VS).w\n"
             "        bne     .shadow_rebuild\n",
        "B": "    .anchor_have_k:\n" + "".join(
             l + "\n" for l in s.split(".anchor_have_k:\n", 1)[1].split("\n")[:4]) +
             "        clr.l   Parallax_Shadow_Key_Config          // (Parallax_Shadow_Key_Config).w\n"}[m]
 if s.count(cut) != 1:
     raise SystemExit(f"mutant {m}: expected one site, found {s.count(cut)}")
-keep = "    .anchor_have_k:\n" if m == "B" else ""
+keep = {"A": "", "B": "    .anchor_have_k:\n", "S": "        rts\n"}[m]
 open(p, "w").write(s.replace(cut, keep))
 print(f"mutant {m} applied")
 EOF

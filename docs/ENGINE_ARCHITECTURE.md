@@ -2817,6 +2817,19 @@ Each frame, after Step 4a's rotation, `L = Effects_World_Y[ch] − Camera_Y` is 
 - **Capacity was 8 at re-glue time and is 16 since 2026-08-27** (see "Band ceiling" below); Step 4a stays copy-all. Windowed re-glue over more than `MAX_PARALLAX_BANDS` declared layers remains a §9 future. **"Copy-all" means all LIVE bands, not all MAX** — priced 2026-08-27 and the distinction is the whole cost question: `Parallax_Step4_Fill`'s `.copy_band` is a `dbf` over `d7 = pcfg_band_count`, and so are `.find_k`, the curve hoist's `.curve_band`, `Parallax_Update`'s `.band_loop` and `Parallax_Fill_PerLine`'s `.next_band`. `MAX_PARALLAX_BANDS` appears **nowhere in a code body** in `engine/level/parallax.emp` (only the import, two `ensure`s and `PARALLAX_STATE_LONGS`), so raising the ceiling costs a scene that does not use the extra bands **zero per-frame cycles** — the emitted instructions are unchanged. The ceiling prices RAM only.
 - Full write-up + evidence: `docs/benchmarks/scanline-p3/REGLUE.md`.
 
+**Step 4a builds the shadow view only when its inputs change (PERF-PARALLAX-PERBAND, 2026-09-28).** The rotated, rebased band records are a pure function of the config's ROM bytes and `vs = Vscroll_BG & 511`, so Step 4a rebuilds them only when that pair differs from `Parallax_Shadow_Key_Config` / `_VS` (8 bytes at the tail of `Parallax_State`, with `_K`, the rotation start). The scroll WORDS still rotate into `Parallax_Shadow_Scroll_A/_B` every tick, from the cached k.
+
+- **What keeps it exact:**
+  - Only a ROM config is keyed (the pointer test is `< $400000`). The DEBUG scratch and probe fixtures live in RAM and rebuild every tick, as before.
+  - Step 4b's anchored split rewrites the view, so it clears the key.
+  - The curve hoist rewrites its derived words every tick.
+  - `Parallax_Init`'s clear zeroes the key.
+- **Measured:** 2,617 -> 430 cycles a tick on the S2 clip's 7-band Emerald Hill record (vertically locked). With the per-band decisions that were really per-frame (the lerp test, the cursor steps, the role-swap pack), `Parallax_Update` is 14,461 -> 11,814 cycles a tick on the EHZ run, and 10,117 -> 8,270 on canonical OJZ.
+- **Checked:** the output is byte-identical on every measured leg. `tools/parallax_shadow_key_witness.py` asks the machine, tick by tick, whether the view it kept equals the one a forced rebuild makes. That witness is wired and was red-first on two mutants.
+- **Where it does not help:** an anchored region still rebuilds every tick, because the split rewrites the view.
+- **Blocked:** inlining `Decode_Factor_A/_B` into the band loop, about 0.5k on EHZ. Sigil's frozen closure baseline pins the two call sites (`docs/DEFERRED_WORK.md` PERF-PARALLAX-PERBAND, rider PPB-1).
+- **Evidence:** `docs/research/2026-09-28-parallax-perband.md`.
+
 **Band ceiling — `MAX_PARALLAX_BANDS = 16` since 2026-08-27 (was 8).** A scene may carry sixteen parallax layers. What the raise cost, measured rather than estimated:
 
 - **Zero per-frame cycles for a scene that does not use the extra bands.** Every per-frame walk is bounded by `pcfg_band_count`; the only `O(MAX)` loop in `engine/level/parallax.emp` is `Parallax_Init`'s one-time state wipe. The emitted per-frame instruction stream is unchanged by the ceiling.
@@ -2844,7 +2857,7 @@ canonical spelling and is what S2 DEZ's camera-locked star rows and S3K SSZ1's s
 - **THE RATE AND THE ACCUMULATOR LIVE IN DIFFERENT PLACES, AND THAT IS THE DESIGN.** The rate is
   an authored constant in a third capability-selected `band_record` tail (`band_drift`, 4 bytes,
   LAST, taking the record 20 -> 24). The accumulator **cannot** live beside it: the shadow view is
-  re-copied from ROM by Step 4a every frame AND rotated, so an accumulator there would be wiped
+  re-copied from ROM by Step 4a (every frame until 2026-09-28; since then whenever its frame-coherence key moves) AND rotated, so an accumulator there would be wiped
   before it was read and attributed to a different layer the moment `Vscroll_BG` crossed a band
   top. It lives one stage upstream in `Parallax_Drift_Acc`, a RAM array indexed by **config band
   index** exactly as `Parallax_Current_Scroll_A/_B` are, folded into the plane-B **target** inside
@@ -2853,7 +2866,7 @@ canonical spelling and is what S2 DEZ's camera-locked star rows and S3K SSZ1's s
   already-drifted scroll word by the mechanism that already exists — none of the
   `CURVE_FLAG_CONT_BIT` / `Parallax_Curve_Carry` machinery the curve tail required. The dual cost,
   stated rather than hidden (`band_curve`'s convention for its own dead bytes): the rate's shadow
-  copy is never read, so Step 4a copies 4 bytes per band per frame that nothing consumes.
+  copy is never read, so Step 4a copies 4 bytes per band per rebuild (every frame until 2026-09-28) that nothing consumes.
 - **The accumulator is a `u32` laid out `[pixels:i16][fraction:u16]`, pixels HIGH, and the wrap is
   seamless BY ARITHMETIC.** The pixel part wraps mod 65536, Plane B is 512 px wide at reg `$10` =
   `$11`, and 65536 = 128 x 512 exactly — a whole number of plane widths. A 16-bit 8.8 accumulator
@@ -3063,6 +3076,7 @@ capability bit.
 | `Parallax_Drift_Acc[DRIFT_ACC_LONGS × MAX]` | 0 (64 under `CAP_BAND_DRIFT`) | **yes** (4 × MAX, capability) |
 | `Parallax_Shadow_Bands[sizeof(band_record) × MAX]` | 160 | **yes** (20 × MAX) |
 | `Parallax_Shadow_Scroll_A/B[MAX]` | 32 | **yes** (2 × 2 × MAX) |
+| `Parallax_Shadow_Key_Config / _VS / _K` (Step 4a's frame-coherence key, 2026-09-28) | 8 | no |
 | **total** | **328** | |
 
 Ceiling-independent bytes total **100**; the per-band cost is **18 B** at the capability-off record and **20 B** with the shipped curve tail, so `Parallax_State` = `100 + 20 × MAX_PARALLAX_BANDS + 4`. At `MAX = 16` that is **552 B (+224)**.
@@ -3078,7 +3092,7 @@ Ceiling-independent bytes total **100**; the per-band cost is **18 B** at the ca
 - `parallax_combine` — sugar for stacking up to three deform tables (FG H, BG H, BG per-column V) in one single-band config.
 - `parallax_combine_split` — 2-band variant with `PARALLAX_TOP / PARALLAX_BOTTOM / PARALLAX_ALL` bitmask `*Where` params for regional effect placement.
 
-**Performance:** the fitted walker model (`tools/effects_budget_model.toml` `[parallax.cost_model]`, measured on the P3 tip) prices a 1-band flat scene at 4664 cycles/frame (the per-line floor; 3116 + the 1548 the per-line filler and its register flip cost over the deleted per-cell floor) plus 854 per additional band, plus the sampling terms (26.0 / 26.9 / 124.5 cycles per screen line for FG / BG / both at shift 0). The ~400-cycle saving the per-cell mode offered on plain scenes was given up on 2026-08-26 — a third of one percent of a frame.
+**Performance:** (⚠ the model below predates PERF-PARALLAX-PERBAND, 2026-09-28, which cut every per-band term; it was not re-fitted, DEFERRED_WORK rider PPB-7) the fitted walker model (`tools/effects_budget_model.toml` `[parallax.cost_model]`, measured on the P3 tip) prices a 1-band flat scene at 4664 cycles/frame (the per-line floor; 3116 + the 1548 the per-line filler and its register flip cost over the deleted per-cell floor) plus 854 per additional band, plus the sampling terms (26.0 / 26.9 / 124.5 cycles per screen line for FG / BG / both at shift 0). The ~400-cycle saving the per-cell mode offered on plain scenes was given up on 2026-08-26 — a third of one percent of a frame.
 
 **Foundation:** S.C.E.'s `HScroll_Deform` deformation script, extended with shift-add factor encoding (novel), per-band amplitude/phase split (novel), and section-boundary lerp transitions (novel).
 

@@ -1,0 +1,12 @@
+diff --git a/engine/level/parallax.emp b/engine/level/parallax.emp
+index ae5e3dab..5a247864 100644
+--- a/engine/level/parallax.emp
++++ b/engine/level/parallax.emp
+@@ -1893,6 +1893,7 @@ pub proc Parallax_Set_Roles_Swapped (d0: u8) clobbers(d0-d1/a0) {
+ // contract-audit note; declared here so the closure check covers the tail.)
+ // ----------------------------------------------------------------------
+ pub proc Parallax_Update () clobbers(d0-d7/a0-a6) preserves(sr.mask) {
++        rts
+         // --- Step 0 (DEBUG only): service the live-effects scratch arm ---
+         // An Aether client drives a BUS, not a call stack: it can poke a byte and run a
+         // frame, and cannot force a `jsr`. So Parallax_InstallScratch is armed by a poke and

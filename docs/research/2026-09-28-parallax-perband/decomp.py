@@ -44,7 +44,12 @@ once("        jbra    Parallax_Fill_PerLine               // tail call; it prese
 # Step 4a: from the proc's first instruction to the copy loop's dbf.
 a0 = s.index("        move.w  Parallax_Current_Vscroll_BG, d0     // (Parallax_Current_Vscroll_BG).w\n"
              "        and.w   #PLANE_B_SPAN-1, d0")
-a1 = s.index("        dbf     d6, .copy_band\n", a0) + len("        dbf     d6, .copy_band\n")
+# Since the frame-coherence key (2026-09-28) Step 4a ends at `.reorder_done:` (the key test
+# jumps forward to `.reorder_scroll`, so the region must include it); before it, at the copy dbf.
+if "    .reorder_done:\n" in s:
+    a1 = s.index("    .reorder_done:\n", a0) + len("    .reorder_done:\n")
+else:
+    a1 = s.index("        dbf     d6, .copy_band\n", a0) + len("        dbf     d6, .copy_band\n")
 body4a = s[a0:a1]
 s = s[:a0] + "        jbsr    PxM_Step4a\n" + s[a1:]
 
@@ -53,7 +58,7 @@ h1 = s.index("    .cap_factor_curve_hoist_end:\n")
 bodyh = s[h0:h1]
 s = s[:h0] + "        jbsr    PxM_CurveHoist\n" + s[h1:]
 
-s += ("\nproc PxM_Step4a () clobbers(d0-d6/a1/a4-a6) {\n" + body4a + "        rts\n}\n"
+s += ("\nproc PxM_Step4a () clobbers(d0-d6/a1-a2/a4-a6) {\n" + body4a + "        rts\n}\n"
       "\nproc PxM_CurveHoist () clobbers(d0-d6/a1/a3) {\n    if (Game.SCANLINE_CAPS & CAP_FACTOR_CURVE) != 0 {\n" + bodyh + "    }\n        rts\n}\n")
 open(p, "w").write(s)
 print("decomp: rewritten", p)
