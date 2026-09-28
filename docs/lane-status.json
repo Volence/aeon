@@ -52,6 +52,13 @@
       "project": "REGIONS"
     },
     {
+      "id": "PERF-PARALLAX-PPB4",
+      "title": "Parallax: keep the background view across a split region instead of rebuilding it every frame (about 2k cycles a frame there; costs some RAM, measured first)",
+      "state": "next",
+      "size": "M",
+      "blockedBy": null
+    },
+    {
       "id": "OJZ-LOOP-COLLISION",
       "title": "Our loop: 4 of 5 ways it lost Sonic are fixed; the last needs the right arc repainted (your call)",
       "state": "blocked",
@@ -147,5 +154,5 @@
   ],
   "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-09-28T12:31:18Z"
+  "updatedAt": "2026-09-28T12:43:03Z"
 }
