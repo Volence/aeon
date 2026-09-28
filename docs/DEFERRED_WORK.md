@@ -41721,7 +41721,7 @@ restored by writing the committed file back over it (`git show HEAD:<path> > <pa
   both clean.
 Restored and rebuilt: exit 0 (numbers in the merge evidence).
 
-**`P1-FAMINE-PINNED-CAPACITY` (OPEN: an engine call, the owner's; measured 2026-09-28 on
+**`P1-FAMINE-PINNED-CAPACITY` (OPEN for the STRESS_EVICT fixture only: real content does not reach it, measured 2026-09-28, see "Reach" below; measured 2026-09-28 on
 `7e677683`, no engine edit).** This is the "known P-1 famine" (the 2026-08-09 lens adjudication:
 "STRESS_EVICT reference famine on reversal", all dynamic frames referenced at once), and it is
 now characterised as a pure CAPACITY bound, predicted exactly from the baked data. The OJZ act 1
@@ -41748,6 +41748,21 @@ and whether C4-3 ("the famine capacity fix", the floor of 640 tiles / 10 frames 
 is this bound. `tools/fg_working_set.py`'s `peak_including_pinned` is the same quantity (window
 pages ∪ every pinned page), taken over the whole act. The witness's BACK leg stops short of this window by derivation,
 so the leg stays green while this entry is open; `--famine-probe` reproduces the famine.
+
+*Reach, measured 2026-09-28 (`research/p1-famine-reach`, base `2f3e7992`; record
+`docs/research/2026-09-28-p1-famine-reach.md`).* **It does not reach real content. Only the
+fixture can reach it.** Every bake already counts `|ALL pins ∪ window pages|` against
+`PAGE_FRAMES` (`fg_page_order.window_needed`) and refuses on it (clip bake N1/N2, OJZ Pass 4 and
+`fg_page_order check` on every build). The pin rule is already frame-aware (`frame_aware_pins`).
+All six streaming clip acts are at or under 12 of 12 with 0 windows over. `s2_woven`,
+`s2_woven_2d`, `s2_mtz_cpz` and `s2_two_clip` sit exactly at 12. The one-step fill transient
+(81x62 windows) is also 0 over. At runtime, DEBUG `s2_woven` (crc `0b8c65d7`) flew its 12-of-12
+band with no halt, and a demand injected there did halt. The famine exists because STRESS_EVICT
+clamps to 9 frames while its pins were chosen against 12. A pin pass at 9 keeps [0, 1, 7, 8] and
+gives 0 windows over, and the stress ROM with page 9 unpinned (crc `49750c7f`, throwaway) flew
+to x 0 with no halt. Recommended in the record: re-pin the fixture at `PAGE_FRAMES_CLAMP`
+(0 canonical bytes) and add a refusal at the clamp. The `vram.toml` C4-3 floor is NOT this
+bound: its stated "open defect" is this fixture. The owner decides the fixture options.
 
 **`PARALLAX-ANCHOR-COEFFS-REPUBLISH`: `effects_budget_model.toml` has no record for today's
 fit.** Its own standing rule is that a parcel touching a `Parallax_*` routine re-measures; this
