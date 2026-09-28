@@ -1,10 +1,25 @@
 {
-  "focus": "Owner asleep; working the list overnight. Now: landing the tall-area background check (a guard, not a fix).",
+  "focus": "Owner asleep. Woven act and object memory wait on his calls, so tonight is code optimizations plus check fixes.",
   "inFlight": [
     {
       "what": "Landing the tall-area background guard: full pre-merge build and tests",
       "where": "branch fix/bg-band-plane-anchor",
       "agent": false
+    },
+    {
+      "what": "Collision check reads the tables the cartridge actually carries, not only the files",
+      "where": "branch fix/gpp-collision-rom-tables",
+      "agent": true
+    },
+    {
+      "what": "Insta-shield check also runs the walk-off code, so a walk-off can never trigger it",
+      "where": "branch fix/gpp-instashield-walkoff",
+      "agent": true
+    },
+    {
+      "what": "Why bouncing in place in Emerald Hill lags (98 lag frames in 1500), and fix it if contained",
+      "where": "branch perf/oscillation-thrash",
+      "agent": true
     }
   ],
   "blockedOnOwner": [
@@ -29,8 +44,22 @@
       "since": "2026-09-28"
     }
   ],
-  "nextBoundary": "When the tall-area guard is landed; then the next item not waiting on you (checks audit, then the nightly read after 09:00Z).",
+  "nextBoundary": "When the tall-area guard lands and the three agents return and land (tonight).",
   "queue": [
+    {
+      "id": "PERF-OSCILLATION-THRASH",
+      "title": "Lag while bouncing in place in Emerald Hill's dead end: re-measure on today's tree, diagnose, fix if contained",
+      "state": "doing",
+      "size": "M",
+      "blockedBy": null
+    },
+    {
+      "id": "PERF-PARALLAX-PERBAND",
+      "title": "Parallax still costs 14.6k cycles a tick in Emerald Hill, mostly per-band work: make it cheaper",
+      "state": "next",
+      "size": "M",
+      "blockedBy": null
+    },
     {
       "id": "WOVEN-EDITABLE-IN-AURORA",
       "title": "Make the woven act editable in aurora: sized (ours medium, aurora's large to very large); your call on freezing it",
@@ -48,7 +77,7 @@
     },
     {
       "id": "BG-BAND-PLANE-ANCHOR",
-      "title": "Background layers in a very tall area may repeat every 512 pixels; check it is still live after the band-chain work, then fix",
+      "title": "Background layers in very tall areas: mechanism still there but no reachable frame shows it; a test now guards it (landing)",
       "state": "doing",
       "size": "M",
       "blockedBy": null,
@@ -99,8 +128,8 @@
     },
     {
       "id": "GATE-PREDICATE-VS-PROMISE",
-      "title": "Checks guarding something near their subject: 26 landing checks audited, 11 fixed; 13 written up as GPP rows",
-      "state": "next",
+      "title": "Checks guarding something near their subject: 11 fixed; collision tables and insta-shield walk-off being fixed now",
+      "state": "doing",
       "size": "M",
       "blockedBy": null
     },
@@ -151,5 +180,5 @@
   ],
   "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-09-28T06:30:04Z"
+  "updatedAt": "2026-09-28T06:32:38Z"
 }
