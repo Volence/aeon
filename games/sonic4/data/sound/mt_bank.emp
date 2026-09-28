@@ -100,7 +100,7 @@ const MT_PITCHTAB_OFFSET = $30B1
 ensure(SongBlob.len == MT_PITCHTAB_OFFSET,
     "MT pitch table not contiguous with the song: song len != header's pitchtable_ptr — a pad byte would detune the whole song")
 
-// --- SFX-base 8-alignment pad size (package 3 fix — see the _sfx_align_* items
+// --- SFX-base 8-alignment pad size (package 3 fix — see the _sfx_align item
 // in the section below for the full story). The running length of everything
 // this section emits before the pad, mirrored comptime: the
 // three always-on blobs + the DEBUG members + their self-adjusting odd-length
@@ -113,7 +113,14 @@ ensure(SongBlob.len == MT_PITCHTAB_OFFSET,
 const _MT_DEBUG_EXTRA = if DEBUG == 1 { DrumTestBlob.len + (DrumTestBlob.len % 2) + Hcz2Blob.len + (Hcz2Blob.len % 2) + Hcz2PatchBlob.len } else { 0 }
 const _MT_S2_LEN = S2EhzBlob.len + (S2EhzBlob.len % 2) + S2EhzPatchBlob.len + S2CpzBlob.len + (S2CpzBlob.len % 2) + S2CpzPatchBlob.len
 const _MT_PRETABLE_LEN = SongBlob.len + PitchBlob.len + PatchesBlob.len + _MT_S2_LEN + _MT_DEBUG_EXTRA
-const MT_TAIL_PAD = (8 - (_MT_PRETABLE_LEN % 8)) % 8
+// 1..8, never 0: the pad is the section's LAST item, and a zero-length item there would
+// leave an empty label at the section's end, which is the SFX block head's address
+// (`Sfx_33`, the next section). Sigil's fold gate requires each folded head to lead its
+// section (SOUND-FOLD-GATE-SILENT-SKIP, sigil merge a8b1d9a5); a label tied with the head
+// is the ambiguity that rule exists for, so none is left there. Costs 8 B only when the
+// songs already end 8-aligned.
+const MT_TAIL_PAD = 8 - (_MT_PRETABLE_LEN % 8)
+ensure(MT_TAIL_PAD >= 1 && MT_TAIL_PAD <= 8, "MT tail pad out of 1..8")
 
 // READING THE `.asm` CITATIONS BELOW. They are PROVENANCE for a byte-identity port, not a
 // live second copy: every file they name is deleted. The seven Moving-Trucks AS sources
@@ -206,11 +213,5 @@ section mt_bank (cpu: m68000, bank: $8000) {
     // `native::packed_chained_base`), so what the pad still buys is that these
     // gap bytes are OURS (zeros in this section) rather than the map's fill,
     // and the SFX block does not move when a song's length changes parity.
-    data _sfx_align_a = if MT_TAIL_PAD >= 1 { byte(0) } else { Data.empty }
-    data _sfx_align_b = if MT_TAIL_PAD >= 2 { byte(0) } else { Data.empty }
-    data _sfx_align_c = if MT_TAIL_PAD >= 3 { byte(0) } else { Data.empty }
-    data _sfx_align_d = if MT_TAIL_PAD >= 4 { byte(0) } else { Data.empty }
-    data _sfx_align_e = if MT_TAIL_PAD >= 5 { byte(0) } else { Data.empty }
-    data _sfx_align_f = if MT_TAIL_PAD >= 6 { byte(0) } else { Data.empty }
-    data _sfx_align_g = if MT_TAIL_PAD >= 7 { byte(0) } else { Data.empty }
+    data _sfx_align = bytes(comptime for i in 0..MT_TAIL_PAD { 0 })
 }
