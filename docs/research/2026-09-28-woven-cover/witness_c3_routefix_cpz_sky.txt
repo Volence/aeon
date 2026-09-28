@@ -1,0 +1,9 @@
+crossing_witness: s4.s2clip.debug.bin — zones ['WFZ', 'CPZ'], WFZ ends y 1408, CPZ starts y 2112, shaft 704 px
+   down gsp $0000: 109 ticks; crossing at tick-row 63 camy 1651 (centre 1763); in flight 12 tick(s), rows 62..73, cam 1637..1782; GLITCH ticks 0
+      timeline (frames after the crossing frame): CPZ palette on screen +0, CPZ background settled on the visible rows +9, screen first reaches CPZ +18; SLACK 9 frame(s)
+      lag frames within 16 px of the shaft 1, over the run 1
+   down gsp $0F00: 74 ticks; crossing at tick-row 30 camy 1659 (centre 1771); in flight 11 tick(s), rows 29..39, cam 1644..1794; GLITCH ticks 0
+      timeline (frames after the crossing frame): CPZ palette on screen +0, CPZ background settled on the visible rows +8, screen first reaches CPZ +16; SLACK 8 frame(s)
+      lag frames within 16 px of the shaft 0, over the run 0
+crossing_witness: 2 run(s), 0 faulted, 0 glitch tick(s) in total; worst slack 8 frame(s) over 2 timed run(s)
+finished=1

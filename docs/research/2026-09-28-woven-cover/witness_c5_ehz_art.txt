@@ -1,0 +1,21 @@
+crossing_witness: s4.s2clip.debug.bin — zones ['EHZ', 'MTZ'], EHZ ends x 2560, MTZ starts x 3168, corridor 608 px
+  right gsp $0000: 373 ticks; crossing at tick-row 152 cam 2706 (centre 2866); in flight 12 tick(s), rows 151..162, cam 2700..2766; GLITCH ticks 0
+      timeline (frames after the crossing frame): MTZ palette on screen +0, MTZ background settled on the visible rows +8, screen first reaches MTZ +24; SLACK 16 frame(s)
+      lag frames within 16 px of the corridor 0, over the run 2
+  right gsp $0600: 314 ticks; crossing at tick-row 93 cam 2704 (centre 2864); in flight 12 tick(s), rows 92..103, cam 2698..2764; GLITCH ticks 0
+      timeline (frames after the crossing frame): MTZ palette on screen +0, MTZ background settled on the visible rows +8, screen first reaches MTZ +25; SLACK 17 frame(s)
+      lag frames within 16 px of the corridor 0, over the run 2
+  right gsp $1000: 214 ticks; crossing at tick-row 40 cam 2707 (centre 2867); in flight 14 tick(s), rows 39..52, cam 2691..2867; GLITCH ticks 0
+      timeline (frames after the crossing frame): MTZ palette on screen +0, MTZ background settled on the visible rows +10, screen first reaches MTZ +11; SLACK 1 frame(s)
+      lag frames within 16 px of the corridor 2, over the run 9
+   left gsp $0000: 273 ticks; crossing at tick-row 122 cam 2702 (centre 2862); in flight 11 tick(s), rows 121..131, cam 2707..2649; GLITCH ticks 0
+      timeline (frames after the crossing frame): EHZ palette on screen +0, EHZ background settled on the visible rows +8, screen first reaches EHZ +24; SLACK 16 frame(s)
+      lag frames within 16 px of the corridor 0, over the run 2
+   left gsp $0600: 208 ticks; crossing at tick-row 59 cam 2700 (centre 2860); in flight 11 tick(s), rows 58..68, cam 2706..2646; GLITCH ticks 0
+      timeline (frames after the crossing frame): EHZ palette on screen +0, EHZ background settled on the visible rows +8, screen first reaches EHZ +24; SLACK 16 frame(s)
+      lag frames within 16 px of the corridor 0, over the run 0
+   left gsp $1000: 73 ticks; crossing at tick-row 27 cam 2696 (centre 2856); in flight 13 tick(s), rows 26..38, cam 2712..2552; GLITCH ticks 0
+      timeline (frames after the crossing frame): EHZ palette on screen +0, EHZ background settled on the visible rows +10, screen first reaches EHZ +11; SLACK 1 frame(s)
+      lag frames within 16 px of the corridor 6, over the run 7
+crossing_witness: 6 run(s), 0 faulted, 0 glitch tick(s) in total; worst slack 1 frame(s) over 6 timed run(s)
+finished=1
