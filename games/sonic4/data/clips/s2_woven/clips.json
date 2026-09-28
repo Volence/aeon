@@ -69,7 +69,8 @@
         "w": 1520,
         "h": 2048
       },
-      "unaligned_dst_reason": "woven layout v2.1: placed by the seam rule (see the note)"
+      "unaligned_dst_reason": "woven layout v2.1: placed by the seam rule (see the note)",
+      "music": "SONG_S2_MTZ"
     },
     {
       "id": "cpz_loop_cluster",
@@ -106,7 +107,8 @@
         "w": 1552,
         "h": 1600
       },
-      "unaligned_dst_reason": "woven layout v2.1: placed by the seam rule (see the note)"
+      "unaligned_dst_reason": "woven layout v2.1: placed by the seam rule (see the note)",
+      "music": "SONG_S2_MTZ"
     },
     {
       "id": "hpz_west",

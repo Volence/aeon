@@ -150,11 +150,13 @@ def build(mutant=False):
                src=(hpz_sx + 2560, HPZ_EAST_Y0, hpz_e_x1 - 2560, HPZ_EAST_Y1 - HPZ_EAST_Y0),
                dst=(2560, hpz_y + HPZ_EAST_Y0))
     ehz["music"] = "SONG_S2_EHZ"
-    # Wing Fortress and Oil Ocean play their own songs since they joined the second song bank
-    # (S2CLIP-MTZ-SONG-BANK, 2026-09-28). Metropolis still names none HERE: the song-bank-2
-    # parcel named it in s2_mtz_cpz only, and this act was not changed then.
+    # Wing Fortress, Oil Ocean and Metropolis play their own songs since they joined the
+    # second song bank (S2CLIP-MTZ-SONG-BANK, 2026-09-28). That parcel named Metropolis's in
+    # s2_mtz_cpz only; this act names it on both Metropolis pieces (one song per zone,
+    # clip_manifest R3).
     wfz["music"] = "SONG_S2_WFZ"
     ooz["music"] = "SONG_S2_OOZ"
+    mtw["music"] = mte["music"] = "SONG_S2_MTZ"
     clips = [wfz, ehz, mtw, cpz, mte, hpw, hpe, ooz]
 
     def bottom(k):
