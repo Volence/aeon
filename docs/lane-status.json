@@ -1,12 +1,6 @@
 {
-  "focus": "Tidying the stress test's art pins. Waiting on your listen and woven answers.",
-  "inFlight": [
-    {
-      "what": "Stress test picks its pinned art for its smaller cache; the build refuses a mismatch",
-      "where": "branch fix/stress-evict-pins-at-clamp",
-      "agent": true
-    }
-  ],
+  "focus": "Songs and five fixes landed today. Everything left on my list needs you; waiting on your listen and woven answers.",
+  "inFlight": [],
   "blockedOnOwner": [
     {
       "id": "SP6-MODULATION-DIVERGENCE",
@@ -29,7 +23,7 @@
       "since": "2026-09-28"
     }
   ],
-  "nextBoundary": "When the stress-pin fix lands.",
+  "nextBoundary": "Now: nothing in flight, nothing owner-free left that is ready to start.",
   "queue": [
     {
       "id": "WOVEN-BOOT-AUDIO",
@@ -139,16 +133,9 @@
       "size": "S",
       "blockedBy": "decision card S2CLIP-OBJECTS",
       "project": "REGIONS"
-    },
-    {
-      "id": "P1-FAMINE-PINNED-CAPACITY",
-      "title": "Stress-test setup only: re-pin it for its smaller cache and make the build refuse a mismatch (real levels are proven safe)",
-      "state": "doing",
-      "size": "S",
-      "blockedBy": null
     }
   ],
   "awaiting": "your listen: woven act with Metropolis, Wing Fortress and Oil Ocean songs (aeon/s4.s2clip.debug.bin crc 0e086143, plain s4.s2clip.bin 3be528b0), and which emulator gave you the broken start music",
-  "atBoundary": false,
-  "updatedAt": "2026-09-28T21:55:10Z"
+  "atBoundary": true,
+  "updatedAt": "2026-09-28T23:03:38Z"
 }
