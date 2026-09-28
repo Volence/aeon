@@ -42950,7 +42950,18 @@ The perf survey's candidate 7 and PERF-EHZ-RUN-LAG open item 2. Findings, legs a
 
 **Gate.** `tools/oscillation_thrash_gate.py`, in `tools/effects_gates.py` after `tile_cache_fill`: a DEBUG free-flight swing of exactly `H_PFX_ARM` must claim 0 staging slots in 600 ticks after warm-up (0 derived: the swing's demand working set, 10 blocks, fits the 16 slots; checked, exit 2 if not). Red-first: arming gate removed -> RED 452 claims; restored -> GREEN 0.
 
-**Landing evidence** (full builds at the code tip; see the branch's last commit message for the re-run on the docs commit): _filled in below at landing._
+**Landing evidence** (full, non-FAST builds at `965c856d`, the code tip; the commit that adds this paragraph changes docs only):
+- `tools/landing_build.sh` **exit 0, `finished=0`**: pre-build pytest 3783 passed, 3 skipped, 35 deselected; `emp_expect_fail` 56/56; needs_build 34 passed, 1 EXEMPTED (`test_deb2_appendix[demo.bin]`). (A first run at `52275365` failed 1 test: `test_every_bus_instrument_in_the_tree_is_declared` named the new gate; `tools/keepalive_manifest.toml` now declares it. A second run was invalidated by my own clip build racing it in the same tree; this is the third, run alone.)
+- `S2CLIP=s2_ehz_cpz ./build.sh` rc 0 and `DEBUG=1 S2CLIP=s2_ehz_cpz ./build.sh` rc 0.
+- **Effects-gates ritual** (`tools/effects_gates.py --rom s4.debug.bin --lst s4.debug.lst`): rc 0, all 23 scheduled gates produced a complete row set (42 result rows), including `oscillation_thrash` and `tile_cache_fill`.
+
+| ROM (full builds, equal to the FAST builds every measurement used) | CRC32 | bytes |
+|---|---|---|
+| `s4.bin` | `421a8433` | 830,062 |
+| `s4.debug.bin` | `318adbe6` | 857,039 |
+| `demo.debug.bin` | `e20b8adf` | 106,776 |
+| `s4.s2clip.bin` | `518bc1c3` | 929,665 |
+| `s4.s2clip.debug.bin` | `f487505c` | 956,461 |
 
 **Open:**
 1. **Demand re-decoding on large swings (mechanism 2), design-sized.** The OJZ bounce still decodes 560 blocks in 1800 ticks (87% again), the EHZ dead end 286. Levers priced in the research doc: 16 more staging slots (12,288 B RAM of the ~15.8 KB between `Game_RAM_End` and the stack, plus widening the u16 memo masks / `rol.w` eviction windows and `PageCache_Prefetch`'s four `clr.l`), or trailing-edge hysteresis on the cache window (a 39 - 2L column swing needs no refill at minimum lead L; costs lead in sustained motion after a reversal, and catch-up is the column-copy burst OJZF-2 measured as lag). Both change the §9.7 contract; not built.
