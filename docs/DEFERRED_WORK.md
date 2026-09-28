@@ -40862,6 +40862,48 @@ for every gate; it is not the proxy/subject shape.
 10. **GPP-CROSSOVER-SENSORS** (`loop_crossover_gate.py`, measured). `Player_SensorSurface`'s
     `move.b layer(a0), d3` -> `nop` gave exit 0: the byte decides `Sst.layer`, and nothing checks
     that the sensors read it. Sensor entries live in several files, so this is not a one-site fix.
+
+    **FIXED 2026-09-28 (`fix/gpp-layer-sensors`, base master `19b960d4`).**
+    - **Re-derived first, because the named gate is gone.** `a974bc2e` (LINES-EVERYWHERE)
+      retired `loop_crossover_gate.py` and the painted marks; `tools/layer_line_gate.py` is what
+      build.sh runs. Its promise (docstring, build.sh block) is about `Player_LayerLines`: it
+      executes that routine against Sonic 2's Obj03 rule and compares `Sst.layer`, `art_tile`
+      and the write set. Nothing in it, or anywhere else on the landing path, looked at who
+      READS the layer. Measured on this base: `player_sensors.emp:389` (the booked line has
+      moved from :344) `move.b  layer(a0), d3` -> `nop` built with `DEBUG=1 ./build.sh` rc 0,
+      layer_line_gate OK, pytest 3817 passed / needs_build 20 passed. So the gap was live under
+      the current mechanism.
+    - **The fix does not start from the reads.** A deleted read is not in a read set, which is
+      exactly the audited mutation. New `tools/layer_sensor_arm.py`, run from inside
+      `layer_line_gate.py` (so build.sh's existing call gates it), starts at the plane select
+      (`Collision_GetType`'s `tst.b d3` -> `+TILE_CACHE_COLL_SIZE`) and walks outward over the
+      ROM. **Static:** every transfer or `lea`/`pea` into the d3-carrying family, over the whole
+      image; each containing routine's d3.b is followed from its entry (stack push/peek/pop,
+      resolved jump tables, `jsr (aN)`); at a handoff it must be the byte loaded from
+      `SST_layer(a0)`, a routine that passes its own d3 through joins the family, anything
+      else is exit 1. **Executed:** the self-contained sensor entries run at layer 0 and 1 over
+      a synthetic tile cache (air / full / partial blocks from this ROM's own tables, every
+      quadrant, direction and policy); every `Tile_Cache_Collision` read must land in the
+      plane the byte names, and every call site inside the carriers must run at both layers.
+      Source Digest cross-check per proc. Empty or unfollowable = exit 2.
+    - **Derived set (s4.debug):** carriers `Collision_Probe{Down,Up,Left,Right}` and
+      `Player_SensorPair` (through a2). 8 layer reads in 6 routines, 11 handoff sites:
+      Player_SensorSurface, Player_SensorWallDir (x4 directions), Player_AtLedgeEdge (its
+      `.foot_probe`, which a text grep for the sensor files had missed), Glide_Collide,
+      PState_Climb (x3), Knuckles_Gliding_WallCatch. Executed: SensorSurface, SensorWallDir,
+      AtLedgeEdge, 864 runs, 18 carrier call sites. `Player_DebugExit`'s `tst.b layer(a0)` is
+      listed as flag-only (a priority derivation, no plane).
+    - **Red-first, each on a rebuilt ROM through `DEBUG=1 ./build.sh` (rc 1), restored from the
+      committed file:** M1 `player_sensors.emp:389` read -> `nop` (static: SensorSurface hands
+      Player_SensorPair the constant $00; executed: 144 runs at layer 1 read plane A).
+      M2 `player_climb.emp:265` read -> `nop` (static only: PState_Climb $0118BC hands
+      Collision_ProbeUp $00). M3 `player_sensors.emp:150` the probe core's forward re-probe
+      `move.w (sp), d3` -> `moveq #0, d3` (static: all four cores; executed: SensorSurface 48,
+      AtLedgeEdge 48, WallDir 84 runs). M4 `collision_lookup.emp:74` `tst.b d3` -> `tst.b d2`
+      (executed only: 144 runs of each entry at layer 0 read plane B).
+    - **Not seen:** a0 is not tracked (the read must be `layer(a0)`, the player convention).
+      The layer reads inside PState_Climb, Glide_Collide and Knuckles_Gliding_WallCatch are
+      graded by the static flow only; those routines call outside the sensor family.
 11. **GPP-LAND-GATE-IGNORED-INPUTS** (`land_gate.py`, doubtful, unmeasured, since it needs a
     commit-and-push drill). "Clean" is `git status`, which cannot see gitignored inputs such as
     `*.bin`, and `sigil_md5` is recorded but not keyed. Fix sketch: refuse the stamp when a Source
