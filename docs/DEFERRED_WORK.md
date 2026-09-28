@@ -43321,6 +43321,20 @@ frames over the same tick span):
   then be wrong, so this only makes sense together with PPB-4.
 - **PPB-8 again:** the DEBUG RAM layout moved another 24 B after `Parallax_State`, so the replay
   net's RAM-hash checkpoints have the GPL-A3-3 question again. Not measured here.
+- **Stale `parallax.emp:LINE` citations, found not fixed.** The landing's
+  `test_citation_form` failed on two stale line citations in `tools/parallax_hscroll_probe.py`:
+  this branch's inserts moved them onto a blank line and a bare delimiter. Both now cite by name.
+  The same grep found more `parallax.emp:N` citations that were already wrong on `e76dcea9`,
+  before this branch. The test cannot see them because they land on non-blank lines:
+  - `games/sonic4/test/poison/poison_extern_span.emp` (:580/:589/:598/:600);
+  - `tools/parallax_hscroll_probe.py` (:607, :895);
+  - `tools/test_parallax_hscroll_probe.py` (:607);
+  - `tools/parallax_cost_probe.py` (:897);
+  - `tools/effects_budget_model.toml` (:648);
+  - `engine/level/scene_dsl.emp` (:1046);
+  - `tools/test_scene_span_labels.py` (:1305/:1429).
+
+  Each should cite its symbol instead (CODING_CONVENTIONS "CITE BY NAME").
 
 ## OSCILLATION-THRASH: a swinging camera re-decodes the same blocks (branch `perf/oscillation-thrash`, 2026-09-28)
 
