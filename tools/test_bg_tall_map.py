@@ -370,6 +370,76 @@ class BgTallMap(unittest.TestCase):
               f"  raw vscroll reaches {info['raw_vscroll_max']}; the NEW ceiling {new_ceiling} "
               f"BINDS from camera Y {info['ceiling_binds_at']} (leg 3b)")
 
+    # ---- LEG 6: the band aliasing stays INVISIBLE (BG-BAND-PLANE-ANCHOR's guard) ----
+    @pytest.mark.needs_build("s4.debug.bin", "s4.debug.lst")
+    def test_a_tall_row_resolves_to_alias_safe_bands(self):
+        """Parallax_Step4_Fill's Step 4a picks the band for a screen line by PLANE line
+        (`vscroll & (PLANE_B_SPAN - 1)`), so on a map taller than the plane map rows 512 lines
+        apart get the same band (BG-BAND-PLANE-ANCHOR, docs/DEFERRED_WORK.md). On this act that
+        is invisible for one reason only: the tall row's resolved config has bands that are
+        byte-identical apart from their tops (OJZ_Default's four records are one visual layer:
+        same factors, shifts, phase and drift), so WHICH band a line gets cannot change its
+        H-scroll word. MEASURED 2026-09-28 (s4.debug.bin crc 1000eded, headless): at BG scroll
+        544 (plane line 32) Step 4a puts band 0 at the screen top where the map says band 3,
+        and Hscroll_Buffer holds ONE plane-B word over all 224 lines.
+
+        This leg refuses the edit that would make it visible: a per-band change to the tall
+        row's config (OJZ_Default's banner invites exactly that: "change one Rate(-32) here").
+        SCOPE: the OJZ act descriptor's rows only. Clip acts' tall rows have DIFFERENT bands on
+        purpose and are guarded by construction instead: tools/clip_bg_scroll.py's derive_tall
+        chooses each band layout against this same plane-line selection and raises when none is
+        exact (tools/test_clip_tall_bg.py)."""
+        import re
+        k = _engine_consts()
+        plane_span = k["PLANE_V_CELLS"] * 8
+        rom, syms, base, rows = self._setup(DBG_ROM, DBG_LST)
+        tall = [r for r in rows if r["bg_span"] > plane_span]
+        self.assertTrue(tall, "no region row in the DEBUG act is taller than the plane, so this "
+                              "leg has nothing to grade. Whoever retires the tall fixture "
+                              "retires this leg with it (BG-TALL-FIXTURE-SCAFFOLD).")
+        # The header's size, off `struct parallax_config`'s own `// $HH` annotations.
+        widths = {"u8": 1, "u16": 2, "u32": 4}
+        hdr = 0
+        for m in re.finditer(r"^\s*pcfg_\w+\s*:\s*(\*?\w+)\s*,\s*//\s*\$([0-9A-Fa-f]+)",
+                             open(os.path.join(AEON, "engine/structs.emp")).read(), re.M):
+            t = m.group(1)
+            hdr = max(hdr, int(m.group(2), 16) + (4 if t.startswith("*") else widths[t]))
+        # The band stride, off the RAM the engine reserves for MAX_PARALLAX_BANDS records.
+        lst = open(DBG_LST, errors="replace").read()
+        m = re.search(r"^EQU\s+MAX_PARALLAX_BANDS\s*=\s*\$([0-9A-Fa-f]+)\s*$", lst, re.M)
+        self.assertTrue(m, f"{DBG_LST} has no `EQU MAX_PARALLAX_BANDS` line")
+        stride, rem = divmod(syms["Parallax_Shadow_Scroll_A"] - syms["Parallax_Shadow_Bands"],
+                             int(m.group(1), 16))
+        self.assertEqual(rem, 0, "Parallax_Shadow_Bands is not a whole number of band records")
+        src = open(os.path.join(AEON, "engine/level/parallax.emp")).read()
+        self.assertRegex(src, r"pub struct band_entry \{\s*band_top_plane:\s*u16,",
+                         "band_entry no longer starts with `band_top_plane: u16`, which is the "
+                         "2 bytes this leg strips from each record before comparing")
+        for row in tall:
+            cfg = _resolve_parallax(rom, row, base)
+            n = rom[cfg]                                    # pcfg_band_count, $00
+            recs = [rom[cfg + hdr + i * stride:cfg + hdr + (i + 1) * stride] for i in range(n)]
+            tops = [int.from_bytes(r[:2], "big") for r in recs]
+            self.assertTrue(n >= 1 and tops[0] == 0 and tops == sorted(set(tops))
+                            and tops[-1] < plane_span,
+                            f"config {cfg:#x} read as {n} bands with tops {tops} (header {hdr} B, "
+                            f"stride {stride} B): not a band table, so this leg's layout "
+                            f"derivation is wrong and nothing below would mean anything")
+            differ = [i for i in range(1, n) if recs[i][2:] != recs[0][2:]]
+            self.assertFalse(
+                differ,
+                f"region row {row['index']} (span {row['bg_span']}, taller than the "
+                f"{plane_span}-line plane) resolves to config {cfg:#x}, whose bands {differ} "
+                f"differ from band 0 in more than their tops. Step 4a selects bands by PLANE "
+                f"line, so on this map rows {plane_span} lines apart share a band and the "
+                f"difference becomes a visible horizon snap (BG-BAND-PLANE-ANCHOR). Either keep "
+                f"this row's bands identical, bind the row a scene built for it, or fix the "
+                f"band model (docs/DEFERRED_WORK.md, BG-BAND-PLANE-ANCHOR).\n  band 0: "
+                f"{recs[0].hex()}\n" + "\n".join(f"  band {i}: {recs[i].hex()}" for i in differ))
+            print(f"\nBG-TALL leg 6: row {row['index']} span {row['bg_span']} -> cfg {cfg:#x}, "
+                  f"{n} bands tops {tops}, identical apart from tops (header {hdr} B, "
+                  f"stride {stride} B)")
+
     # ---- LEG 5: the tracker is CALLED ----
     @pytest.mark.needs_build("s4.debug.bin", "s4.debug.lst")
     def test_the_tracker_is_called(self):
