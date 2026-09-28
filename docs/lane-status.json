@@ -2,18 +2,13 @@
   "focus": "Owner asleep. Seven fixes landed tonight; now the second song bank, one step at a time.",
   "inFlight": [
     {
-      "what": "Second song bank, step 1: song lists move out of the sound bank so songs can live in bank 2 (the assembler change it needed landed)",
+      "what": "Second song bank, step 1: song lists move out of the sound bank so songs can live in bank 2",
       "where": "branch parcel/song-bank-2",
       "agent": true
     },
     {
       "what": "Fix the overnight eviction test drive, which refused to run after code moved under it",
       "where": "branch fix/evict-witness-site",
-      "agent": true
-    },
-    {
-      "what": "Why the loop test drive's player no longer lands at the start (this morning's nightly); bisecting",
-      "where": "branch fix/loop-step-over-landing",
       "agent": true
     }
   ],
@@ -44,13 +39,6 @@
     {
       "id": "EVICT-WITNESS-SITE",
       "title": "The overnight eviction test drive refused to run (code moved under its search window); fixing how it finds its spot",
-      "state": "doing",
-      "size": "S",
-      "blockedBy": null
-    },
-    {
-      "id": "LOOP-STEP-OVER-LANDING",
-      "title": "This morning's nightly: the loop test drive's player never lands at its start spot (3 rows red); bisecting, may be tonight's parallax landing",
       "state": "doing",
       "size": "S",
       "blockedBy": null
@@ -159,5 +147,5 @@
   ],
   "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-09-28T09:57:37Z"
+  "updatedAt": "2026-09-28T10:22:02Z"
 }
