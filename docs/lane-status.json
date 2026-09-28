@@ -15,6 +15,11 @@
       "what": "Why bouncing in place in Emerald Hill lags (98 lag frames in 1500), and fix it if contained",
       "where": "branch perf/oscillation-thrash",
       "agent": true
+    },
+    {
+      "what": "Make parallax cheaper in Emerald Hill (14.6k cycles a tick, mostly per-band work), same picture",
+      "where": "branch perf/parallax-perband",
+      "agent": true
     }
   ],
   "blockedOnOwner": [
@@ -39,7 +44,7 @@
       "since": "2026-09-28"
     }
   ],
-  "nextBoundary": "When the three agents (collision check, insta-shield check, bounce lag) return and land.",
+  "nextBoundary": "When the four agents (collision check, insta-shield check, bounce lag, parallax cost) return and land.",
   "queue": [
     {
       "id": "PERF-OSCILLATION-THRASH",
@@ -51,7 +56,7 @@
     {
       "id": "PERF-PARALLAX-PERBAND",
       "title": "Parallax still costs 14.6k cycles a tick in Emerald Hill, mostly per-band work: make it cheaper",
-      "state": "next",
+      "state": "doing",
       "size": "M",
       "blockedBy": null
     },
@@ -65,7 +70,7 @@
     {
       "id": "WOVEN-NIGHTLY-ROM-NAME",
       "title": "Read the next nightly's first runs of the woven act and Hidden Palace test drives (05:00 local)",
-      "state": "open",
+      "state": "next",
       "size": "S",
       "blockedBy": null,
       "project": "REGIONS"
@@ -167,5 +172,5 @@
   ],
   "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-09-28T06:39:39Z"
+  "updatedAt": "2026-09-28T06:40:17Z"
 }
