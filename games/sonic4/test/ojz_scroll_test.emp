@@ -1887,8 +1887,10 @@ proc Debug_Warp_Consume () clobbers(d0-d7/a0-a6) {
         //    that changes the layout sets it, WOVEN-TALL-ENTRY). This ladder is its second
         //    writer because the same thing is true here, by construction: step 7 below blits
         //    the whole window from this store. Parallax_CheckBoundary's own null-row rule
-        //    ("a null previous row never snaps") stays as it is, because the BOOT ladder, its
-        //    other null-row caller, primes BEFORE its first CheckBoundary and must not snap.
+        //    ("a null previous row never snaps") stays as it is: only the CALLER knows a prime
+        //    follows, and the BOOT ladder, its other null-row caller, now sets the byte around
+        //    its own Update the same way (BOOT-TALL-VSCROLL-RATCHET, 2026-09-28; until then it
+        //    primed BEFORE its first CheckBoundary, and slid on a tall map).
         //    Cleared again after the one Update it is for: Parallax_Update's `.no_config`
         //    return skips Step 5's clear, and a snap left armed would exempt the frame body's
         //    store, which comes AFTER the prime and must be clamped.
