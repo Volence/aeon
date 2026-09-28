@@ -43248,3 +43248,18 @@ one bake path; L7 refuses a declaration whose donor premise fails. mtz_to_cpz de
   whether any route drops him between donor x 6536 and 7040), and that is Sonic 2's own layout,
   not a crossing. **On-screen (TAGGED):** entering CPZ from mtz_to_cpz
   now sets HIGH sprite priority ($22's right side), leaving it LOW; not looked at on screen.
+
+## CLIP-MANIFEST-OWNER-LABEL: a duplicate-id refusal in the clip manifest could name the wrong owner (reported by aurora 2026-09-28, their ROADMAP row 233(c); CLOSED 2026-09-28 by fix/clip-manifest-owner-label)
+
+`tools/clip_manifest.py` keeps one `seen_ids` dict for id uniqueness across clips, corridors and
+shafts, but R3 stored a clip's owner as a bare int while K1 and K9 stored full labels, and each
+message formatted what it read differently. So a shaft reusing a clip's id said "already used by
+0", and a corridor reusing an earlier corridor's id said "clips[corridors[0]]". aurora shows this
+text verbatim to authors.
+
+Fixed: every entry stores its full label (`clips[i]`, `corridors[i]`, `shafts[i]`) and R3, K1 and
+K9 print it as-is. K1's hedge "or an earlier corridor" is gone because the label is now exact.
+`seen_regions` was checked and is consistent (it stores clip ids and is printed as ids).
+Pinned by `test_a_reused_id_names_its_real_owner` (clip->corridor, corridor->corridor,
+clip->shaft, corridor->shaft, shaft->shaft, exact label) and `test_a_reused_clip_id_names_both_clips`
+in `tools/test_clip_manifest.py`. Message text only: no build output changes.
