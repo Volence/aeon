@@ -40976,6 +40976,55 @@ for every gate; it is not the proxy/subject shape.
     unmeasured. That is a RAM-layout guard, not a promise of `effects_budget_check`, so it is counted
     as neither gate's gap.
 
+    **DPLC half FIXED 2026-09-28 (`fix/gpp-dplc-pairing`, base master `dc32c0a4`). The
+    `Pal_Variant_Stage`/`Ptr` half is untouched and STILL BOOKED here.**
+    - **Promise** (the function's docstring and its one consumer, `reachable_sets`): a slot that
+      streams a DPLC table is animated by the animation table belonging with it, so a subject's
+      frame set can be built from that subject's own scripts ("a test object that animated
+      Sonic's SCRIPTS against Tails' DPLC would make the per-subject script set a lie").
+    - **Predicate it had:** per source routine, the latest `#Ani_X` immediate and the latest
+      `#DPLC_Y` immediate must share X == Y. Keyed by nothing: not register, not field, not slot.
+      It saw two routines in the tree (TestPlayer, TestAnimated) and was blind to `equ` aliases
+      (`#DPLC_TAILS_APPENDAGE`), to pairs split across a spawner and its Main, and to what a2
+      holds at the call.
+    - **Control first:** `test_player.emp:63` `#DPLC_Sonic` -> `#DPLC_Tails` (same routine as
+      `#Ani_Sonic`): `DEBUG=1 ./build.sh` rc 1 at the pre-build pytest
+      (`test_no_routine_animates_one_character_against_another_s_dplc`). The check is live.
+    - **Measured gap, three mutations on disk in one `DEBUG=1 ./build.sh`: rc 0, ROM crc
+      `bce24957`** (clean baseline `24b22fa8`), anim_frame_bound OK, dplc_straddle OK:
+      `tails_appendage.emp:388` `movea.l #DPLC_TAILS_APPENDAGE, a2` -> `movea.l #DPLC_Tails, a2`
+      (the SHIPPED appendage streaming Tails' body DPLC under its own scripts);
+      `test_animated.emp:50` `movea.l DplcV.dplc_ptr(a0), a2` -> `movea.l #DPLC_Tails, a2`
+      (Ani_Sonic against DPLC_Tails, the docstring's own example);
+      `test_player.emp:63` `move.l #DPLC_Sonic, TPlayerV.dplc_ptr(a0)` -> `...dplc_ptr(a1)`
+      (names still match; the slot's field is never written, the register-keyed shape).
+    - **Fix (tools only):** `dplc_straddle.anim_dplc_pairings` keys the pair by the SLOT.
+      Population = every `Perform_DPLC*` call in the writer-scan tree (none = Unmeasurable, exit
+      2). The DPLC is what a2 holds at the call (nearest a2 load, no label or call between;
+      immediates alias-resolved). The anim is what the slot holds: every routine that writes
+      `#R - ObjCodeBase, code_addr(aK)` must bind `anim_table(aK)` through the SAME register, and a
+      field-held DPLC must be written through that register too (anim_frame_bound's
+      base-register rule). The player tail is the record idiom: `cd_dplc` and `cd_animtable`
+      from the same `Player_Chardef`. Any other path to the calling routine, a `falls_into`
+      that is not a birth, or an a2 source it cannot read is a fault, never a skip. Match =
+      the subject record's pair for a subject DPLC, else Ani_X/DPLC_X, else
+      `DECLARED_DPLC_PAIRS` (one row, `Ani_DustSpindash`/`DPLC_Dust`, with live evidence; stale
+      if no site forms it). `scanned_files`/`equ_aliases` moved from anim_frame_bound into
+      dplc_straddle (imported back, one copy).
+    - **Red:** the same three mutations with the fixed tool: `DEBUG=1 ./build.sh` rc 1 at the
+      pre-build pytest (2 failed, 3833 passed); on the mutated ROM directly, dplc_straddle
+      `--gate` rc 1 and anim_frame_bound `--gate` rc 1, each naming all three ("pairs
+      Ani_TailsAppendage with DPLC_Tails", "pairs Ani_Sonic with DPLC_Tails", "writes no #table
+      into TPlayerV.dplc_ptr(a0) (only through a1 — a SPLIT binding"). After two later
+      refinements (module-scope lines are scanned; prose in string literals is not a reference,
+      `code: "R"` is) the final tool was re-graded on the same three mutations directly: same
+      three faults, 6 sites; then restored.
+    - **Green:** files restored with `git show HEAD:`, `DEBUG=1 ./build.sh` rc 0, crc `24b22fa8`
+      (= baseline), "anim/DPLC pairing: 6 Perform_DPLC* call site(s), 8 (anim, DPLC) pair(s)
+      keyed by slot, 1 declared, 0 fault(s)".
+    - **Not followed (named, not covered):** an `anim_table` write in a helper the calling
+      routine calls; the slot's a0 at the call is taken as the SST convention, not tracked.
+
 ## THREE INSTRUMENTS, THREE WAYS OF BEING WRONG — 2026-09-19
 
 Closes **`COST-PROBE-W20-STALE`** and **`TWO-BROKEN-TOOLS`**. Three tools were booked as wrong

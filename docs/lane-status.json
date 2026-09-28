@@ -1,5 +1,5 @@
 {
-  "focus": "Owner asleep. Seven fixes landed tonight; now the second song bank, one step at a time.",
+  "focus": "14 fixes landed since last night. Metropolis's song and another parallax saving are in progress.",
   "inFlight": [
     {
       "what": "Song bank 2 with Metropolis's song: finishing and checking it on every Sonic 2 test level",
@@ -7,8 +7,8 @@
       "agent": true
     },
     {
-      "what": "Measure whether the sprite art-load pairing check can be fooled, and fix it if so",
-      "where": "branch fix/gpp-dplc-pairing",
+      "what": "Parallax: keep the background view across a split region (RAM measured first)",
+      "where": "branch perf/parallax-ppb4",
       "agent": true
     }
   ],
@@ -54,7 +54,7 @@
     {
       "id": "PERF-PARALLAX-PPB4",
       "title": "Parallax: keep the background view across a split region instead of rebuilding it every frame (about 2k cycles a frame there; costs some RAM, measured first)",
-      "state": "next",
+      "state": "doing",
       "size": "M",
       "blockedBy": null
     },
@@ -95,8 +95,8 @@
     },
     {
       "id": "GATE-PREDICATE-VS-PROMISE",
-      "title": "Checks guarding something near their subject: 14 fixed (3 tonight); the rest need a design call, another lane, or are unmeasured doubts",
-      "state": "doing",
+      "title": "Checks guarding something near their subject: 15 fixed (5 overnight); the rest need a design call, another lane, or are unmeasured doubts",
+      "state": "next",
       "size": "M",
       "blockedBy": null
     },
@@ -154,5 +154,5 @@
   ],
   "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-09-28T12:43:03Z"
+  "updatedAt": "2026-09-28T13:28:35Z"
 }
