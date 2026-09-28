@@ -1,12 +1,6 @@
 {
-  "focus": "Fixing the collision layer where Metropolis crosses into Chemical Plant (hub's go); one agent on it.",
-  "inFlight": [
-    {
-      "what": "Collision-layer fix at the Metropolis to Chemical Plant crossing",
-      "where": "branch fix/woven-crossing-path",
-      "agent": true
-    }
-  ],
+  "focus": "Landed the Chemical Plant crossing wall fix. Next small fix: the background slide after a debug warp into Hidden Palace.",
+  "inFlight": [],
   "blockedOnOwner": [
     {
       "id": "SP6-MODULATION-DIVERGENCE",
@@ -29,7 +23,7 @@
       "since": "2026-09-28"
     }
   ],
-  "nextBoundary": "When the crossing fix lands; next open row after it is the Hidden Palace warp background slide.",
+  "nextBoundary": "At a boundary, clearable. Next row WARP-VSCROLL-PRIME (hub go needed or the standing list push).",
   "queue": [
     {
       "id": "WOVEN-EDITABLE-IN-AURORA",
@@ -40,8 +34,8 @@
     },
     {
       "id": "WOVEN-CROSSING-PATH",
-      "title": "Arriving at Chemical Plant's west edge on the wrong collision layer lets Sonic through a wall (not yet seen in play)",
-      "state": "doing",
+      "title": "Wall at the Metropolis to Chemical Plant crossing: fixed; all 15 crossings agree on either layer",
+      "state": "open",
       "size": "S",
       "blockedBy": null,
       "project": "REGIONS"
@@ -233,6 +227,6 @@
     }
   ],
   "awaiting": null,
-  "atBoundary": false,
-  "updatedAt": "2026-09-28T03:18:17Z"
+  "atBoundary": true,
+  "updatedAt": "2026-09-28T04:08:13Z"
 }
