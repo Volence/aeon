@@ -5,6 +5,11 @@
       "what": "Parallax: keep the background view across a split region (RAM measured first)",
       "where": "branch perf/parallax-ppb4",
       "agent": true
+    },
+    {
+      "what": "Sizing your woven-act wishes: reaching the cut-off pieces, and swapping part of a tunnel for more real level",
+      "where": "branch research/woven-touchups",
+      "agent": true
     }
   ],
   "blockedOnOwner": [
@@ -33,7 +38,7 @@
   "queue": [
     {
       "id": "WOVEN-EDITABLE-IN-AURORA",
-      "title": "Make the woven act editable in aurora: sized (ours medium, aurora's large to very large); your call on freezing it",
+      "title": "Woven act touch-ups you described (cut-off pieces, a shorter tunnel): being sized now; likely no freeze needed",
       "state": "blocked",
       "size": "M",
       "blockedBy": "decision card WOVEN-EDITABLE"
@@ -149,5 +154,5 @@
   ],
   "awaiting": "your listen to Metropolis's song (s4.s2_mtz_cpz.bin, crc ffcfd9c8) when you have a minute",
   "atBoundary": false,
-  "updatedAt": "2026-09-28T14:07:52Z"
+  "updatedAt": "2026-09-28T14:08:52Z"
 }
