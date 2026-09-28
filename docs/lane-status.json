@@ -10,6 +10,11 @@
       "what": "Make parallax cheaper in Emerald Hill (14.6k cycles a tick, mostly per-band work), same picture",
       "where": "branch perf/parallax-perband",
       "agent": true
+    },
+    {
+      "what": "Check that Sonic's collision sensors really read the loop layer he is on (the old check for it was retired)",
+      "where": "branch fix/gpp-layer-sensors",
+      "agent": true
     }
   ],
   "blockedOnOwner": [
@@ -111,7 +116,7 @@
     {
       "id": "GATE-PREDICATE-VS-PROMISE",
       "title": "Checks guarding something near their subject: 13 fixed (collision tables and insta-shield tonight); the rest need a design call or another lane",
-      "state": "open",
+      "state": "doing",
       "size": "M",
       "blockedBy": null
     },
@@ -162,5 +167,5 @@
   ],
   "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-09-28T07:48:45Z"
+  "updatedAt": "2026-09-28T07:49:27Z"
 }
