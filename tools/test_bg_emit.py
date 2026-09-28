@@ -1514,7 +1514,7 @@ class TestBgAnimRoomOverCommittedFixture(unittest.TestCase):
 
     def _tree(self, band=(8, 4), blob_len=FIXTURE_ART_SONIC_BYTES, lst="s4.debug.lst",
               anchor=FIXTURE_ANCHOR, sound_gap=None, tail="", head_lma=None,
-              pads=(), extra_pin=None, pad_modules=()):
+              pads=(), extra_pin=None, pad_modules=(), order=None):
         """A hermetic aeon-shaped tree holding only what bganim_room reads.
 
         `sound_gap` overrides the declared `sound_bank - dac_banks` distance (the F6
@@ -1535,6 +1535,8 @@ class TestBgAnimRoomOverCommittedFixture(unittest.TestCase):
                 f.write(f"module {module_id} in {module_id.rsplit('.', 1)[-1]}\n"
                         f"{align_src}\n")
         with open(os.path.join(d, "games", "sonic4", "map.toml"), "w") as f:
+            if order is not None:       # a root array: TOML needs it ahead of the tables
+                f.write("order = [%s]\n\n" % ", ".join(f'"{n}"' for n in order))
             f.write('[[anchor]]\nname = "dac_banks"\nat = 0x%X\nwhen = "sound_on"\n\n'
                     '[[anchor]]\nname = "sound_bank"\nat = 0x%X\nwhen = "sound_on"\n'
                     % (anchor, anchor + (sound_gap if sound_gap is not None
@@ -1919,6 +1921,96 @@ class TestBgAnimRoomOverCommittedFixture(unittest.TestCase):
         with self.assertRaises(bganim_room.Unmeasurable) as cm:
             bganim_room.rom_room(lst, tree)
         self.assertIn("a foreign label sits INSIDE the section", str(cm.exception))
+
+    # ---- a zero-length TAIL at the next section's head (2026-09-28) ------------------
+    # Every Sonic 2 clip act is the disabled stub (inject_editor_bg's no-animation arm):
+    # `BgAnim_Table: u16 = 0`, the three declined view names (zero-length in the plain
+    # shape) and `BgAnim_Banks = Data.empty`. In s4.s2clip.lst the four tail rows sit at
+    # 0x81166 with the next section's Map_TestObj, and the address-only `>= end` test
+    # refused every such build (S2CLIP=s2_woven, s2_woven DEBUG, s2_mtz_cpz DEBUG).
+
+    #: The map order the real map declares around this section (games/sonic4/map.toml).
+    ORDER = ["OJZ_Palette", "BgAnim_Table", "Map_TestObj", "Map_DustSpindash"]
+
+    def _stub_tree(self, order=ORDER, stray=None, lst="s4.lst"):
+        """The fixture tree with the GENERATED module replaced by the disabled stub the
+        emitter writes, and its tail rows listed at Map_TestObj's address, the way the
+        clip listing lists them (by name at one address). `stray` = (name, lma) adds a
+        foreign row. Returns (tree, lst, head, map_testobj)."""
+        import bganim_room
+        mto = bganim_room.lst_labels(self.FIXTURE)["Map_TestObj"]
+        head = mto - inject_editor_bg.BGANIM_COUNT_BYTES     # the stub's one emitting row
+        tree, lst = self._tree(lst=lst, head_lma=head, order=order)
+        gen = os.path.join(tree, "games", "sonic4", "data", "generated", "bg_anim.emp")
+        with open(gen, "w") as f:
+            f.write("module games.sonic4.ojz_bg_anim_act1 in ojz_bg_anim\n"
+                    "pub data BgAnim_Table: u16 = 0\n")
+            inject_editor_bg._emit_declined_views(f)
+            f.write("pub data BgAnim_Banks = Data.empty\n")
+        tail = ["BgAnim_Banks"] + list(inject_editor_bg.BGANIM_VIEW_NAMES)
+        extra = [(n, mto) for n in tail] + ([stray] if stray else [])
+        with open(lst, encoding="utf-8") as f:
+            rows = [ln for ln in f.read().splitlines()
+                    if not ln.rstrip().endswith(" BgAnim_Banks:")
+                    and not re.match(r"^ BgAnim_Banks : ", ln)]
+        at = next(i for i, ln in enumerate(rows) if ln.rstrip().endswith(" Map_TestObj:"))
+        for name, lma in sorted(extra, key=lambda r: (r[1], r[0])):
+            rows.insert(at, f"(0) 0/{lma:X} :        {name}:")
+            at += 1
+        with open(lst, "w", encoding="utf-8") as f:
+            f.write("\n".join(rows) + "\n")
+        return tree, lst, head, mto
+
+    def test_a_zero_length_tail_at_the_next_sections_head_is_the_boundary(self):
+        """RED on d2849d5c: its `>= end` read the four zero-length tail rows as a foreign
+        label INSIDE the section. The map places Map_TestObj's section after this one and
+        sections do not overlap, so the rows at its head hold no bytes: the span is the
+        stub's one count word, exactly."""
+        import bganim_room
+        tree, lst, head, mto = self._stub_tree()
+        span = bganim_room.rom_room(lst, tree)["section"]
+        self.assertEqual((span["head"], span["end"], span["next_label"]),
+                         (head, mto, "Map_TestObj"))
+        self.assertEqual(span["bytes"], inject_editor_bg.BGANIM_COUNT_BYTES)
+
+    def test_a_tail_tie_the_map_does_not_resolve_is_unmeasurable(self):
+        """The control on the same listing: without the map declaring Map_TestObj as a
+        section head, nothing says whether the tie rows hold bytes. Refused, not guessed."""
+        import bganim_room
+        tree, lst, _head, _mto = self._stub_tree(order=["OJZ_Palette", "BgAnim_Table"])
+        with self.assertRaises(bganim_room.Unmeasurable) as cm:
+            bganim_room.rom_room(lst, tree)
+        self.assertIn("no label there is a section head the map's `order` declares",
+                      str(cm.exception))
+        tree, lst, _head, _mto = self._stub_tree(order=None)
+        with self.assertRaises(bganim_room.Unmeasurable) as cm:
+            bganim_room.rom_room(lst, tree)
+        self.assertIn("declares no `order`", str(cm.exception))
+
+    def test_a_head_the_map_places_earlier_is_a_contradiction(self):
+        import bganim_room
+        tree, lst, _head, _mto = self._stub_tree(
+            order=["Map_TestObj", "OJZ_Palette", "BgAnim_Table"])
+        with self.assertRaises(bganim_room.Unmeasurable) as cm:
+            bganim_room.rom_room(lst, tree)
+        self.assertIn("the listing and the map disagree", str(cm.exception))
+
+    def test_a_foreign_label_strictly_inside_the_stub_is_still_unmeasurable(self):
+        """The purpose kept: a foreign row one byte into the stub's count word ends the
+        span there, and the section's own tail rows then lie ABOVE the end. Refused even
+        though the map resolves the tie at Map_TestObj."""
+        import bganim_room
+        tree, lst, head, _mto = self._stub_tree(stray=("Stray_Label", 0))
+        with open(lst, encoding="utf-8") as f:
+            text = f.read().replace("(0) 0/0 :        Stray_Label:",
+                                    f"(0) 0/{head + 1:X} :        Stray_Label:")
+        with open(lst, "w", encoding="utf-8") as f:
+            f.write(text)
+        with self.assertRaises(bganim_room.Unmeasurable) as cm:
+            bganim_room.rom_room(lst, tree)
+        msg = str(cm.exception)
+        self.assertIn(f"Stray_Label at 0x{head + 1:X} is not in section 'ojz_bg_anim'", msg)
+        self.assertIn("a foreign label sits INSIDE the section", msg)
 
     def test_a_section_no_module_declares_is_unmeasurable(self):
         import bganim_room

@@ -707,6 +707,22 @@ def labels_in(labels, lo, hi):
     return sorted((a, n) for n, a in labels.items() if lo <= a < hi)
 
 
+def declared_section_heads(map_toml):
+    """The map's `order`: the byte-emitting sections' head labels, in placement order.
+    `section:<name>` rows name a section, not a label, and are left out. Refused when the
+    map has no `order`, so a caller that needs it never reads an empty list as an answer."""
+    try:
+        with open(map_toml, "rb") as f:
+            order = tomllib.load(f).get("order")
+    except (OSError, tomllib.TOMLDecodeError) as e:
+        raise Unmeasurable(f"cannot read the section order from {map_toml}: {e}")
+    if not isinstance(order, list) or not order:
+        raise Unmeasurable(
+            f"{map_toml} declares no `order`, the placement contract that says which "
+            f"section follows which. Not a layout.")
+    return [n for n in order if isinstance(n, str) and not n.startswith("section:")]
+
+
 #: A `data` definition's NAME, typed or not (`pub data X: u16 = 0`, `data _y = ...`).
 #: `_EMP_DATA_DEF` above needs `=` right after the name, so it cannot see a typed one,
 #: and the growing section's generated module types most of its rows.
@@ -735,8 +751,10 @@ def section_span(labels, aeon, game_dir=None):
     section's first label, or an alignment pad in front of it: stopping at the pad
     UNDERSTATES the span by at most the pad, the conservative direction). Refused as
     Unmeasurable: no module defining the head, the head in two sections, no foreign
-    label above the head, one of the section's own labels at or past that end, or an
-    `embed` the section binds whole running past it (a foreign label INSIDE the section).
+    label above the head, one of the section's own labels past that end, or an `embed`
+    the section binds whole running past it (a foreign label INSIDE the section). An own
+    label AT the end is a zero-length tail only when a label there is another section's
+    head declared after this one in the map's `order`; otherwise it too is refused.
 
     Only `engine/` and THIS game's tree (`game_dir`, the map's directory) are searched: every
     game supplies a `BgAnim_Table` (games/demo/data/demo_data.emp does), and another game's
@@ -776,13 +794,51 @@ def section_span(labels, aeon, game_dir=None):
             f"from this listing. Not a size.")
     end, next_label = above[0]
     ours = {n: labels[n] for n in names if n in labels}
-    past = sorted((a, n) for n, a in ours.items() if a >= end)
+    past = sorted((a, n) for n, a in ours.items() if a > end)
     if past:
         raise Unmeasurable(
             f"section span: {next_label} at 0x{end:X} is not in section {sec!r}, but that "
-            f"section's own {', '.join(n for _a, n in past)} lie(s) at or above it: a "
+            f"section's own {', '.join(n for _a, n in past)} lie(s) above it: a "
             f"foreign label sits INSIDE the section, so its end is not where the next "
             f"label says. Not a size.")
+    # The section's own labels AT `end` (2026-09-28, fix/bganim-room-zero-length). The
+    # listing cannot order two rows at one address: it lists them by NAME, not emission
+    # (s4.lst lists BgAnim_Banks, emitted last, ahead of the view rows emitted before
+    # it). So a row of ours at `end` is either a zero-length tail with the next section
+    # starting there, or it holds bytes and the foreign label at `end` is inside. Every
+    # Sonic 2 clip act is the disabled stub: 2 B of BgAnim_Table, then BgAnim_Banks and
+    # the three view names, all zero-length at the address of the next section's
+    # Map_TestObj. The address-only test (`>= end`) refused all of them.
+    # What tells the two apart is the MAP, not the listing: sections are placed whole,
+    # one after another, in its `order`, so their byte ranges do not overlap. A foreign
+    # label at `end` > head that the map declares as ANOTHER section's head proves ours
+    # ended at or before `end`, so our rows there hold no bytes. Declared ahead of ours,
+    # that section would lie wholly below the head: that contradiction is refused.
+    # Anything else at `end` (a label the map does not declare as a head) proves
+    # nothing, and the tie stays refused.
+    at_end = sorted(n for n, a in ours.items() if a == end)
+    if at_end:
+        order = declared_section_heads(os.path.join(game_dir, "map.toml"))
+        pos = {n: i for i, n in enumerate(order)}
+        heads_at_end = sorted((n for n, a in labels.items()
+                               if a == end and n not in names and n in pos),
+                              key=pos.get)
+        if not heads_at_end:
+            raise Unmeasurable(
+                f"section span: section {sec!r}'s own {', '.join(at_end)} lie(s) at "
+                f"0x{end:X}, the address of the foreign {next_label}, and no label there "
+                f"is a section head the map's `order` declares. The listing lists rows at "
+                f"one address by name, not emission, so it cannot say whether those rows "
+                f"hold bytes (and {next_label} is INSIDE the section) or are its "
+                f"zero-length tail. Not a size.")
+        if GROWTH_SECTION_HEAD not in pos or pos[heads_at_end[0]] < pos[GROWTH_SECTION_HEAD]:
+            raise Unmeasurable(
+                f"section span: {heads_at_end[0]} at 0x{end:X} is a section head the map's "
+                f"`order` declares "
+                + (f"AHEAD of {GROWTH_SECTION_HEAD}" if GROWTH_SECTION_HEAD in pos
+                   else f"while it declares no {GROWTH_SECTION_HEAD}")
+                + f", yet it sits above {GROWTH_SECTION_HEAD} 0x{head:X} in this listing: "
+                f"the listing and the map disagree about the layout. Not a size.")
     for name, rel in sorted(embeds.items()):
         if name not in ours:
             continue
