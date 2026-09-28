@@ -233,6 +233,30 @@ PIXEL BY PIXEL FROM ITS OWN COLLISION, so the art and the ground cannot disagree
   K8  the optional `fill` (below): a `why`, a rect on the 16-px collision block grid inside
       the act, and every clip/corridor edge that meets it on that grid too (one block has
       one collision word, so it cannot be half fill).
+  K11 the optional `path_lines` (below): each entry is exactly {mouth, donor_obj03, why},
+      `mouth` "east" or "west" naming a mouth where a clip meets the corridor, `donor_obj03`
+      {x, y} integers, `why` a non-empty string; one entry per mouth.
+
+PATH LINES AT A CORRIDOR MOUTH (WOVEN-CROSSING-PATH, 2026-09-27). A clip is a CROP of a Sonic 2
+zone, so the plane switcher that sets the path a player carries onto the crop's first ground
+can lie OUTSIDE the crop, and nothing re-creates it: the player carries whatever path he left
+the other zone on. Where that matters, a corridor may name the donor Obj03 that Sonic 2 has
+there, and the bake (tools/s2_layer_lines.py `connector_lines`, refusal L7) places a copy of it
+INSIDE the corridor, PATH_LINE_INSET_PX before that mouth, spanning the corridor's open height,
+with the Obj03's own subtype re-packed (both directions, both priority bits: LayerLine has no
+keep-priority flag). Schema, inside a corridor:
+
+    "path_lines": [ { "mouth": "east",                    // the mouth the copy sits at
+                      "donor_obj03": { "x": 6536, "y": 1152 },  // that clip's donor coords
+                      "why": "..." } ]                     // the measurement that admits it
+
+It is DECLARED per mouth, never inferred for every connector, on purpose. The inference ("the
+last path-setting line a run along the corridor's height crosses before the crop edge") is the
+estimate WOVEN-CROSSING-PATH measured WRONG at Emerald Hill's east edge in both directions; L7
+checks that premise holds for a declared line (right side of the crop, extent over the
+standing body, nothing in between), which is necessary, not sufficient. What admits a line is
+the `why`: tools/path_b_floor_witness.py --connectors showing the path matters at that crossing
+(layer 0 and layer 1 end apart) and that the line puts him on the path Sonic 2 has.
 
 FILL (the woven report's §C item 6, 2026-09-27). v1's seal walls, generalised: in a woven
 act the zones sit a connector's length apart in BOTH axes, and everything between them that
@@ -492,7 +516,7 @@ class Clip:
 class Corridor:
     """One synthesised neutral stretch between clips (see CORRIDORS in the header)."""
 
-    __slots__ = ("id", "dst", "floor_y", "index", "tunnel")
+    __slots__ = ("id", "dst", "floor_y", "index", "tunnel", "path_lines")
 
     #: The axis a player crosses a corridor along: it joins the clip that ends at its left
     #: edge to the clip that starts at its right edge (`connector_ends`).
@@ -505,12 +529,18 @@ class Corridor:
         self.floor_y = int(raw["floor_y"])
         #: None (an open corridor: a floor and air above it) or a CorridorTunnel.
         self.tunnel = None
+        #: [{"mouth", "donor_obj03": (x, y), "why"}] (K11; PATH LINES in the header).
+        self.path_lines = []
 
     def as_json(self):
         out = {"id": self.id, "dst_rect": dict(zip(_RECT_KEYS, self.dst)),
                "floor_y": self.floor_y}
         if self.tunnel is not None:
             out["tunnel"] = self.tunnel.as_json()
+        if self.path_lines:
+            out["path_lines"] = [
+                {"mouth": p["mouth"], "donor_obj03": dict(zip(("x", "y"), p["donor_obj03"])),
+                 "why": p["why"]} for p in self.path_lines]
         return out
 
     def __repr__(self):
@@ -929,6 +959,39 @@ def _load_tunnel(kid, raw, co, clips, donor_root, here, art_only=False):
     return _load_art(kid, "corridor", raw, clips, donor_root, here)
 
 
+def _load_path_lines(kid, raw, co, clips, here):
+    """K11 — a corridor's optional `path_lines` (PATH LINES in the header). Shape only: the
+    donor premise (the named Obj03 exists, sets a path, sits outside the crop on this side and
+    spans the standing body) is s2_layer_lines' L7, at bake, where the donor is read."""
+    if not isinstance(raw, list) or not raw:
+        raise ClipManifestError(f"K11 corridor {kid!r}: `path_lines` must be a non-empty list",
+                                here)
+    ends = dict(zip(("west", "east"), connector_ends(clips, co)[1:]))
+    out = []
+    for n, p in enumerate(raw):
+        where = f"K11 corridor {kid!r}: path_lines[{n}]"
+        if not isinstance(p, dict) or set(p) != {"mouth", "donor_obj03", "why"}:
+            raise ClipManifestError(f"{where} must be exactly {{mouth, donor_obj03, why}}", here)
+        if p["mouth"] not in ends:
+            raise ClipManifestError(f"{where}: mouth {p['mouth']!r} is not 'east' or 'west'",
+                                    here)
+        if ends[p["mouth"]] is None:
+            raise ClipManifestError(f"{where}: no clip meets the corridor's {p['mouth']} mouth, "
+                                    f"so there is no donor zone to name a line of", here)
+        if any(q["mouth"] == p["mouth"] for q in out):
+            raise ClipManifestError(f"{where}: a second line at the {p['mouth']} mouth", here)
+        ob = p["donor_obj03"]
+        if (not isinstance(ob, dict) or set(ob) != {"x", "y"}
+                or not all(isinstance(ob[k], int) and not isinstance(ob[k], bool)
+                           for k in ("x", "y"))):
+            raise ClipManifestError(f"{where}: donor_obj03 must be exactly {{x, y}} integers",
+                                    here)
+        if not isinstance(p["why"], str) or not p["why"].strip():
+            raise ClipManifestError(f"{where}: `why` must say what admitted the line", here)
+        out.append({"mouth": p["mouth"], "donor_obj03": (ob["x"], ob["y"]), "why": p["why"]})
+    return out
+
+
 def _load_art(kid, noun, raw, clips, donor_root, here):
     """K5 — a connector's `art` block: a zone some clip of the act uses, and wall_src /
     back_src on the 8-px grid inside that zone's crop. Returns a CorridorTunnel carrying it."""
@@ -1251,6 +1314,8 @@ def load(path, donor_root=None, constants=None, warn=None, warning_records=None)
                 f"off the collision grid would be drawn at one y and stood on at another.", here)
         if "tunnel" in kr:
             co.tunnel = _load_tunnel(kid, kr["tunnel"], co, clips, donor_root, here)
+        if "path_lines" in kr:
+            co.path_lines = _load_path_lines(kid, kr["path_lines"], co, clips, here)
         corridors.append(co)
 
     shafts = _load_shafts(path, raw, clips, seen_ids, owner, grid_w * sec_px,

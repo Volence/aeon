@@ -81,6 +81,10 @@ THE REFUSALS (every one names what it is about):
       switch paths where the prototype does not, so it is refused rather than approximated.
       MEASURED 2026-09-27: Hidden Palace's act-1 layout carries NO Obj03 (43 records), so an
       HPZ clip bakes with zero lines, which is exactly the prototype's behaviour.
+  L7  a corridor's declared path line (clip_manifest PATH LINES, `connector_lines`) whose
+      donor premise does not hold: no such Obj03, a keep-path or horizontal one, one inside
+      the crop or on the wrong side of it, one whose extent misses the corridor's standing
+      height, or one with another path-setting line between it and the crop edge.
 (There is no L3. An overlap between two lines is legal Sonic 2 content, ordered as above.)
 """
 import os
@@ -336,11 +340,116 @@ def lines(act, consts=None, asm_for=None):
     return out
 
 
+#: How far inside the corridor, before the mouth it serves, a path line is placed (px). A step
+#: of up to LL_STEP_MAX_X (16 px, player_common.emp) crosses it, and the frame after, every
+#: sensor (the widest reach is a wall sensor's ~10 px plus that step) still reads corridor
+#: cells, which are identical on both planes: so the path is set before any sensor can read
+#: the arrival clip's collision on the old one. Two collision blocks.
+PATH_LINE_INSET_PX = 32
+
+
+def connector_lines(act, consts=None, asm_for=None, order0=0):
+    """The declared `path_lines` of the act's corridors (clip_manifest PATH LINES, K11), one
+    LINE record each: a copy of the named donor Obj03, placed PATH_LINE_INSET_PX inside the
+    corridor before the mouth it serves and spanning the corridor's open height, with the
+    Obj03's own subtype re-packed. Each is refused (L7) unless the premise the declaration
+    rests on holds in the donor:
+      * the clip at that mouth is a FINAL-game clip (the prototype's rule is L6's refusal);
+      * exactly one Obj03 of the zone's act-1 layout sits at the named donor (x, y);
+      * it SETS a path (not x-flipped) and is vertical (a corridor is crossed along x);
+      * it lies OUTSIDE the crop, on the corridor's side (west of the crop for the east mouth,
+        east of it for the west mouth): inside, it is already baked by `lines()`;
+      * its extent covers the body of a player standing on the corridor floor, mapped into
+        donor coordinates ([floor_y - 2 x PLAYER_Y_RADIUS, floor_y)): the height a run
+        through the corridor arrives at;
+      * no OTHER path-setting vertical Obj03 of the zone whose extent meets that band lies
+        between it and the crop edge: it is the last path Sonic 2 sets on that run.
+    That premise is the nearest-line estimate WOVEN-CROSSING-PATH measured wrong elsewhere, so
+    it is necessary only; what admits a declaration is the witness (see the header of
+    clip_manifest PATH LINES). The records carry `mouth`, `connector` and `subtype`, which
+    tools/path_b_floor_witness.py --connectors grades the arrival path against."""
+    import clip_manifest as CM
+    c = consts or engine_constants()
+    radius2 = CM.player_clearance_px() - 1          # 2 x PLAYER_Y_RADIUS
+    asm_cache = {}
+    out = []
+    for co in getattr(act, "corridors", ()):
+        if not getattr(co, "path_lines", None):
+            continue
+        _ax, west_clip, east_clip = CM.connector_ends(act, co)
+        for pl in co.path_lines:
+            cl = east_clip if pl["mouth"] == "east" else west_clip
+            ox, oy = pl["donor_obj03"]
+            where = (f"corridor {co.id!r} {pl['mouth']} mouth: {cl.zone if cl else '?'} Obj03 "
+                     f"at ({ox}, {oy})")
+            if cl is None:
+                raise LayerLineError(f"L7 {where}: no clip meets that mouth")
+            if cl.donor != s2_donor.S2_FINAL:
+                raise LayerLineError(f"L7 {where}: clip {cl.id!r} is a {cl.donor} clip; only "
+                                     f"the final game's Obj03 rule is run (L6's reason)")
+            if cl.donor not in asm_cache:
+                asm_cache[cl.donor] = (asm_for or _s2_asm)(cl.donor)
+            asm = asm_cache[cl.donor]
+            oid = obj03_id(asm, cl.donor)
+            halves = obj03_half_lengths(asm)
+            recs = [r for r in read_layout(object_layout_path(asm, cl.donor, cl.zone), cl.donor)
+                    if r[3] == oid]
+            hit = [r for r in recs if (r[0], r[1]) == (ox, oy)]
+            if len(hit) != 1:
+                raise LayerLineError(f"L7 {where}: {len(hit)} Obj03 record(s) there in the "
+                                     f"zone's act-1 layout, not one")
+            _x, _y, xflip, _o, st = hit[0]
+            if xflip:
+                raise LayerLineError(f"L7 {where} subtype ${st:02X} is x-flipped: it keeps the "
+                                     f"path, so it cannot be the line that sets it")
+            if st & 0x04:
+                raise LayerLineError(f"L7 {where} subtype ${st:02X} is horizontal; a corridor "
+                                     f"is crossed along x")
+            sx, sy, sw, _sh = cl.src
+            dy = cl.dst[1] - sy
+            if pl["mouth"] == "east" and not ox < sx:
+                raise LayerLineError(f"L7 {where}: x {ox} is not west of clip {cl.id!r}'s crop "
+                                     f"(src x {sx}); a line inside the crop is baked already")
+            if pl["mouth"] == "west" and not ox >= sx + sw:
+                raise LayerLineError(f"L7 {where}: x {ox} is not east of clip {cl.id!r}'s crop "
+                                     f"(src x ..{sx + sw - 1}); a line inside the crop is "
+                                     f"baked already")
+            b0, b1 = co.floor_y - radius2 - dy, co.floor_y - dy
+            half = halves[st & 3]
+            if not (oy - half <= b0 and b1 <= oy + half):
+                raise LayerLineError(
+                    f"L7 {where} subtype ${st:02X}: its extent y {oy - half}..{oy + half - 1} "
+                    f"does not cover the standing body on the corridor floor, donor y "
+                    f"{b0}..{b1 - 1}")
+            lo_x, hi_x = (ox, sx) if pl["mouth"] == "east" else (sx + sw - 1, ox)
+            between = [r for r in recs
+                       if lo_x < r[0] < hi_x and not r[2] and not r[4] & 0x04
+                       and r[1] - halves[r[4] & 3] < b1 and b0 < r[1] + halves[r[4] & 3]]
+            if between:
+                x2, y2, _f, _o, st2 = between[0]
+                raise LayerLineError(
+                    f"L7 {where}: the path-setting Obj03 at ({x2}, {y2}) subtype ${st2:02X} "
+                    f"lies between it and the crop edge across the same band, so it is not the "
+                    f"last path Sonic 2 sets on that run")
+            top = co.tunnel.ceiling_y if co.tunnel is not None else co.dst[1]
+            x = (co.dst[0] + co.dst[2] - PATH_LINE_INSET_PX if pl["mouth"] == "east"
+                 else co.dst[0] + PATH_LINE_INSET_PX)
+            out.append({"order": order0 + len(out), "zone": "connector", "clip": co.id,
+                        "connector": co.id, "mouth": pl["mouth"], "src": (ox, oy),
+                        "donor_zone": cl.zone, "subtype": st, "xflip": 0, "horizontal": False,
+                        "half": (co.floor_y - top) // 2, "x": x, "y": top, "lo": top,
+                        "hi": co.floor_y, "flags": flags_of(st, 0, c),
+                        "where": f"{where} subtype ${st:02X} (path line)"})
+    return out
+
+
 def plan(act, consts=None, asm_for=None):
     """{"lines": [...], "rows": [...], "consts": {...}} for a clip act (rows sorted, no
-    sentinels)."""
+    sentinels): every Obj03 inside a clip (`lines`), then every declared corridor path line
+    (`connector_lines`)."""
     c = consts or engine_constants()
     ls = lines(act, c, asm_for)
+    ls += connector_lines(act, c, asm_for, order0=len(ls))
     sec = act.section_px
     return {"lines": ls, "rows": rows(ls, act.grid_w * sec, act.grid_h * sec, c), "consts": c}
 
