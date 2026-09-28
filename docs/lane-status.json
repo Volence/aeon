@@ -1,6 +1,17 @@
 {
-  "focus": "Both landed: the new Sonic 2 songs and the build fix. A listening ROM is ready for you.",
-  "inFlight": [],
+  "focus": "Giving Metropolis its song in the woven act, and measuring whether the art-room shortage can hit real levels.",
+  "inFlight": [
+    {
+      "what": "Metropolis plays its own song in the woven act",
+      "where": "branch parcel/woven-mtz-song",
+      "agent": true
+    },
+    {
+      "what": "Measure whether pinned art pages can crowd out a screen's art in the Sonic 2 levels",
+      "where": "branch research/p1-famine-reach",
+      "agent": true
+    }
+  ],
   "blockedOnOwner": [
     {
       "id": "SP6-MODULATION-DIVERGENCE",
@@ -23,8 +34,16 @@
       "since": "2026-09-28"
     }
   ],
-  "nextBoundary": "Now: nothing in flight. Next owner-free item is the streaming-art capacity question.",
+  "nextBoundary": "When the Metropolis song parcel lands and the art-room measurement returns (any design choice goes to a card).",
   "queue": [
+    {
+      "id": "WOVEN-MTZ-SONG",
+      "title": "Woven act: Metropolis plays its own song like every other zone",
+      "state": "doing",
+      "size": "S",
+      "blockedBy": null,
+      "project": "REGIONS"
+    },
     {
       "id": "WOVEN-TOUCHUPS",
       "title": "Woven act: you can't reach most of it from the start; a clip-list route fix is measured and ready (no freeze needed), your pick",
@@ -128,8 +147,8 @@
     },
     {
       "id": "P1-FAMINE-PINNED-CAPACITY",
-      "title": "Streaming acts: pinned art pages can crowd out the pages a screen needs (found in the stress test level); engine design question",
-      "state": "next",
+      "title": "Streaming acts: measuring whether pinned art pages can crowd out a screen's pages in the Sonic 2 levels, not just the stress test",
+      "state": "doing",
       "size": "M",
       "blockedBy": null
     },
@@ -142,6 +161,6 @@
     }
   ],
   "awaiting": "your listen to Wing Fortress and Oil Ocean (s4.s2clip.bin, crc ca99b1dc); your WOVEN-TOUCHUPS pick and which covering you meant",
-  "atBoundary": true,
-  "updatedAt": "2026-09-28T19:18:55Z"
+  "atBoundary": false,
+  "updatedAt": "2026-09-28T19:20:25Z"
 }
