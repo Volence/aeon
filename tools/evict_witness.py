@@ -1,82 +1,97 @@
 #!/usr/bin/env python3
-"""Eviction-liveness witness (adjudication debt V-3, 2026-08-09).
+"""Eviction witness (adjudication debt V-3, 2026-08-09; re-aimed 2026-09-28).
 
-Proves the residency cache actually evicts, on the STRESS_EVICT shape, against a
-headless `oracle-aether` IT SPAWNS ITSELF (PAGE_FRAMES_CLAMP frames vs the act's larger
-page pool; both numbers are derived at run time, see the banner below).
+THE PROMISE IT KEEPS: when an act needs more pages than the frames it has, the page cache
+really evicts and re-loads, correctly, and the picture's art stays right. It grades that on
+the STRESS_EVICT shape (the act's page pool is larger than `PAGE_FRAMES_CLAMP`), against a
+headless `oracle-aether` IT SPAWNS ITSELF, stepping ONE EMULATED FRAME per sample.
 
-PHASE 1 (the proof, famine-free): sample Page_Table ONCE PER EMULATED FRAME
-(stepped, not wall-clock timed; see PHASE1_FRAMES) while the OJZ init loads the act. More pages must stream through than there are frames to
-hold them, so the load itself evicts: the sampler observes a page transition
-resident->absent while the distinct-ever-resident count exceeds the frame
-clamp (pigeonhole — no engine instrumentation needed). Both sides of that
-inequality are derived per run and the run REFUSES when it does not hold.
-Measured 2026-08-09: page 2 evicted to admit page 8, distinct 10 over a
-9-frame clamp. Re-measured 2026-09-19 on s4.stress.bin crc32 cd308561:
-same shape — 10 distinct pages, clamp 9, eviction of page 2 observed.
+WHY IT WAS RE-AIMED (EVICT-WITNESS-PHASE1-PREMISE, 2026-09-28). Until then Phase 1 proved
+eviction by watching the INIT bulk load: the whole pool streamed into fewer frames, so the
+load itself evicted (page 2 out for page 8). `787a9980` (2026-09-25) removed that on purpose:
+a streaming act now bulk-loads only pages [0, PAGE_FRAMES_CLAMP) at identity, so the load
+cannot evict, and the old witness FAILED honestly ("distinct resident pages [0..8] (= 9)
+never exceeded the 9-frame clamp"). The eviction now has to come from GAMEPLAY, so the
+witness flies the camera to a window that needs a page the init load did not bring.
 
-PHASE 2 (best-effort scroll churn): one 90-frame camera-scroll burst, then a
-residency re-sample. This leg exercises the reload-after-evict path — but the
-STRESS shape has a KNOWN reachable AllocFrame famine on sustained scroll
-(P-1 class + the 2026-08-09 sustained-right recipes, ledgered in
-2026-08-09-art-streaming-p2-lens-adjudication.md), and the famine is a
-knife-edge race that can fire on the very first burst. A Phase-2 famine is
-therefore reported as the OPEN DEBT it is, without failing the witness —
-Phase 1 already carries the liveness proof.
+THE STIMULUS IS DERIVED, NEVER TYPED. From the build:
+  * the page FIELD: every cell of the act decoded to its pool page from the section block
+    blobs and local maps (tools/fg_working_set.load_page_grid, the one decoder the FG
+    working-set measurements use), after checking byte-for-byte that those files are what
+    the ROM's act descriptor points at (grid dims, each section's block blob, dict length
+    and local map). A field read from files the cart does not carry is refused (exit 2);
+  * the window a camera holds: tools/fg_page_order.window_for_camera, Tile_Cache_Fill's
+    steady-state window from engine constants (80x60 tile cache);
+  * the INITIAL set: the pages resident when the boot settles, read off Page_Table;
+  * the PINNED set: each page's pm_flags in the act's manifest, read out of ROM.
+From those it picks, along the camera's own row after the settle:
+  OUT    the first camera x to the right whose window names a page OUTSIDE the initial set;
+  BACK   after the out leg, the first x back to the left whose window names a page the out
+         leg EVICTED, such that every window between is SERVICEABLE (below).
+No such window is a loud exit 2, never a pass.
 
-Sampling guard: a boot-cleared Page_Table is all zeroes, which decodes as
-"every page resident in frame 0". Samples are ignored until the table
-contains at least one PAGE_NOT_RESIDENT ($FF) sentinel (every legitimate
-post-PageCache_Init state has one).
+SERVICEABLE. A pinned page is never evicted, so once resident it holds its frame for the rest
+of the act. A window is serviceable iff |pages(window) ∪ pinned pages resident by then| <=
+clamp. The BACK leg only flies through serviceable windows, because a window that is not is
+the P-1 capacity famine (below): flying into it is a measurement of that famine, not of
+eviction. The famine is PREDICTED from the same field and printed; `--famine-probe` flies
+into it and dumps the evidence.
+
+WHAT IS GRADED (exit 1 on any of these):
+  * a HALT: `Logic_Tick` unchanged for HALT_FRAMES frames (a raise_error, e.g. the DEBUG
+    PageCache_Audit or AllocFrame's thrash, or a hang). Printed with the recovered
+    raise_error text and the page-cache state;
+  * OUT: no eviction (pigeonhole: distinct pages seen resident must exceed the clamp, and a
+    resident->absent transition must be observed); no admission of a page outside the
+    initial set INTO A FRAME AN EVICTED PAGE HELD (frame re-use); the settled window's pages
+    not all resident;
+  * BACK: no evicted page re-loaded (absent after its eviction, resident again); the settled
+    window's pages not all resident;
+  * ART, after every settle: for every resident page p in frame f, VRAM[f * page_bytes ..]
+    must equal p's tiles, decoded from the ROM's own page blob (raw, or ZX0 via
+    tools/bin/salvador) and Page_Frames[f].pf_page must be p. The same check runs on the
+    initial set before anything moves, as the CONTROL on the reference (a mismatch there is
+    reported as the init load's, not the eviction path's).
+WHAT IT DOES NOT GRADE: the nametable half of the picture (which frame each cache word
+names) is the DEBUG PageCache_Audit's, which halts the run on a violation (a HALT above).
 
 Outcomes (exit code):
-  0 PASS — eviction proven in Phase 1; Phase 2 clean or known-famine
-  1 FAIL — no eviction observed / fault during Phase 1 / setup error
-  2 UNMEASURABLE — the ROM handed to it is not a forced-eviction shape (its act's page
-    pool fits the residency clamp, so nothing CAN evict and the pigeonhole is vacuous),
-    or the cart the server loaded is not the file on disk. Never rendered as a zero and
-    never as a FAIL of the eviction subject: "could not ask" is not "the answer is no".
+  0 PASS
+  1 FAIL — a halt, or a graded property above did not hold
+  2 UNMEASURABLE — the ROM is not a forced-eviction shape (the pool fits the clamp), the
+    derivation has no route (no window needs a page outside the initial set; no serviceable
+    way back to an evicted page), the camera did not fly, or the field / cart is not the
+    one on disk. "Could not ask" is never "the answer is no".
+
+THE P-1 CAPACITY FAMINE, measured 2026-09-28 on s4.stress.bin crc32 7e677683 (origin/master
+bb2d11a1): the act pins pages {0,1,7,8,9} (pm_flags, the >=75%-of-sections rule), so once page
+9 is resident only 4 of the 9 frames are evictable, and section 0's windows at camera x
+~768..1344 (y 144) need all 5 unpinned pages {2..6}. Flying right to page 9 and back left
+halts there: "PageCache_AllocFrame: no free/evictable frame (thrash bug)", demand for page 5,
+every evictable frame named by the cache. See EVICT-WITNESS-PHASE1-PREMISE in
+docs/DEFERRED_WORK.md. The witness keeps its BACK leg short of it by derivation.
 
 Usage (it spawns its OWN emulator; nothing needs to be running first):
   STRESS_EVICT=1 ./build.sh
-  python3 tools/evict_witness.py [--rom s4.stress.bin] [--lst s4.stress.lst]
+  python3 tools/evict_witness.py [--rom s4.stress.bin] [--lst s4.stress.lst] [--famine-probe]
 
-⚠ WHAT THIS FILE WAS UNTIL 2026-09-19, because the shape of the defect is the point.
-It hard-coded `SOCK = "/run/user/1000/oracle.sock"` and connected to whatever legacy
-`oracle_gui` the owner happened to be running. MEASURED on this tree, crc32 62238a15:
-`python3 tools/evict_witness.py --rom s4.debug.bin --lst s4.debug.lst` died in 0 s with an
-unhandled `FileNotFoundError` out of `sock.connect`, exit 1. Nothing in the tree ran it, so
-nothing noticed — the only code reference to its name anywhere was a string in
-`cart_coverage_census.py`'s table of tool classifications. It now spawns a private headless
-`oracle-aether` through `tools/aether_instance.py`, like every other witness here, which is
-also what makes it gradeable by a lane instead of by a person with a GUI open.
-
-THREE COPIED CONSTANTS ARE NOW DERIVED, for the same reason. `PAGE_FRAMES_CLAMP = 9`,
-`PAGE_NOT_RESIDENT = 0xFF` and `OJZ_POOL_PAGES = 10` were transcribed from the engine, and
-a transcribed number is one that nothing notices when the source moves: the pool page count
-in particular comes out of a GENERATED manifest (`ojz_act_pool_manifest.emp`) that any
-level re-bake can change. Each is read from the authority that governs it:
-
-  PAGE_NOT_RESIDENT, PAGE_TABLE_MAX   the listing's own `EQU` lines
-  act_art_pool_pages                  the act descriptor on the running machine
-  PAGE_FRAMES_CLAMP                   the EMITTED `cmpi.w #imm,d6` in `Level_LoadArt`'s
-                                      fully-resident latch (found by local labels),
-                                      NOT its `EQU` — on the STRESS shape those two
-                                      DISAGREE (12 published, 9 compared). The `EQU` is
-                                      read anyway and printed beside it, loudly, because
-                                      an instrument that silently prefers one of two
-                                      disagreeing authorities is how a disagreement
-                                      stays invisible. See the block at that read.
-
-If the pool and the clamp
-ever stop satisfying `pool_pages > clamp` the fixture cannot force an eviction at all, and
-that is now a loud refusal rather than a pigeonhole that quietly always holds.
+HISTORY KEPT BECAUSE THE SHAPES OF THE DEFECTS ARE THE POINT.
+  * Until 2026-09-19 it dialled an ambient legacy socket (`/run/user/1000/oracle.sock`) and
+    died with FileNotFoundError when none ran; nothing in the tree ran it, so nothing noticed.
+  * Until 2026-09-25 it sampled a free-running machine every 50 ms of wall time and missed a
+    12-frame residency window in 11 of 16 runs. Every sample is now one stepped frame.
+  * Transcribed constants (clamp, PAGE_NOT_RESIDENT, pool pages) are read from the artifacts.
+    PAGE_FRAMES_CLAMP is read off the EMITTED `cmpi.w #imm,d6` in Level_LoadArt's
+    fully-resident latch (located by local labels, EVICT-WITNESS-SITE 2026-09-28), not its
+    EQU: on the 2026-09-17 sigil the STRESS listing published 12 while the ROM compared 9.
 """
 import argparse
 import asyncio
 import os
-import re
+import subprocess
 import sys
+import tempfile
+import zlib
 from pathlib import Path
 
 AEON = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -84,89 +99,74 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))  # tools/, for suite_pa
 from suite_paths import add_client_path  # noqa: E402
 add_client_path()  # the Aether client, resolved from the suite root; loud if absent
 from aether import BusClient  # noqa: E402
-from aether_instance import AetherInstance  # noqa: E402
+from aether_instance import AetherInstance, SpawnError  # noqa: E402
+from cart_identity import CartMismatch  # noqa: E402
+from stressart_legs_witness import (Unmeasurable, sym, rd, listing_labels,  # noqa: E402
+                                    nearest_label, raise_message)
+import re  # noqa: E402
 
-# PHASE 1 IS SAMPLED ONCE PER EMULATED FRAME, NOT ON A WALL-CLOCK TIMER (2026-09-25,
-# EVICT-WITNESS-WIRING). Until then it was `PHASE1_SECONDS = 15` of free-running emulation
-# read every 50 ms of WALL time, and that is a race the witness loses most of the time.
-# MEASURED on s4.stress.bin crc32 cd308561, stepped one frame at a time from the
-# GameState_OJZScroll_Init breakpoint (frame +N = N frames past it, the numbering the PHASE 1
-# line prints): pages 0..8 stream in every 2 frames from +35, page 2 is resident for exactly
-# 12 FRAMES (+39..+50) and is evicted at +51 to admit page 8, and the table is settled by +52. The old sampler read a free-running machine every 50 ms of
-# wall time, so whether a 12-frame window fell between two reads was up to the host: the
-# wall-clock witness exited 1 ("no eviction proven", distinct pages [0,1,3..9] = 9, page 2
-# never seen) in 11 of 16 back-to-back runs on the same ROM on 2026-09-25 (runs 1-3, 10 and
-# 16 passed; load average 16-35 throughout). How the miss rate depends on host speed was NOT
-# measured and is not claimed. A verdict that changes between identical runs of one ROM is
-# not a verdict about the engine. Frame-stepped, the sample sequence is the ROM's.
-# The budget is emulated frames: 900 (15 s at 60 Hz, the window the old constant nominally
-# bought) against a measured settle at +52, so ~17x margin for a slower load; ~5 ms of wall
-# per frame over the bus, so ~4.5 s.
-PHASE1_FRAMES = 900
-BURST_FRAMES = 90
-ACT_ART_POOL_PAGES_OFF = 0x1E   # engine/structs.emp, Act.act_art_pool_pages (u16)
+# ---- run shape (emulated frames) ----
+# Boot settle before any direction goes down (stressart_legs_witness's 300: the act is loaded
+# and the level ticking well before it). Sampled every frame from frame 1, so a page that
+# comes and goes during the settle is still seen.
+BOOT_FRAMES = 300
+# A leg flies until the camera reaches its derived x, within this budget (DEBUG free flight
+# is 16 px a tick; the measured OUT leg is ~120 frames, BACK ~30).
+LEG_FRAMES = 1500
+# After a leg the directions are released and the machine runs until Page_Table has been
+# unchanged for SETTLE_STABLE frames (at most SETTLE_MAX), so every published page's landing
+# DMA has drained before VRAM is read.
+SETTLE_STABLE = 16
+SETTLE_MAX = 240
+# One second of video with no completed logic tick (stressart_legs_witness's definition).
+HALT_FRAMES = 60
+
+# ---- struct layouts read by this tool (engine/structs.emp) ----
+ACT_ART_POOL_TABLE_OFF = 0x1A   # Act.act_art_pool_table (*u8)
+ACT_ART_POOL_PAGES_OFF = 0x1E   # Act.act_art_pool_pages (u16)
+ACT_GRID_PTR_OFF = 0x00         # Act.sec_grid_ptr
+ACT_GRID_W_OFF, ACT_GRID_H_OFF = 0x04, 0x06
+ACT_SEC_LOCAL_MAPS_OFF = 0x22   # Act.act_sec_local_maps ([*u8; grid_w*grid_h])
+SEC_SIZE = 22                   # sizeof(Sec), ensure'd in structs.emp
+SEC_BLOCK_INDEX_OFF, SEC_DICT_LEN_OFF = 0x00, 0x14
+PM_SIZE = 8                     # sizeof(PageManifest): source.l, tiles.w, form.b, flags.b
+PF_SIZE, PF_PAGE_OFF, PF_STAMP_OFF, PF_FLAGS_OFF = 8, 0, 4, 7   # PageFrame
+
 CMPI_W_D6 = b"\x0c\x46"        # cmpi.w #imm,d6 — the residency-clamp compare's opcode
 MOVEQ_D6 = 0x7C                 # moveq #imm,d6 — the bulk-load cap's clamp (high byte)
-# THE CLAMP SITE IS LOCATED BY LOCAL LABELS, NOT BY A BYTE WINDOW (EVICT-WITNESS-SITE,
-# 2026-09-28). It was "exactly one `cmpi.w #imm,d6` in the first 64 bytes of
-# Level_LoadArt", and the 2026-09-28 nightly (origin/master 514c3546) refused with TWO:
-# 787a9980 (2026-09-25, five hours after this witness was wired into the nightly) added a
-# second `cmpi.w #PAGE_FRAMES_CLAMP, d6`, the streaming act's bulk-load cap, at +$30 into
-# the routine. From that commit on, every nightly run refused (bisected by building
-# 787a9980 and its parent; see EVICT-WITNESS-SITE in docs/DEFERRED_WORK.md). A window
-# measured in bytes is a claim about every instruction ahead of the site; the labels are
-# claims about the site itself. The listing publishes each local label as
-# `$<module>$Level_LoadArt$<label> : <addr> C |`, so the spans are:
-#   LATCH  [Level_LoadArt, .streaming_pool)   `cmpi.w #PAGE_FRAMES_CLAMP,d6 / bhi
-#          .streaming_pool`: the fully-resident latch, i.e. the very `pool > clamp`
-#          question this witness's pigeonhole asks. The clamp is read off THIS one.
-#   CAP    [.streaming_pool, .bulk_count_ok)  `cmpi.w #PAGE_FRAMES_CLAMP,d6 / bls
-#          .bulk_count_ok / moveq #PAGE_FRAMES_CLAMP,d6`: the bulk-load cap. Read as a
-#          cross-check: all three immediates are one constant, so a disagreement means the
-#          routine changed shape under this witness, and that is a refusal, not a pick.
-# Each span must hold exactly one `cmpi.w #imm,d6` (and CAP exactly one `moveq #imm,d6`);
-# zero or two is the same loud SETUP refusal the window had. Never widen, never pick.
+# THE CLAMP SITE IS LOCATED BY LOCAL LABELS (EVICT-WITNESS-SITE, 2026-09-28): the listing
+# publishes `$<module>$Level_LoadArt$<label> : <addr> C |`, so the spans are
+#   LATCH [Level_LoadArt, .streaming_pool)  the fully-resident latch; the clamp is read here
+#   CAP   [.streaming_pool, .bulk_count_ok) the bulk-load cap's cmpi + moveq, cross-checked
+# Exactly one site per span or a loud SETUP refusal. Never widen, never pick.
 LATCH_END_LABEL = "streaming_pool"
 CAP_END_LABEL = "bulk_count_ok"
-PAGE_TABLE_MAX_NAME = "PAGE_TABLE_MAX"
+SALVADOR = os.path.join(AEON, "tools", "bin", "salvador")
 
 
 def lst_equ(lst_path: Path, name: str) -> int:
-    """One `EQU <name> = $HHHHHHHH` value out of a sigil listing, or a loud refusal.
-
-    The listing is the only place a comptime constant is published to a tool: it is not a
-    symbol, so `emulator/lookup_symbol` cannot see it (two namespaces, one interface). A
-    missing name is an ERROR and never a default — a default here would be a copied
-    constant wearing a fallback, which is the thing this function exists to replace.
-    """
+    """One `EQU <name> = $HHHHHHHH` out of a sigil listing, or a loud refusal (never a default:
+    the listing is the only place a comptime constant is published to a tool)."""
     pat = re.compile(r"^EQU\s+" + re.escape(name) + r"\s*=\s*\$([0-9A-Fa-f]+)\s*$")
     for line in lst_path.read_text(errors="replace").splitlines():
         m = pat.match(line.strip())
         if m:
             return int(m.group(1), 16)
-    raise SystemExit(
-        f"evict_witness: SETUP — the listing {lst_path} publishes no `EQU {name}`. "
-        f"Refusing to substitute a transcribed value: the whole point of reading it here "
-        f"is that nothing notices when a transcribed one goes stale.")
+    raise Unmeasurable(f"SETUP — the listing {lst_path.name} publishes no `EQU {name}`; "
+                       f"refusing to substitute a transcribed value")
 
 
 def lst_local_label(lst_path: Path, routine: str, label: str) -> int:
-    """The address of local label `.label` inside `routine`, off the listing's symbol table.
-
-    sigil publishes a local label as `$<module>$<routine>$<label> : <HEX> C |`. The module
-    part is matched as a wildcard (a module rename is not this witness's business), but the
-    match must be UNIQUE: zero or several addresses is a loud SETUP refusal, never a pick.
-    """
+    """Address of `.label` inside `routine`; exactly one or a loud SETUP refusal."""
     pat = re.compile(r"^\$[^$\s]+\$" + re.escape(routine) + r"\$" + re.escape(label)
                      + r"\s*:\s*([0-9A-Fa-f]+)\s+C\s*\|")
     hits = {int(m.group(1), 16) for line in lst_path.read_text(errors="replace").splitlines()
             if (m := pat.match(line.strip()))}
     if len(hits) != 1:
-        raise SystemExit(
-            f"FAIL: SETUP — the listing {lst_path.name} publishes {len(hits)} address(es) for "
-            f"local label `.{label}` in {routine} (want exactly one); this witness locates "
-            f"the residency-clamp compare by that label and refuses to guess. Re-derive the "
-            f"site from engine/level/load_art.emp.")
+        raise Unmeasurable(
+            f"SETUP — the listing {lst_path.name} publishes {len(hits)} address(es) for local "
+            f"label `.{label}` in {routine} (want exactly one); re-derive the site from "
+            f"engine/level/load_art.emp")
     return hits.pop()
 
 
@@ -175,269 +175,498 @@ def span_sites(rom_image: bytes, lo: int, hi: int, opword_ok) -> list:
     return [a for a in range(lo, hi - 1, 2) if opword_ok(rom_image[a:a + 2])]
 
 
-async def sym(b, name):
-    r = await b.call("emulator/lookup_symbol", {"name": name})
-    return int(r["addr"], 16)
-
-
-async def read(b, addr, n):
-    """`n` bytes at `addr`, or a loud refusal — never a short or padded answer.
-
-    THE `0x` PREFIX IS A SEAM DIFFERENCE, found while migrating this file to the Rust core
-    on 2026-09-19: oracle-aether returns `bytes` as `0x....` where the legacy C++ server
-    returned bare hex, so the old one-line `bytes.fromhex(r["bytes"])` raised
-    `non-hexadecimal number found ... at position 1` on the very first read. A short reply
-    is NEVER left-padded here: padding would shift every field of a decoded block and the
-    numbers would still look like numbers.
-    """
-    r = await b.call("emulator/read_memory", {"addr": hex(addr & 0xFFFFFF), "len": n})
-    h = str(r["bytes"]).removeprefix("0x").removeprefix("0X")
-    if len(h) != n * 2:
-        raise SystemExit(f"evict_witness: read_memory at ${addr:06X} len {n} returned "
-                         f"{len(h) // 2} byte(s) ({h!r}) — refusing to pad")
-    return bytes.fromhex(h)
-
-
-async def main(sock, rom_path: Path, lst_path: Path):
-    # THE FIXTURE'S OWN TWO NUMBERS, READ OFF THE ARTIFACTS BEING GRADED. Neither is a
-    # literal here any more; see the banner. `PAGE_NOT_RESIDENT` doubles as the sampling
-    # guard's sentinel, so a drift there would have silently disabled the guard.
-    clamp_equ = lst_equ(lst_path, "PAGE_FRAMES_CLAMP")
-    not_resident = lst_equ(lst_path, "PAGE_NOT_RESIDENT")
-    page_table_max = lst_equ(lst_path, PAGE_TABLE_MAX_NAME)
-    print(f"derived from {lst_path.name}: PAGE_FRAMES_CLAMP(EQU)={clamp_equ} "
-          f"PAGE_NOT_RESIDENT=${not_resident:02X} PAGE_TABLE_MAX={page_table_max}")
-
-    b = BusClient(socket_path=sock, client_id="evictw", client_name="evict-witness")
-    await b.connect()
-
-    await b.call("emulator/load_symbols", {"path": str(lst_path)})
-    a_init = await sym(b, "GameState_OJZScroll_Init")
-    a_page_table = await sym(b, "Page_Table")
-    a_err = await sym(b, "ErrorHandlerBlob")
-    a_act = await sym(b, "Current_Act_Ptr")
-    a_loadart = await sym(b, "Level_LoadArt")
-
-    # ---- THE CLAMP IS READ OFF THE INSTRUCTION THAT ENFORCES IT ----
-    # AND THAT IS NOT PEDANTRY, IT IS A MEASURED DISAGREEMENT. On 2026-09-19, on the very
-    # shape this witness exists for, `s4.stress.lst` publishes `EQU PAGE_FRAMES_CLAMP =
-    # $0000000C` (12) while `s4.stress.bin` emitted `cmpi.w #$0009,d6` at what was then the
-    # one site in `Level_LoadArt` that used that name (there are three today, see the block
-    # at LATCH_END_LABEL), i.e. the fixture IS
-    # clamped to 9 and the listing says it is not. The listing's other three constants are
-    # consistent with 9 (`PAGE_FRAMES` 12, `STRESS_EVICT` 1, `STRESS_EVICT_FRAMES` 9, and
-    # constants.emp folds those to 12 - 1*(12-9) = 9), so it is the FOLDED publication that
-    # is wrong, not the shape. Booked in docs/DEFERRED_WORK.md.
-    #
-    # So the authority here is the emitted immediate: the number the 68000 actually compares
-    # against. The EQU is read anyway and printed beside it, because an instrument that
-    # silently prefers one of two disagreeing authorities is how a disagreement stays
-    # invisible. The scan is bounded BY LOCAL LABELS (see the block at LATCH_END_LABEL) and
-    # requires EXACTLY ONE `cmpi.w #imm,d6` per span — zero or two is a refusal, never a
-    # guess, because a routine that grew a second one would otherwise hand back whichever
-    # came first. The three immediates in the two spans must also agree.
-    rom_image = rom_path.read_bytes()
+def emitted_clamp(rom_image: bytes, lst_path: Path, a_loadart: int) -> int:
+    """PAGE_FRAMES_CLAMP as the 68000 compares it (see EVICT-WITNESS-SITE)."""
     a_latch_end = lst_local_label(lst_path, "Level_LoadArt", LATCH_END_LABEL)
     a_cap_end = lst_local_label(lst_path, "Level_LoadArt", CAP_END_LABEL)
     if not a_loadart < a_latch_end < a_cap_end <= len(rom_image):
-        print(f"FAIL: SETUP — Level_LoadArt ${a_loadart:06X}, .{LATCH_END_LABEL} "
-              f"${a_latch_end:06X}, .{CAP_END_LABEL} ${a_cap_end:06X} are not in routine "
-              f"order inside a {len(rom_image)}-byte ROM; refusing to scan a span the source "
-              f"does not describe. Re-derive the site from engine/level/load_art.emp.")
-        return 1
+        raise Unmeasurable(f"SETUP — Level_LoadArt ${a_loadart:06X}, .{LATCH_END_LABEL} "
+                           f"${a_latch_end:06X}, .{CAP_END_LABEL} ${a_cap_end:06X} are not in "
+                           f"routine order; re-derive the site from engine/level/load_art.emp")
     latch = span_sites(rom_image, a_loadart, a_latch_end, lambda w: w == CMPI_W_D6)
     cap = span_sites(rom_image, a_latch_end, a_cap_end, lambda w: w == CMPI_W_D6)
-    cap_moveq = span_sites(rom_image, a_latch_end, a_cap_end, lambda w: w[0] == MOVEQ_D6)
-    for what, lo, hi, sites, insn in (
-            ("fully-resident latch", a_loadart, a_latch_end, latch, "cmpi.w #imm,d6"),
-            ("bulk-load cap", a_latch_end, a_cap_end, cap, "cmpi.w #imm,d6"),
-            ("bulk-load cap", a_latch_end, a_cap_end, cap_moveq, "moveq #imm,d6")):
+    cap_mq = span_sites(rom_image, a_latch_end, a_cap_end, lambda w: w[0] == MOVEQ_D6)
+    for what, sites, insn in (("fully-resident latch", latch, "cmpi.w #imm,d6"),
+                              ("bulk-load cap", cap, "cmpi.w #imm,d6"),
+                              ("bulk-load cap", cap_mq, "moveq #imm,d6")):
         if len(sites) != 1:
-            print(f"FAIL: SETUP — {len(sites)} `{insn}` site(s) in the {what} span "
-                  f"[${lo:06X}, ${hi:06X}) of Level_LoadArt (bounded by its local labels); "
-                  f"this witness reads the residency clamp off exactly one and refuses to "
-                  f"pick. Re-derive the site from engine/level/load_art.emp; never widen the "
-                  f"span.")
-            return 1
+            raise Unmeasurable(f"SETUP — {len(sites)} `{insn}` site(s) in Level_LoadArt's {what} "
+                               f"span; this witness reads the clamp off exactly one")
     clamp = int.from_bytes(rom_image[latch[0] + 2:latch[0] + 4], "big")
-    cap_cmpi = int.from_bytes(rom_image[cap[0] + 2:cap[0] + 4], "big")
-    cap_mq = rom_image[cap_moveq[0] + 1]
-    if not clamp == cap_cmpi == cap_mq:
-        print(f"FAIL: SETUP — Level_LoadArt's three PAGE_FRAMES_CLAMP immediates disagree: "
-              f"latch cmpi ${latch[0]:06X}={clamp}, cap cmpi ${cap[0]:06X}={cap_cmpi}, cap "
-              f"moveq ${cap_moveq[0]:06X}={cap_mq}. They are one constant in "
-              f"engine/level/load_art.emp; refusing to pick one.")
-        return 1
+    c2 = int.from_bytes(rom_image[cap[0] + 2:cap[0] + 4], "big")
+    c3 = rom_image[cap_mq[0] + 1]
+    if not clamp == c2 == c3:
+        raise Unmeasurable(f"SETUP — Level_LoadArt's three PAGE_FRAMES_CLAMP immediates disagree "
+                           f"({clamp}, {c2}, {c3}); refusing to pick one")
     print(f"PAGE_FRAMES_CLAMP(emitted) = {clamp}, read off `cmpi.w #${clamp:04X},d6` at "
-          f"${latch[0]:06X} (the fully-resident latch, before .{LATCH_END_LABEL}); the "
-          f"bulk-load cap's cmpi ${cap[0]:06X} and moveq ${cap_moveq[0]:06X} agree")
+          f"${latch[0]:06X}; the bulk-load cap's cmpi ${cap[0]:06X} and moveq ${cap_mq[0]:06X} "
+          f"agree")
+    return clamp
+
+
+# ---------------------------------------------------------------------------
+# The derivation: page field, pinned set, page art — all tied to the cart
+# ---------------------------------------------------------------------------
+
+def be(img, off, n):
+    return int.from_bytes(img[off:off + n], "big")
+
+
+def derive_field(rom_image: bytes, act_ptr: int):
+    """(PageField, window constants, model) for the act at `act_ptr`, after proving the baked
+    files the field is decoded from are the bytes this cart's descriptor points at."""
+    import fg_working_set as fws
+    import fg_page_order as fpo
+    model = fws.Model()
+    wc = fpo.load_budget_constants()
+    gw, gh = be(rom_image, act_ptr + ACT_GRID_W_OFF, 2), be(rom_image, act_ptr + ACT_GRID_H_OFF, 2)
+    if (gw, gh) != (model.grid_w, model.grid_h):
+        raise Unmeasurable(f"the cart's act grid is {gw}x{gh}, the baked tree's is "
+                           f"{model.grid_w}x{model.grid_h}: the field would describe another act")
+    grid = be(rom_image, act_ptr + ACT_GRID_PTR_OFF, 4)
+    lmaps = be(rom_image, act_ptr + ACT_SEC_LOCAL_MAPS_OFF, 4)
+    dict_lens = fws.load_dict_lens()
+    for i in range(gw * gh):
+        sec = grid + SEC_SIZE * i
+        blocks_at, dict_len = be(rom_image, sec + SEC_BLOCK_INDEX_OFF, 4), be(rom_image, sec + SEC_DICT_LEN_OFF, 2)
+        lmap_at = be(rom_image, lmaps + 4 * i, 4)
+        for what, at, name in (("block blob", blocks_at, f"sec{i}_blocks.bin"),
+                               ("local map", lmap_at, f"sec{i}_local_map.bin")):
+            want = Path(fws.GEN_DIR, name).read_bytes()
+            if rom_image[at:at + len(want)] != want:
+                raise Unmeasurable(f"section {i}'s {what} at ${at:06X} in the cart is not "
+                                   f"{name}: the page field would be decoded from bytes the "
+                                   f"ROM does not carry")
+        if dict_len != dict_lens.get(i):
+            raise Unmeasurable(f"section {i}: the cart's dict length {dict_len} != the baked "
+                               f"{dict_lens.get(i)}")
+    page_grid, _per_sec, _air = fws.load_page_grid(model)
+    return fws.PageField(page_grid), wc, model
+
+
+def page_manifest(rom_image: bytes, act_ptr: int, pool_pages: int):
+    """[(source, tiles, form, flags)] for every pool page, out of the cart."""
+    tbl = be(rom_image, act_ptr + ACT_ART_POOL_TABLE_OFF, 4)
+    return [(be(rom_image, tbl + PM_SIZE * p, 4), be(rom_image, tbl + PM_SIZE * p + 4, 2),
+             rom_image[tbl + PM_SIZE * p + 6], rom_image[tbl + PM_SIZE * p + 7])
+            for p in range(pool_pages)]
+
+
+def page_art(rom_image: bytes, manifest, form_raw: int, form_zx0: int, hdr: int) -> list:
+    """Each page's tiles as the ROM carries them: raw bytes, or its ZX0 stream decoded by
+    salvador (the packer's own decoder; it stops at the stream's end marker, so reading past
+    the stream is harmless). The decoded length must be exactly pm_tiles*32."""
+    out = []
+    for p, (src, tiles, form, _flags) in enumerate(manifest):
+        n = tiles * 32
+        if form == form_raw:
+            art = rom_image[src:src + n]
+        elif form == form_zx0:
+            if not os.access(SALVADOR, os.X_OK):
+                raise Unmeasurable(f"no salvador at {SALVADOR} to decode ZX0 page {p} "
+                                   f"(build.sh builds it)")
+            with tempfile.TemporaryDirectory() as td:
+                a, b = os.path.join(td, "in.zx0"), os.path.join(td, "out.bin")
+                Path(a).write_bytes(rom_image[src + hdr:src + hdr + 2 * n + 64])
+                r = subprocess.run([SALVADOR, "-d", a, b], capture_output=True)
+                art = Path(b).read_bytes() if r.returncode == 0 and os.path.isfile(b) else b""
+        else:
+            raise Unmeasurable(f"page {p}: pm_form {form} is neither RAW nor ZX0")
+        if len(art) != n:
+            raise Unmeasurable(f"page {p}: decoded {len(art)} bytes, pm_tiles says {n}")
+        out.append(art)
+    return out
+
+
+class Route:
+    """Camera x -> the window's page set, along one camera row."""
+
+    def __init__(self, field, wc, cam_y, max_x):
+        self.field, self.wc, self.cam_y, self.max_x = field, wc, cam_y, max_x
+
+    def window(self, x):
+        from fg_page_order import window_for_camera
+        return window_for_camera(self.wc, x, self.cam_y)
+
+    def pages(self, x):
+        l, r, t, b = self.window(x)
+        return self.field.page_set(t, l, b - t + 1, r - l + 1)
+
+
+# ---------------------------------------------------------------------------
+# The run
+# ---------------------------------------------------------------------------
+
+class Run:
+    def __init__(self, b, s, pool, not_resident, clamp, page_frames, rom_image, labels):
+        self.b, self.s, self.pool, self.nr = b, s, pool, not_resident
+        self.clamp, self.page_frames = clamp, page_frames
+        self.rom_image, self.labels = rom_image, labels
+        self.frame = 0
+        self.prev_tick, self.still = None, 0
+        self.prev_table = None
+        self.seen = set()
+        self.owner = {}           # frame -> page last seen resident in it
+        self.events = []          # (frame, "evict"/"admit", page, vram frame, previous occupant)
+        self.evicted_at = {}      # page -> emulated frame of its latest eviction
+        self.reloads = []         # (frame, page, vram frame) — resident again after an eviction
+
+    async def table(self):
+        return await rd(self.b, self.s["Page_Table"], self.pool)
+
+    async def cam(self):
+        return (int.from_bytes(await rd(self.b, self.s["Camera_X"], 4), "big") >> 16,
+                int.from_bytes(await rd(self.b, self.s["Camera_Y"], 4), "big") >> 16)
+
+    async def step(self):
+        """One emulated frame; records residency transitions; True when HALTED."""
+        await self.b.call("emulator/run_frames", {"frames": 1})
+        self.frame += 1
+        t = int.from_bytes(await rd(self.b, self.s["Logic_Tick"], 4), "big")
+        self.still = self.still + 1 if t == self.prev_tick else 0
+        self.prev_tick = t
+        tab = await self.table() if self.pool else b""
+        if self.nr in tab:               # guard vs the boot-zeroed table
+            res = {p: f for p, f in enumerate(tab) if f != self.nr}
+            prev = self.prev_table or {}
+            for p in sorted(set(prev) - set(res)):
+                self.events.append((self.frame, "evict", p, prev[p], None))
+                self.evicted_at[p] = self.frame
+            for p in sorted(set(res) - set(prev)):
+                f = res[p]
+                self.events.append((self.frame, "admit", p, f, self.owner.get(f)))
+                if p in self.evicted_at:
+                    self.reloads.append((self.frame, p, f))
+                self.owner[f] = p
+            self.seen |= set(res)
+            self.prev_table = res
+        return self.still >= HALT_FRAMES
+
+    def resident(self):
+        return dict(self.prev_table or {})
+
+    async def fly(self, buttons, reached):
+        """Hold `buttons` until reached(cam_x) or the budget; returns (halted, reached_at)."""
+        await self.b.call("emulator/hold", {"buttons": buttons, "down": True})
+        try:
+            for _ in range(LEG_FRAMES):
+                if await self.step():
+                    return True, None
+                cx, _cy = await self.cam()
+                if reached(cx):
+                    return False, cx
+            return False, None
+        finally:
+            await self.b.call("emulator/hold", {"buttons": buttons, "down": False})
+
+    async def settle(self):
+        """Run until Page_Table is stable for SETTLE_STABLE frames WHILE THE LOOP TICKS; True
+        when HALTED. A faulted machine also holds a stable Page_Table, so stability alone
+        would call a raise_error settled: measured on the first draft of this function, whose
+        famine probe printed "NOT reproduced" over a machine sitting in the fault island. The
+        exit therefore also needs the last frame to have ticked, and a machine that stops
+        ticking runs on to HALT_FRAMES and is reported as the halt it is."""
+        stable, last = 0, None
+        for _ in range(SETTLE_MAX + HALT_FRAMES):
+            if await self.step():
+                return True
+            cur = self.resident()
+            stable = stable + 1 if cur == last else 0
+            last = cur
+            if stable >= SETTLE_STABLE and self.still == 0:
+                return False
+        raise Unmeasurable(f"Page_Table never held still for {SETTLE_STABLE} ticking frames in "
+                           f"{SETTLE_MAX + HALT_FRAMES}; nothing settled to be graded")
+
+    async def check_art(self, art, what):
+        """Every resident page's frame holds its tiles and names it back. [] = clean."""
+        bad = []
+        frames = await rd(self.b, self.s["Page_Frames"], PF_SIZE * self.page_frames)
+        for p, f in sorted(self.resident().items()):
+            pf_page = be(frames, PF_SIZE * f + PF_PAGE_OFF, 2)
+            if pf_page != p:
+                bad.append(f"page {p} -> frame {f}, but Page_Frames[{f}].pf_page = ${pf_page:04X}")
+            want = art[p]
+            got = b""
+            for off in range(0, len(want), 2048):
+                n = min(2048, len(want) - off)
+                r = await self.b.call("emulator/read_vram",
+                                      {"addr": hex(f * self.page_bytes + off), "len": n})
+                got += bytes.fromhex(str(r["bytes"]).removeprefix("0x").removeprefix("0X"))
+            if got != want:
+                diff = next(i for i in range(len(want)) if got[i:i + 1] != want[i:i + 1])
+                bad.append(f"page {p} in frame {f}: VRAM ${f * self.page_bytes + diff:04X} "
+                           f"(tile {diff // 32}) differs from the page's art")
+        print(f"  ART {what}: {len(self.resident())} resident page(s) checked against their "
+              f"ROM art in VRAM — " + ("clean" if not bad else f"{len(bad)} MISMATCH(ES)"))
+        for line in bad:
+            print(f"    {line}")
+        return bad
+
+    async def dump_halt(self, where):
+        """The famine / fault evidence: the raise text, the frames, what the cache names."""
+        st = await self.b.call("emulator/status", {})
+        pc = int(str(st.get("pc", "0")), 16) & 0xFFFFFF
+        cx, cy = await self.cam()
+        print(f"  HALT during {where} at emulated frame {self.frame - HALT_FRAMES}: Logic_Tick "
+              f"unchanged for {HALT_FRAMES} frames, camera ({cx},{cy}), pc ${pc:06X} "
+              f"({'in' if pc >= self.s['ErrorHandlerBlob'] else 'NOT in'} the fault island)")
+        msgs = await raise_message(self.b, self.rom_image)
+        for site, m in msgs:
+            print(f"    raise_error at ${site:06X} ({nearest_label(self.labels, site)}): {m!r}")
+        if not msgs:
+            print("    raise_error message: none recovered from RAM")
+        frames = await rd(self.b, self.s["Page_Frames"], PF_SIZE * self.page_frames)
+        for f in range(self.page_frames):
+            rec = frames[PF_SIZE * f:PF_SIZE * (f + 1)]
+            pg = be(rec, PF_PAGE_OFF, 2)
+            fl = rec[PF_FLAGS_OFF]
+            print(f"    frame {f:2}: page {'-' if pg == 0xFFFF else pg}, flags ${fl:02X}"
+                  f"{' PINNED' if fl & self.pf_pinned else ''}"
+                  f"{' DEMAND-HELD' if fl & self.pf_held else ''}, stamp {be(rec, PF_STAMP_OFF, 2)}")
+        nt = b""
+        for off in range(0, self.nt_size, 2400):
+            nt += await rd(self.b, self.s["Tile_Cache_Nametable"] + off, min(2400, self.nt_size - off))
+        named = sorted({(be(nt, i, 2) & self.nt_mask) >> self.frame_shift
+                        for i in range(0, len(nt), 2) if be(nt, i, 2) & self.nt_mask})
+        cur = int.from_bytes(await rd(self.b, self.s["PageIn_Cur_Page"], 2), "big")
+        flags = (await rd(self.b, self.s["PageIn_Cur_Flags"], 1))[0]
+        print(f"    Tile_Cache_Nametable names frames {named}; the request being served: page "
+              f"{cur}, flags ${flags:02X}")
+
+
+async def main(sock, rom_path: Path, lst_path: Path, famine_probe: bool) -> int:
+    rom_image = rom_path.read_bytes()
+    labels = listing_labels(lst_path)
+    not_resident = lst_equ(lst_path, "PAGE_NOT_RESIDENT")
+    page_table_max = lst_equ(lst_path, "PAGE_TABLE_MAX")
+    page_frames = lst_equ(lst_path, "PAGE_FRAMES")
+    clamp_equ = lst_equ(lst_path, "PAGE_FRAMES_CLAMP")
+    print(f"evict_witness: {rom_path.name} crc32 {zlib.crc32(rom_image):08x}; derived from "
+          f"{lst_path.name}: PAGE_FRAMES_CLAMP(EQU)={clamp_equ} PAGE_FRAMES={page_frames} "
+          f"PAGE_NOT_RESIDENT=${not_resident:02X}")
+
+    b = BusClient(socket_path=sock, client_id="evictw", client_name="evict-witness")
+    await b.connect()
+    await b.call("emulator/load_symbols", {"path": str(lst_path)})
+    s = {n: await sym(b, n) for n in (
+        "Logic_Tick", "Camera_X", "Camera_Y", "Page_Table", "Page_Frames", "Current_Act_Ptr",
+        "Tile_Cache_Nametable", "PageIn_Cur_Page", "PageIn_Cur_Flags", "ErrorHandlerBlob",
+        "Level_LoadArt")}
+    clamp = emitted_clamp(rom_image, lst_path, s["Level_LoadArt"])
     if clamp != clamp_equ:
-        print(f"  !! DISAGREEMENT: the listing publishes PAGE_FRAMES_CLAMP = {clamp_equ}, the "
-              f"ROM compares against {clamp}. Going with the ROM — it is the one that runs — "
-              f"and the publication is a defect in its own right. See docs/DEFERRED_WORK.md, "
-              f"STRESS-CLAMP-EQU-WRONG.")
+        print(f"  !! DISAGREEMENT: the listing publishes PAGE_FRAMES_CLAMP = {clamp_equ}, the ROM "
+              f"compares against {clamp}. Going with the ROM (STRESS-CLAMP-EQU-WRONG).")
 
-    # THE RELOAD-ORDERING HAZARD THAT USED TO LIVE HERE IS GONE WITH THE RELOAD, and it is
-    # recorded rather than deleted because the hazard is still real for any tool that reloads:
-    # `emulator/reload_rom` re-binds the symbol table it already holds instead of re-reading
-    # the `.lst`, and REPORTS `symbolsDropped: false`, which reads as reassurance — so a
-    # symbol resolved AFTER a reload comes back "no such symbol" while sitting in the listing
-    # you just grepped (oracle's finding, 2026-09-04). This file resolved every symbol before
-    # its reload and was safe by a decision taken for an unrelated reason. It no longer
-    # reloads at all: a private spawn is handed the ROM on its command line.
-    await b.call("emulator/breakpoint_add", {"addr": hex(a_init)})
+    run = Run(b, s, None, not_resident, clamp, page_frames, rom_image, labels)
+    run.page_bytes = lst_equ(lst_path, "ART_POOL_PAGE_BYTES")
+    run.pf_pinned = lst_equ(lst_path, "PF_PINNED")
+    run.pf_held = 1 << lst_equ(lst_path, "PF_DEMAND_HELD_BIT")
+    run.nt_size = lst_equ(lst_path, "TILE_CACHE_NT_SIZE")
+    run.nt_mask = lst_equ(lst_path, "NT_TILE_MASK")
+    run.frame_shift = lst_equ(lst_path, "PAGE_FRAME_TILE_SHIFT")
 
-    # THE CART IS ALREADY PROVEN. `AetherInstance.start()` asserts the Rust server and then
-    # compares the loaded cart against the file on disk while the machine is still stopped at
-    # frame 0, and raises `CartMismatch` (UNMEASURABLE, never a zero) if they differ. The
-    # RELOAD this function used to perform is gone with the ambient socket that made it
-    # necessary: reloading existed to make somebody ELSE's running emulator hold our ROM.
-    # A private spawn is given the ROM on its command line, so there is nothing to reload
-    # and no `symbolsDropped: false` reassurance to misread.
-    await b.call("emulator/resume", {})
-    await b.call("emulator/pause", {})
-
-    # SEND-SIDE SPELLING IS PINNED TO THE SERVER WE ACTUALLY TALK TO. The legacy server
-    # takes `timeout_ms`; oracle's Rust core takes `timeoutMs` and REFUSES an unknown key
-    # with -32602 rather than aliasing it (accepting both spellings is how a vocabulary
-    # rots). This probe MIGRATED to the Rust core on 2026-09-19 (it used to dial an ambient
-    # legacy socket), and per the owner ruling of 2026-08-26 the spelling flips in the same
-    # commit as the migration and never before — `tools/test_wait_for_break_spelling.py`
-    # and `tools/test_legacy_seam_keys.py` both read this file's seam off its imports and
-    # grade this key against it, so the two halves cannot land apart.
-    r = await b.call("emulator/wait_for_break", {"timeoutMs": 60000})
-    # READ SIDE, AND THIS IS THE HALF THAT USED TO FAIL SILENTLY. It was
-    # `r.get("timeout_reached")`: after a migration that key is spelled `timeoutReached`,
-    # `.get` returns None, None is falsy, and A SURRENDER READS AS A SUCCESS — the probe
-    # would announce the breakpoint was reached when the server had just told it the
-    # opposite. The parameter error above announces itself; this one never would.
-    # Dual-accept is legitimate on the RECEIVE side, and the absence of BOTH spellings is
-    # now a loud error rather than a default.
-    for key in ("timeout_reached", "timeoutReached"):
-        if key in r:
-            timed_out = bool(r[key])
-            break
-    else:
-        raise RuntimeError(
-            "wait_for_break replied with neither `timeout_reached` nor `timeoutReached` "
-            f"(keys: {sorted(r)}). Refusing to guess: reading a missing key as False would "
-            "report a timeout as a reached breakpoint.")
-    if timed_out:
-        print("FAIL: never reached GameState_OJZScroll_Init")
-        return 1
-    await b.call("emulator/breakpoint_clear", {"all": True})
-
-    async def in_fault():
-        s = await b.call("emulator/status", {})
-        return int(s["pc"], 16) >= a_err  # fault island = last emission
-
-    # ---- THE POOL PAGE COUNT, READ OFF THE ACT THE MACHINE ACTUALLY LOADED ----
-    # It used to be `OJZ_POOL_PAGES = 10`, transcribed from
-    # `games/sonic4/data/generated/ojz/act1/ojz_act_pool_manifest.emp` — a GENERATED file
-    # that `tools/regenerate-level.sh` rewrites.
-    #
-    # IT IS RESOLVED INSIDE THE SAMPLE LOOP, NOT AT THE BREAKPOINT, and that was MEASURED
-    # rather than chosen for elegance: read immediately at `GameState_OJZScroll_Init` the
-    # pointer is not yet installed and comes back $001814FC, which the bus rejects as past
-    # the end of an 848,075-byte cart. `Level_Load` installs it a little way INTO the state
-    # this breakpoint anchors. So the loop below asks every iteration until the answer is a
-    # plausible ROM address, and ignores samples until then — which costs nothing, because
-    # the $FF sampling guard already ignores everything before `PageCache_Init` anyway.
-    rom_bytes = rom_path.stat().st_size
-
-    async def try_pool_pages():
-        ptr = int.from_bytes(await read(b, a_act, 4), "big") & 0xFFFFFF
-        if not 0 < ptr < rom_bytes - ACT_ART_POOL_PAGES_OFF - 2:
-            return None, ptr
-        n = int.from_bytes(await read(b, ptr + ACT_ART_POOL_PAGES_OFF, 2), "big")
-        return (n if 0 < n <= page_table_max else None), ptr
-
-    # ---- PHASE 1: init-load residency churn, sampled EVERY EMULATED FRAME ----
-    # The machine stays stopped at the breakpoint and is advanced one frame per sample, so
-    # the sample sequence is a property of the ROM, not of the host's load. See the block at
-    # PHASE1_FRAMES for the measured 12-frame residency window the wall-clock sampler missed.
-    seen = set()
-    evicted_pages = set()
-    first_eviction = None
-    prev = None
-    valid_samples = 0
-    pool_pages = None
-    act_ptr = 0
-    for frame in range(1, PHASE1_FRAMES + 1):
-        await b.call("emulator/run_frames", {"frames": 1})
-        if pool_pages is None:
-            pool_pages, act_ptr = await try_pool_pages()
-            if pool_pages is None:
-                continue
-            print(f"act descriptor ${act_ptr:06X} (frame +{frame}): "
-                  f"act_art_pool_pages={pool_pages} vs PAGE_FRAMES_CLAMP={clamp}")
-        table = await read(b, a_page_table, pool_pages)
-        if not_resident in table:      # guard vs the boot-zeroed table
-            resident = {i for i, f in enumerate(table) if f != not_resident}
-            valid_samples += 1
-            seen |= resident
-            if prev is not None:
-                gone = prev - resident
-                if gone and first_eviction is None:
-                    first_eviction = (frame, sorted(gone), sorted(resident - prev))
-                evicted_pages |= gone
-            prev = resident
-    if await in_fault():
-        print("FAIL: fault raise during init load (Phase 1 must be famine-free)")
-        return 1
-    if pool_pages is None:
-        print(f"FAIL: Current_Act_Ptr never resolved to a usable act descriptor in "
-              f"{PHASE1_FRAMES} frames (last value ${act_ptr:06X}). act_art_pool_pages could "
-              f"not be derived, and a transcribed one is what this tool just stopped using.")
-        return 1
-
-    # ---- IS THIS SHAPE EVEN A FORCED-EVICTION FIXTURE? ----
-    # The proof below is a pigeonhole: more distinct pages stream through than there are
-    # frames to hold them. That argument is only available while pool_pages > clamp. On a
-    # CANONICAL shape the clamp equals PAGE_FRAMES and the pool fits it, the cache
-    # degenerates to fully-resident by design (§9.7), and nothing evicts — so running this
-    # witness there and reporting FAIL would be reporting the engine working as designed.
-    # It is UNMEASURABLE (exit 2), named, with the build line that produces the right shape.
-    # CHECKED BEFORE `valid_samples`, deliberately: on a fully-resident shape the sampler
-    # can legitimately see nothing to report, and "no samples" is the wrong sentence for it.
-    if pool_pages <= clamp:
-        print(f"UNMEASURABLE: this shape cannot force an eviction — the act's {pool_pages}-page "
-              f"pool fits the {clamp}-frame residency clamp, so the cache is fully resident by "
-              f"design and the pigeonhole below would be vacuous ({len(seen)} distinct pages "
-              f"over {valid_samples} samples). Build the fixture shape: "
-              f"`STRESS_EVICT=1 ./build.sh` (writes s4.stress.bin / s4.stress.lst).")
+    # ---- boot settle, sampled every frame; the pool size comes off the loaded act ----
+    act_ptr, pool = 0, None
+    for _ in range(BOOT_FRAMES):
+        if pool is None:
+            act_ptr = int.from_bytes(await rd(b, s["Current_Act_Ptr"], 4), "big") & 0xFFFFFF
+            if 0 < act_ptr < len(rom_image) - 0x30:
+                n = be(rom_image, act_ptr + ACT_ART_POOL_PAGES_OFF, 2)
+                if 0 < n <= page_table_max:
+                    pool, run.pool = n, n
+        if await run.step():
+            await run.dump_halt("the boot settle")
+            return 1
+    if pool is None:
+        raise Unmeasurable(f"Current_Act_Ptr never resolved to an act in {BOOT_FRAMES} frames "
+                           f"(last ${act_ptr:06X})")
+    print(f"act descriptor ${act_ptr:06X}: act_art_pool_pages={pool} vs PAGE_FRAMES_CLAMP={clamp}")
+    if pool <= clamp:
+        print(f"UNMEASURABLE: this shape cannot force an eviction — the act's {pool}-page pool "
+              f"fits the {clamp}-frame residency clamp, so the cache is fully resident by design. "
+              f"Build the fixture shape: `STRESS_EVICT=1 ./build.sh` (writes s4.stress.bin / "
+              f"s4.stress.lst).")
         return 2
-    if valid_samples == 0:
-        print("FAIL: no valid Page_Table samples (guard never satisfied)")
+
+    manifest = page_manifest(rom_image, act_ptr, pool)
+    pinned = {p for p, m in enumerate(manifest) if m[3] & lst_equ(lst_path, "ART_PAGE_FLAG_PINNED")}
+    art = page_art(rom_image, manifest, lst_equ(lst_path, "ART_PAGE_FORM_RAW"),
+                   lst_equ(lst_path, "ART_PAGE_FORM_ZX0"), lst_equ(lst_path, "ART_HDR_SIZE"))
+    field, wc, model = derive_field(rom_image, act_ptr)
+
+    initial = run.resident()
+    identity = all(f == p for p, f in initial.items())
+    print(f"INITIAL (after the {BOOT_FRAMES}-frame settle): resident {sorted(initial)}"
+          f"{' at identity' if identity else ' (NOT at identity: ' + str(initial) + ')'}; "
+          f"evictions during the settle: {sum(1 for e in run.events if e[1] == 'evict')}; "
+          f"pinned pages (pm_flags) {sorted(pinned)}")
+    if await run.check_art(art, "CONTROL, the initial set as the init load landed it"):
+        print("FAIL: the init load's pages do not match their ROM art (the reference is decoded "
+              "independently, from the cart's own page blobs); nothing has been evicted yet, so "
+              "this is the init path's defect, not the eviction path's")
         return 1
 
-    pigeonhole = len(seen) > clamp
-    if not pigeonhole:
-        print(f"FAIL: no eviction proven — distinct resident pages {sorted(seen)} "
-              f"(= {len(seen)}) never exceeded the {clamp}-frame clamp "
-              f"({valid_samples} samples)")
-        return 1
-    first = (f"; first at frame +{first_eviction[0]}: evicted {first_eviction[1]} admitting "
-             f"{first_eviction[2]}" if first_eviction else "")
-    print(f"PHASE 1: eviction proven — {len(seen)} distinct pages "
-          f"> {clamp} frames; directly observed evictions: "
-          f"{sorted(evicted_pages) or '(transition not sampled)'}{first} "
-          f"[{valid_samples} per-frame samples over {PHASE1_FRAMES} frames]")
+    # ---- derive the route ----
+    cam_x0, cam_y = await run.cam()
+    max_x = max(0, model.act_cols * 8 - wc["SCREEN_WIDTH"])
+    route = Route(field, wc, cam_y, max_x)
+    outside = lambda x: route.pages(x) - set(initial)  # noqa: E731
+    x_out = next((x for x in range(cam_x0, max_x + 1, 8) if outside(x)), None)
+    if x_out is None:
+        anywhere = any(m >> clamp for row in field.mask_field(wc["TILE_CACHE_COLS"],
+                                                              wc["TILE_CACHE_ROWS"]) for m in row)
+        print(f"UNMEASURABLE: no window to the right of camera ({cam_x0},{cam_y}) along row y "
+              f"{cam_y} names a page outside the initial set {sorted(initial)}"
+              + ("" if anywhere else f"; NO window anywhere in the act names a page >= {clamp}")
+              + ", so no flight on this row can demand an eviction")
+        return 2
+    print(f"OUT target (derived): camera x {x_out} at y {cam_y}, window {route.window(x_out)} "
+          f"names {sorted(route.pages(x_out))}, of which {sorted(outside(x_out))} are outside the "
+          f"initial set; start camera ({cam_x0},{cam_y})")
 
-    # ---- PHASE 2: one scroll burst, famine-triaged ----
-    await b.call("emulator/press", {"buttons": ["right"], "frames": BURST_FRAMES})
-    if await in_fault():
-        print("PHASE 2: known AllocFrame famine on scroll burst (OPEN DEBT — "
-              "P-1 class, see the adjudication ledger); witness PASS stands on "
-              "Phase 1")
-        print("PASS (with known famine)")
-        return 0
-    table = await read(b, a_page_table, pool_pages)
-    resident = {i for i, f in enumerate(table) if f != not_resident}
-    reloaded = resident - seen if not seen >= resident else resident & evicted_pages
-    print(f"PHASE 2: scroll burst clean — resident now {sorted(resident)}"
-          + (f"; evicted-then-reloaded observed: {sorted(reloaded)}" if reloaded else ""))
-    print("PASS")
+    # ---- OUT leg ----
+    ev0 = len(run.events)
+    halted, at = await run.fly(["right"], lambda cx: cx >= x_out)
+    if halted:
+        await run.dump_halt("the OUT leg")
+        print("FAIL: the OUT leg halted")
+        return 1
+    if at is None:
+        cx, _ = await run.cam()
+        raise Unmeasurable(f"the OUT leg did not fly: camera x {cx} < {x_out} after "
+                           f"{LEG_FRAMES} frames")
+    if await run.settle():
+        await run.dump_halt("the OUT settle")
+        print("FAIL: the OUT leg halted while settling")
+        return 1
+    x_out_end, _ = await run.cam()
+    out_events = run.events[ev0:]
+    for fr, kind, p, f, prev_owner in out_events:
+        print(f"  +{fr}: {kind} page {p} {'from' if kind == 'evict' else 'into'} frame {f}"
+              + (f" (previously page {prev_owner}'s)" if kind == "admit" and prev_owner is not None
+                 else ""))
+    evicted_out = sorted({p for _fr, k, p, _f, _o in out_events if k == "evict"})
+    reuse = [(fr, p, f, o) for fr, k, p, f, o in out_events
+             if k == "admit" and p not in initial and o is not None and o in evicted_out]
+    res = run.resident()
+    need = route.pages(x_out_end)
+    fails = []
+    if len(run.seen) <= clamp or not evicted_out:
+        fails.append(f"no eviction proven: {len(run.seen)} distinct page(s) seen resident against "
+                     f"a {clamp}-frame clamp, evicted {evicted_out}")
+    if not reuse:
+        fails.append("no page outside the initial set was admitted into a frame an evicted page "
+                     "had held (frame re-use not observed)")
+    if not need <= set(res):
+        fails.append(f"settled at camera x {x_out_end}: the window names {sorted(need)} but "
+                     f"{sorted(need - set(res))} is not resident")
+    print(f"OUT: settled at camera x {x_out_end}; {len(run.seen)} distinct pages > {clamp} frames; "
+          f"evicted {evicted_out}; re-used frames "
+          f"{[f'page {p} into frame {f} (was page {o}) at +{fr}' for fr, p, f, o in reuse]}")
+    fails += await run.check_art(art, "after the OUT leg")
+    if fails:
+        for line in fails:
+            print(f"FAIL: {line}")
+        return 1
+
+    # ---- derive the BACK target: a serviceable route to a window naming an evicted page ----
+    # Pinned pages resident by then hold their frames for good; a pinned page the route admits
+    # joins them. A window is serviceable iff its pages plus those fit the clamp.
+    held = {p for p in res if p in pinned}
+    x_back, famine_at, path_max = None, None, 0
+    for x in range(x_out_end, -1, -8):
+        pg = route.pages(x)
+        held |= pg & pinned
+        n = len(pg | held)
+        if n > clamp:
+            famine_at = (x, sorted(pg), sorted(held), n)
+            break
+        path_max = max(path_max, n)
+        if pg & (set(evicted_out) - set(res)):
+            x_back = x
+            break
+    if x_back is None:
+        why = (f"the first window back to the left that is not serviceable is at camera x "
+               f"{famine_at[0]}: it names {famine_at[1]}, and with the pinned pages "
+               f"{famine_at[2]} resident that is {famine_at[3]} > {clamp} frames"
+               if famine_at else "no window back to camera x 0 names an evicted page")
+        print(f"UNMEASURABLE: no serviceable way back to a window that names an evicted page "
+              f"({evicted_out}); {why}")
+        return 2
+    want_back = sorted(route.pages(x_back) & set(evicted_out))
+    print(f"BACK target (derived): camera x {x_back}, window {route.window(x_back)} names "
+          f"{sorted(route.pages(x_back))}, including evicted {want_back}; every window on the way "
+          f"needs <= {path_max} of {clamp} frames")
+
+    # ---- the famine, predicted beyond the BACK target ----
+    fam = None
+    for x in range(x_back, -1, -8):
+        pg = route.pages(x)
+        held |= pg & pinned
+        if len(pg | held) > clamp:
+            fam = (x, sorted(pg), sorted(held), len(pg | held))
+            break
+    if fam:
+        print(f"P-1 FAMINE (predicted, not flown): at camera x {fam[0]} the window names {fam[1]}; "
+              f"with the pinned pages {fam[2]} resident that is {fam[3]} pages for {clamp} frames, "
+              f"so no frame is evictable there (EVICT-WITNESS-PHASE1-PREMISE)")
+
+    # ---- BACK leg ----
+    ev1, back_start = len(run.events), run.frame
+    halted, at = await run.fly(["left"], lambda cx: cx <= x_back)
+    if halted:
+        await run.dump_halt("the BACK leg")
+        print("FAIL: the BACK leg halted on a route derived serviceable")
+        return 1
+    if at is None:
+        cx, _ = await run.cam()
+        raise Unmeasurable(f"the BACK leg did not fly: camera x {cx} > {x_back}")
+    if await run.settle():
+        await run.dump_halt("the BACK settle")
+        print("FAIL: the BACK leg halted while settling")
+        return 1
+    x_back_end, _ = await run.cam()
+    for fr, kind, p, f, prev_owner in run.events[ev1:]:
+        print(f"  +{fr}: {kind} page {p} {'from' if kind == 'evict' else 'into'} frame {f}"
+              + (f" (previously page {prev_owner}'s)" if kind == "admit" and prev_owner is not None
+                 else ""))
+    reloaded = [(fr, p, f) for fr, p, f in run.reloads if p in evicted_out and fr > back_start]
+    res = run.resident()
+    need = route.pages(x_back_end)
+    fails = []
+    if not any(p in res for p in want_back):
+        fails.append(f"none of the evicted pages {want_back} the BACK window names is resident")
+    if not reloaded:
+        fails.append(f"no evicted page ({evicted_out}) was re-loaded")
+    if not need <= set(res):
+        fails.append(f"settled at camera x {x_back_end}: the window names {sorted(need)} but "
+                     f"{sorted(need - set(res))} is not resident")
+    print(f"BACK: settled at camera x {x_back_end}; re-loaded "
+          f"{[f'page {p} into frame {f} at +{fr}' for fr, p, f in reloaded]}")
+    fails += await run.check_art(art, "after the BACK leg")
+    if fails:
+        for line in fails:
+            print(f"FAIL: {line}")
+        return 1
+
+    if famine_probe:
+        if not fam:
+            print("FAMINE PROBE: nothing predicted to the left; not flown")
+        else:
+            print(f"FAMINE PROBE: flying left to camera x {fam[0]} (predicted over capacity)")
+            halted, _at = await run.fly(["left"], lambda cx: cx <= fam[0])
+            if not halted:
+                halted = await run.settle()
+            if halted:
+                await run.dump_halt("the famine probe")
+                print("FAMINE PROBE: reproduced (the verdict below is the eviction proof's)")
+            else:
+                print("FAMINE PROBE: NOT reproduced — the camera reached the predicted window and "
+                      "the machine kept ticking")
+    print(f"PASS: evicted {evicted_out} for a page outside the initial set, re-used the frame, "
+          f"re-loaded {sorted({p for _fr, p, _f in reloaded})}; every resident page's art checked "
+          f"in VRAM after each leg")
     return 0
 
 
@@ -445,24 +674,25 @@ def _cli() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--rom", default=os.path.join(AEON, "s4.stress.bin"))
     ap.add_argument("--lst", default=os.path.join(AEON, "s4.stress.lst"))
+    ap.add_argument("--famine-probe", action="store_true",
+                    help="after the proof, fly into the predicted P-1 famine and dump it")
     args = ap.parse_args()
     rom_path, lst_path = Path(args.rom).resolve(), Path(args.lst).resolve()
-    # A MISSING FIXTURE IS A NAMED REFUSAL, NOT A TRACEBACK. The defaults are the STRESS
-    # shape on purpose — that is the shape this witness is ABOUT — and that shape is
-    # off-canonical, so an ordinary checkout does not have it lying around.
     for label, q in (("ROM", rom_path), ("listing", lst_path)):
         if not q.is_file():
-            print(f"evict_witness: SETUP — no {label} at {q}. This witness grades the "
-                  f"forced-eviction fixture shape; build it with `STRESS_EVICT=1 ./build.sh` "
-                  f"(writes s4.stress.bin / s4.stress.lst), or point --rom/--lst at one.",
-                  file=sys.stderr)
+            print(f"UNMEASURABLE: no {label} at {q}. This witness grades the forced-eviction "
+                  f"fixture shape; build it with `STRESS_EVICT=1 ./build.sh` (writes "
+                  f"s4.stress.bin / s4.stress.lst), or point --rom/--lst at one.")
             return 2
     inst = AetherInstance(str(rom_path), symbols=str(lst_path))
     try:
         sock = inst.start()
         if inst.cart_note:
             print(inst.cart_note)
-        return asyncio.run(main(sock, rom_path, lst_path))
+        return asyncio.run(main(sock, rom_path, lst_path, args.famine_probe))
+    except (Unmeasurable, SpawnError, CartMismatch) as e:
+        print(f"UNMEASURABLE: {e}")
+        return 2
     finally:
         inst.reap()
 
