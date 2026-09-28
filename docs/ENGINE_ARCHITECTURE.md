@@ -4244,9 +4244,14 @@ sequencer frame. Two rules make a song bank other than the SFX bank safe:
   `Sfx_Restore`'s FM voice hand-back and `Sfx_UnpauseRestore`. `Sfx_Restore` returns the window to
   the bank its caller had (the SFX slot loop reads its blob through it). Both are cached no-ops
   while the song shares the SFX bank. This is Flamedriver's restore order.
-The second bank itself (`SongBank2_Head`, anchored at 0xC0000) and the move of the song tables
-out of the Moving-Trucks bank are the remaining steps; see `docs/DEFERRED_WORK.md`
-`## S2CLIP-MTZ-SONG-BANK`.
+- **The song tables are linker-resolved and live outside every song bank's constraints**
+  (`SongTable`/`SongPatchTable`, the tail of the `sfx_bank_blob` section): only the 68k reads
+  them, so they can name a song in any bank. The bank-1 songs are placed natively by
+  `games/sonic4/data/sound/mt_bank.emp`, which sigil's seam-2 also lowers to predict the SFX
+  block's base (the fold gate refuses a disagreement), so its embeds are spelled from the
+  aeon root and `Song_MovingTrucks` stays its first item.
+The second bank itself (`SongBank2_Head`, anchored at 0xC0000) is the remaining step; see
+`docs/DEFERRED_WORK.md` `## S2CLIP-MTZ-SONG-BANK`.
 
 ### 6.5 Distance-Based Sound Attenuation (NOVEL) — DEFERRED, DEMOTED (2026-07-03)
 

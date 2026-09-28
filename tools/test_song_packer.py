@@ -1097,11 +1097,13 @@ class TestCommittedSongHeaders(unittest.TestCase):
 
     def _population(self):
         text = open(self.MT_BANK).read()
-        names = re.findall(r'embed\("(song_[A-Za-z0-9_]+\.bin)"\)', text)
+        # The paths are aeon-root relative (song bank 2 step 1: the ROM build places
+        # mt_bank.emp and resolves its embeds from the root).
+        names = re.findall(r'embed\("(games/sonic4/data/sound/song_[A-Za-z0-9_]+\.bin)"\)', text)
         if not names:
-            self.fail(f"no `embed(\"song_*.bin\")` in {self.MT_BANK}: the audit has "
-                      f"nothing to audit, which must be loud, never a pass")
-        return [os.path.join(os.path.dirname(self.MT_BANK), n) for n in names]
+            self.fail(f"no `embed(\"games/sonic4/data/sound/song_*.bin\")` in {self.MT_BANK}: "
+                      f"the audit has nothing to audit, which must be loud, never a pass")
+        return [os.path.join(AEON, n) for n in names]
 
     @staticmethod
     def _decode(blob):

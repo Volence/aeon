@@ -138,8 +138,8 @@ SHAPES = [
 # than globbing the directory: a poison that stops being registered stops being excused
 # and reds this gate, which a path glob could never notice.
 #
-# CLASS 2 — SEAM-1 SOUND MODULES. `games/sonic4/data/sound/{mt_bank,sfx_blob_win_tab}.emp`
-# reach lowering through `emit_sound_blob` (seam-1), not through any `--check` closure —
+# CLASS 2 — SEAM-1 SOUND MODULES. `games/sonic4/data/sound/sfx_blob_win_tab.emp`
+# reaches lowering through `emit_sound_blob` (seam-1), not through any `--check` closure —
 # sigil's own unreachable warning says so in its parenthetical. `--check` therefore
 # CANNOT see them, and `emit_sound_blob` has no reporting mode to ask (`--help` is
 # rejected; its usage is `--aeon <dir> --out-dir <dir>` and nothing else). Their liveness
@@ -149,9 +149,6 @@ SHAPES = [
 # LS-16b and does not pretend to; it names the boundary and keeps the excusal honest with
 # `test_seam_excusals_are_not_stale` below.
 SEAM_EXCUSED = {
-    "games/sonic4/data/sound/mt_bank.emp":
-        "lowered through seam-1 (emit_sound_blob), invisible to --check; guards proved "
-        "live by tools/extern_guard_census.py via the panic path — see LS-16b",
     "games/sonic4/data/sound/sfx_blob_win_tab.emp":
         "lowered through seam-1 (emit_sound_blob), invisible to --check; guards proved "
         "live by tools/extern_guard_census.py via the panic path — see LS-16b",
