@@ -2,11 +2,6 @@
   "focus": "Owner asleep. Tall-area background guard landed; tonight is code optimizations plus check fixes.",
   "inFlight": [
     {
-      "what": "Insta-shield check also runs the walk-off code, so a walk-off can never trigger it",
-      "where": "branch fix/gpp-instashield-walkoff",
-      "agent": true
-    },
-    {
       "what": "Why bouncing in place in Emerald Hill lags (98 lag frames in 1500), and fix it if contained",
       "where": "branch perf/oscillation-thrash",
       "agent": true
@@ -115,8 +110,8 @@
     },
     {
       "id": "GATE-PREDICATE-VS-PROMISE",
-      "title": "Checks guarding something near their subject: 12 fixed (collision tables tonight); insta-shield walk-off being fixed now",
-      "state": "doing",
+      "title": "Checks guarding something near their subject: 13 fixed (collision tables and insta-shield tonight); the rest need a design call or another lane",
+      "state": "open",
       "size": "M",
       "blockedBy": null
     },
@@ -167,5 +162,5 @@
   ],
   "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-09-28T07:21:21Z"
+  "updatedAt": "2026-09-28T07:48:45Z"
 }
