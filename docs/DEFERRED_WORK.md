@@ -40985,6 +40985,43 @@ for every gate; it is not the proxy/subject shape.
      over-state the span (the generous direction). Today there are none: `BgAnim_Banks` +
      its 8,192 B embed ends exactly at `Map_TestObj` in both shapes; the check only refuses
      an embed running PAST the next label, not a gap before it.
+
+   **REGRESSION, then FIXED 2026-09-28 (`fix/bganim-room-zero-length`, base origin/master
+   `a4a8e0a7`).** The "own label at or past the end" refusal broke every Sonic 2 clip build
+   whose sound banks sit at their own positions (`clip_anchors` runs `rom_room` there):
+   `S2CLIP=s2_woven ./build.sh` exit 1 on the base, with "section span: Map_TestObj at
+   0x81166 is not in section 'ojz_bg_anim', but that section's own BgAnim_Banks,
+   BgAnim_View_H, BgAnim_View_T, BgAnim_View_V lie(s) at or above it: a foreign label sits
+   INSIDE the section". The ROM and listing were written first (plain crc `d821c68b`).
+   - **Cause:** every clip act is the disabled stub (`inject_editor_bg`'s no-animation arm):
+     `BgAnim_Table: u16 = 0` (2 B), then `BgAnim_Banks = Data.empty` and the three declined
+     view names, zero-length in the plain shape, all at the address where the next section
+     `Map_TestObj` starts. Comparing addresses alone (`>= end`) cannot tell a zero-length
+     tail from a foreign label inside the section.
+   - **Not a fix: the listing's row order.** The listing lists rows at one address BY NAME,
+     not in emission order. `s4.lst` lists `BgAnim_Banks` (emitted LAST in its module)
+     ahead of the view rows emitted before it, and `BgAnim_Table` ahead of
+     `OJZ_Act1_BG_Layout_Tall`, which an earlier section emits. The clip's "BgAnim rows
+     before Map_TestObj" was 'B' < 'M'. A first attempt that read row order as emission
+     order failed the live-tree test `test_the_live_tree_growth_path_is_sound_and_its_pads_are_real`
+     on `s4.lst`, and was discarded.
+   - **Fix (tools only, 0 ROM bytes):** the map decides the tie. Sections are placed whole,
+     in the map's `order`, so their byte ranges do not overlap. A label at `end` > head that
+     the map's `order` declares as another section's head, declared AFTER `BgAnim_Table`,
+     proves this section ended at or before `end`, so its own rows at `end` hold no bytes.
+     Still refused: an own label strictly ABOVE `end` (a foreign label inside), a tie with
+     no declared head at `end`, a map with no `order`, a head the map declares AHEAD of
+     `BgAnim_Table` (map and listing disagree), and the `embed` running past `end`. Spans
+     unchanged on the canonical listings: `s4.lst` 8238 B, `s4.debug.lst` 8376 B.
+   - **Tests** (`tools/test_bg_emit.py`, run by the `pytest tools -m "not needs_build"`
+     lane): +4 rows on a stub tree the real emitter's `_emit_declined_views` writes. The
+     tail at the next head gives span `BGANIM_COUNT_BYTES` (red on the base code: the
+     Unmeasurable above). The same listing without `Map_TestObj` in `order`, or with no
+     `order`, is refused. A head declared earlier is refused. A foreign row one byte into
+     the count word is refused as inside.
+   - **Not covered:** an alignment pad (`__align$<module>$<n>`) opening the next section at
+     `end` is not resolved to its section, so an own zero-length row tied with one is
+     still refused (loudly). No listing has that shape today.
 9. **GPP-INSTASHIELD-WALKOFF** (`instashield_gate.py`, measured). `Ground_DetachState`
    `moveq #PSTATE_AIR` -> `#PSTATE_JUMP` gave exit 0. The gate proves the routine refuses every
    state except JUMP/ROLLJUMP. That a walk-off is not JUMP came from a one-time hand enumeration of
