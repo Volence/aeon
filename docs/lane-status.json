@@ -2,11 +2,6 @@
   "focus": "Planning the second sound bank for the Sonic 2 songs with the assembler lane.",
   "inFlight": [
     {
-      "what": "Second song bank: which build shape our sound data needs, so the assembler lane can size its side",
-      "where": "branch research/song-bank-shape",
-      "agent": true
-    },
-    {
       "what": "How far the woven act is from being editable in aurora: sizing our side (aurora asked for theirs)",
       "where": "branch research/woven-editable",
       "agent": true
@@ -65,9 +60,9 @@
     {
       "id": "S2CLIP-MTZ-SONG-BANK",
       "title": "Sonic 2 zone songs: a second song bank is the plan (small engine change); waiting on the assembler lane's side",
-      "state": "doing",
+      "state": "blocked",
       "size": "M",
-      "blockedBy": null,
+      "blockedBy": "sigil: alignment row, shape gate and seam-2 table change (asked with the exact ask, 2026-09-28)",
       "project": "REGIONS"
     },
     {
@@ -234,5 +229,5 @@
   ],
   "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-09-28T01:47:13Z"
+  "updatedAt": "2026-09-28T01:51:50Z"
 }
