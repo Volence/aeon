@@ -146,7 +146,10 @@ LAND_FRAMES = 8
 #: per-tick physics is identical (same y and y_vel tick for tick, landing at y 557.281 on the
 #: 7th tick). Keeping the 8-frame floor means a run the old wait landed is driven from exactly
 #: the frame it was driven from before; only a run the old wait called NEVER LANDED changes.
-LAND_TICK_LIMIT = 30                  # ~4x the 7 ticks the 2 px drop takes; a bound, not a margin
+#: Counted from AFTER the last pin frame, whose own tick is the drop's first, so the drop needs
+#: 6 ticks past the count's start: measured, a limit of 5 is red at the assertion on
+#: 33923201 and 6 is green. 30 is a bound on a stuck landing, not a margin anyone tuned.
+LAND_TICK_LIMIT = 30
 LAND_FRAME_LIMIT = 120                # the tick counter itself stalled: nothing is running
 
 #: THE LAP CHECK (LOOP-EXIT, 2026-09-26). A drive that rides the loop must ride it ONCE and

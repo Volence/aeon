@@ -86,6 +86,11 @@ game ticks by `Logic_Tick`, or `LAND_FRAME_LIMIT` (120) frames if the tick count
 old wait landed is driven from the same frame: on `3db049cd` the fixed witness's default-row output is
 byte-identical to the old one's. On `33923201` (crc `3a8a8e5a`) all five rows exit 0.
 `LAND_FRAMES` stays as the floor and as the unit five importing witnesses scale by 4.
+Mutations on disk against `33923201`'s DEBUG ROM, each restored with `git show HEAD:path > path`:
+the pre-fix witness exits 1 (the nightly's exact message); the fixed witness with
+`LAND_TICK_LIMIT = 5` exits 1 at the assertion ("after 5 game ticks (8 emulator frames)"), so the
+landing check still bites; with 6 it exits 0 (the count starts after the pin frame, whose own tick
+is the drop's first).
 
 **Still open, not fixed here.** SETTLE_FRAMES "camera first, then settle" does not hold the camera:
 the camera tracks the player at his boot x through the settle and then scrolls 400+ px to catch up
