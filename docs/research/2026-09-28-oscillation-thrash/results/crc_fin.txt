@@ -1,0 +1,4 @@
+.perf/roms/fin/cdebug.bin 318adbe6 857039
+.perf/roms/fin/cplain.bin 421a8433 830062
+.perf/roms/fin/debug.bin f487505c 956461
+.perf/roms/fin/plain.bin 518bc1c3 929665

@@ -1,0 +1,4 @@
+.perf/roms/x6/cdebug.bin d022deb8 857220
+.perf/roms/x6/cplain.bin 70a6b895 830223
+.perf/roms/x6/debug.bin f2886c3b 956642
+.perf/roms/x6/plain.bin 1bdb8dc3 929826

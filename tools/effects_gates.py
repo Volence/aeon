@@ -59,6 +59,9 @@ WHAT IT RUNS
      the fill had not populated is a PERMANENT hole on screen. This asserts plane A against the
      tile cache over exactly the recorded window, and asserts that the fill's pending partial
      is never inside it.
+  8b. tile-cache oscillation — `oscillation_thrash_gate` (perf/oscillation-thrash, 2026-09-28).
+     A DEBUG free-flight camera swinging by one block must claim no block-staging slot after
+     warm-up; before the arming run it claimed 452 in 600 ticks, all of them re-decodes.
   9. the palette cross-fade at an authored region edge — `region_fade_witness` (painted-regions
      step 5; joined this lane in the fade-fix parcel, 2026-09-13). It walks OJZ's night edge and
      asserts Palette_DoFade's step rule word for word, and that an install meeting a fade IN
@@ -292,6 +295,13 @@ def gate_registry() -> list[tuple[str, bool, int]]:
         # inline lane (a headless boot plus 30 settled samples), which is exactly why it is
         # here and in the nightly.
         ("tile_cache_fill", True, GATE_EMU_BUDGET),
+        # oscillation_thrash is the tile cache's other streaming member, beside the one above
+        # for the same reason (this is the tree's emulator-gate runner): a DEBUG free-flight
+        # camera swinging by exactly one block (H_PFX_ARM px each way) must claim NO staging
+        # slot once warmed up. The 0 is derived (the swing's demand working set fits
+        # BLOCK_STAGE_SLOTS, checked; only speculation can claim), and it is red at 452 claims
+        # with the col scan's arming gate removed (perf/oscillation-thrash, 2026-09-28).
+        ("oscillation_thrash", True, GATE_EMU_BUDGET),
         # waterline_stamp is EFFECTS-W1 item 9d's ON-SCREEN half, and it rides here for the
         # reason every non-effects member above does: this is the tree's only emulator-gate
         # runner. It is also the lane's only gate whose subject is the SPRITE TABLE. It
@@ -1159,6 +1169,14 @@ def main() -> int:
                            "tile_cache_fill (every plane-A cell the section streamer RECORDS "
                            "as written matches the tile cache, and no partially filled column "
                            "or row is ever inside the recorded window)", ok, msg, final=True))
+
+    if wanted("oscillation_thrash"):
+        ok, msg = run(["python3", str(AEON / "tools/oscillation_thrash_gate.py"),
+                       "--rom", rom, "--lst", lst], "oscillation_thrash")
+        results.append(row("oscillation_thrash",
+                           "oscillation_thrash (a camera swinging back and forth by one block "
+                           "decodes nothing once warmed up: the speculative scans do not stage "
+                           "until the camera has moved one block one way)", ok, msg, final=True))
 
     if wanted("waterline_stamp"):
         ok, msg = run(["python3", str(AEON / "tools/waterline_stamp_witness.py"),

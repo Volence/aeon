@@ -1,0 +1,21 @@
+c_fly_right    ok | DID NOT RUN
+c_fly_down     ok | DID NOT RUN
+c_run          ticks  1800 cam x 96..1073 y 352..429
+    base       d2c5842a   0/1800  dec  757 (0.421/t) re  90.2% pages 0/0 cov [0, 0, 0, -8]
+    x3rel      edb92994   0/1800  dec  473 (0.263/t) re  87.5% pages 0/0 cov [0, 0, 0, -8]
+c_run_dbg      ok | DID NOT RUN
+c_osc_h4       ok | DID NOT RUN
+c_osc_h8       ok | DID NOT RUN
+c_osc_d4       ok | DID NOT RUN
+e_fly_right    ok | DID NOT RUN
+e_run          ticks  1201 cam x 96..5689 y 445..800
+    base       69873061   0/1201  dec  481 (0.400/t) re  43.0% pages 0/0 cov [1, 0, 1, -3]
+    x3rel      4dde4eac   2/1203  dec  404 (0.336/t) re  40.1% pages 0/0 cov [1, 0, 1, -3]
+e_run_dbg      ok | DID NOT RUN
+e_deadend_dbg  ok | DID NOT RUN
+e_pit          ticks  2998 cam x 96..5942 y 445..827
+    base       69873061   1/2999  dec  696 (0.232/t) re  56.5% pages 0/0 cov [1, 0, 1, -2]
+    x3rel      4dde4eac   2/3000  dec  537 (0.179/t) re  50.5% pages 0/0 cov [1, 0, 1, -2]
+e_pit_dbg      ok | DID NOT RUN
+e_osc_h4       ok | DID NOT RUN
+e_osc_d4       ok | DID NOT RUN

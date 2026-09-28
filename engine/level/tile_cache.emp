@@ -11,7 +11,7 @@ use engine.constants.{TILE_CACHE_COLS, TILE_CACHE_ROWS, TILE_CACHE_STRIDE, TILE_
 use engine.constants.{TILE_CACHE_COLL_ROWS, TILE_CACHE_COLL_SIZE, TILE_CACHE_COLL_PLANES, TILE_CACHE_MARGIN_H, TILE_CACHE_MARGIN_V}
 use engine.constants.{BLOCK_TILE_SIZE, BLOCK_TILE_SHIFT, BLOCK_NT_SIZE, BLOCK_COLL_ROWS, BLOCK_COLL_COLS, BLOCK_COLL_PLANE_SIZE}
 use engine.constants.{BLOCKS_PER_SECTION_SHIFT, BLOCKS_PER_SECTION_AXIS, SECTION_SIZE_SHIFT, NT_TILE_MASK, NT_ATTR_MASK}
-use engine.constants.{BLOCK_COLL_SIZE, BLOCK_RAW_SIZE, BLOCK_STAGE_SLOTS, BLOCK_DECOMP_BUDGET, BLOCK_INDEX_SIZE, VFILL_ROWS_PER_FRAME, H_PFX_HYST}
+use engine.constants.{BLOCK_COLL_SIZE, BLOCK_RAW_SIZE, BLOCK_STAGE_SLOTS, BLOCK_DECOMP_BUDGET, BLOCK_INDEX_SIZE, VFILL_ROWS_PER_FRAME, H_PFX_HYST, H_PFX_ARM}
 use engine.constants.{BLOCK_SPEC_LEAD_TICKS, BLOCK_SPEC_REARM, BLOCK_DECOMP_SOFT, BLOCK_FILL_LEAD_ROWS, BLOCK_FILL_LEAD_COLS}
 use engine.constants.{STALL_WATCHDOG_FRAMES, PAGE_AUDIT_FULL, PAGE_FRAMES}
 use engine.constants.{CLAMP_MARGIN_TILES, SCREEN_TILES_W, SCREEN_TILES_H, ART_HOLD_X_BIT, ART_HOLD_Y_BIT}
@@ -781,6 +781,7 @@ pub proc Tile_Cache_Init () clobbers(d0-d7/a0-a6) {
         move.w  d1, Cache_Prev_Cam_X
         clr.w   Cache_H_Pfx_Dir
         clr.w   Cache_H_Pfx_Accum
+        clr.w   Cache_H_Pfx_Run                // the latch's first set arms it (see .cs_first_set)
         clr.w   Cache_Pfx_Skip_Armed
         clr.w   Cache_Pfx_Lag_Flag             // trailing-lag gate baseline (no false skip on frame 1)
         // Prefetch ahead-targets baseline (chain 78): the per-frame Tile_Cache_Fill scan
@@ -1595,7 +1596,8 @@ pub proc Tile_Cache_Fill () clobbers(d0-d7/a0-a6) {
         move.w  #$FFFF, Cache_Pfx_Row_Target
         move.w  #$FFFF, Cache_Pfx_Col_Target
 
-        // ---- ROW SCAN (vertical prefetch; NO hysteresis — gravity is decisive) ----
+        // ---- ROW SCAN (vertical prefetch; NO hysteresis and NO arming run — measured: see
+        //      H_PFX_ARM's note in engine.constants for why the vertical axis has neither) ----
         move.l  Camera_Y, d0
         swap    d0
         lsr.w   #3, d0                         // d0 = camera world tile row
@@ -1741,7 +1743,8 @@ pub proc Tile_Cache_Fill () clobbers(d0-d7/a0-a6) {
         move.w  d5, Pfx_Memo_Mask
 
     .row_done:
-        // ---- COL SCAN (horizontal prefetch; H3 direction hysteresis) ----
+        // ---- COL SCAN (horizontal prefetch; H3 direction hysteresis, then the arming run:
+        //      it STAGES only after H_PFX_ARM px with the latch since it was set/flipped) ----
         // Update the latch EVERY tail-run frame (accuracy), THEN gate the scan on
         // budget. Camera px delta -> direction; the latch flips only after
         // >= H_PFX_HYST px of NET opposite motion (players dither on column seams).
@@ -1763,6 +1766,7 @@ pub proc Tile_Cache_Fill () clobbers(d0-d7/a0-a6) {
     .cs_first_set:
         move.w  d3, Cache_H_Pfx_Dir
         clr.w   Cache_H_Pfx_Accum
+        move.w  #H_PFX_ARM, Cache_H_Pfx_Run    // first motion since init: nothing contradicts it
         jbra    .cs_latched
     .cs_have_latch:
         // opp = motion opposite the latch; accumulate (clamp >=0); flip at threshold
@@ -1781,7 +1785,25 @@ pub proc Tile_Cache_Fill () clobbers(d0-d7/a0-a6) {
         neg.w   d3                             // flip the latched direction
         move.w  d3, Cache_H_Pfx_Dir
         clr.w   Cache_H_Pfx_Accum
+        clr.w   Cache_H_Pfx_Run                // a reversal restarts the arming run
     .cs_latched:
+        // ARMING RUN (horizontal): px moved WITH the latch since it was set or flipped,
+        // net of motion against it, clamped to 0..H_PFX_ARM. Updated every tail-run
+        // tick, like the latch; the col scan stages only once it reaches H_PFX_ARM.
+        move.w  d0, d1
+        tst.w   d3
+        bpl     .hrun_with
+        neg.w   d1                             // latch LEFT: with-latch motion is -delta
+    .hrun_with:
+        add.w   Cache_H_Pfx_Run, d1
+        bpl     .hrun_nonneg
+        moveq   #0, d1
+    .hrun_nonneg:
+        cmpi.w  #H_PFX_ARM, d1
+        ble     .hrun_ok
+        move.w  #H_PFX_ARM, d1
+    .hrun_ok:
+        move.w  d1, Cache_H_Pfx_Run
         // d3 = latched direction (+1 right / -1 left). NOTE: the col scan runs whenever a
         // direction is latched — INCLUDING purely-vertical frames (no H motion this frame)
         // — so it keeps pre-warming the latched-side column. Probe-only cost when that
@@ -1813,6 +1835,8 @@ pub proc Tile_Cache_Fill () clobbers(d0-d7/a0-a6) {
         move.w  d6, Cache_Pfx_Col_Target       // record for the corner (H2) + the PAGE tier
         tst.w   Cache_Spec_Blocked             // F2a GATE (mirror of .pfx's)
         bne     .col_done
+        cmpi.w  #H_PFX_ARM, Cache_H_Pfx_Run    // ARMING GATE (horizontal)
+        blt     .col_done
         // Memo skip — the exact mirror of .pfx above, including both halves of the
         // F2 re-key: BLOCK-ALIGNED row bounds (the scan visits block-aligned rows
         // only, so the raw Top/Bottom moved 8x more often than the set they name)
@@ -1902,6 +1926,10 @@ pub proc Tile_Cache_Fill () clobbers(d0-d7/a0-a6) {
         // (sec_x<grid_w from the col, sec_y<grid_h from the row).
         tst.w   Cache_Spec_Blocked             // F2a GATE — the corner is speculation too
         bne     .fill_return
+        // ARMING GATE: the corner is horizontal speculation too (the col scan publishes its
+        // target whether or not it was armed).
+        cmpi.w  #H_PFX_ARM, Cache_H_Pfx_Run
+        blt     .fill_return
         tst.w   Cache_Fill_Budget
         beq     .fill_return
         move.w  Cache_Pfx_Row_Target, d7

@@ -1,0 +1,6 @@
+== H_ARM_16: 1151:pub const H_PFX_ARM = 16 
+   rc=1 own-message-lines=1
+== H_ARM_168: 1151:pub const H_PFX_ARM = 168 
+   rc=1 own-message-lines=1
+== restored from HEAD: rc=0 diff-lines=0
+finished=2

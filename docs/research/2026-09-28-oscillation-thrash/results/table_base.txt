@@ -1,0 +1,30 @@
+c_fly_right    ticks   700 cam x 112..5824 y 144..144
+    base       1000eded   0/700   dec  180 (0.257/t) re   0.0% pages 0/0 cov [2, -2, -15, -16]
+c_fly_down     ticks   700 cam x 96..96 y 144..5920
+    base       1000eded   0/700   dec  220 (0.314/t) re   0.0% pages 0/0 cov [-23, 0, 2, -16]
+c_run          ticks  1800 cam x 96..1073 y 352..429
+    base       d2c5842a   0/1800  dec  757 (0.421/t) re  90.2% pages 0/0 cov [0, 0, 0, -8]
+c_run_dbg      ticks  1800 cam x 96..1073 y 352..429
+    base       1000eded   0/1800  dec  757 (0.421/t) re  91.1% pages 0/0 cov [0, 0, 0, -8]
+c_osc_h4       ticks   700 cam x 112..800 y 144..144
+    base       1000eded   0/700   dec   32 (0.046/t) re   0.0% pages 0/0 cov [1, -2, -15, -16]
+c_osc_h8       ticks   700 cam x 112..864 y 144..144
+    base       1000eded   0/700   dec  518 (0.740/t) re  93.1% pages 0/0 cov [1, -2, -15, -16]
+c_osc_d4       ticks   696 cam x 112..800 y 144..816
+    base       1000eded   4/700   dec  614 (0.882/t) re  89.6% pages 0/0 cov [2, -2, 2, -16]
+e_fly_right    ticks  1100 cam x 112..16064 y 144..144
+    base       69340439   0/1100  dec  500 (0.455/t) re   0.0% pages 0/0 cov [2, -2, -15, -16]
+e_run          ticks  1201 cam x 96..5689 y 445..800
+    base       69873061   0/1201  dec  481 (0.400/t) re  43.0% pages 0/0 cov [1, 0, 1, -3]
+e_run_dbg      ticks  1201 cam x 96..5689 y 445..800
+    base       69340439   6/1207  dec  479 (0.399/t) re  44.1% pages 0/0 cov [1, 0, 0, -3]
+e_deadend_dbg  ticks  1492 cam x 6140..6708 y 485..578
+    base       69340439   8/1500  dec  319 (0.214/t) re  81.5% pages 0/0 cov [1, 0, -4, -4]
+e_pit          ticks  2999 cam x 96..5942 y 445..827
+    base       69873061   1/3000  dec  696 (0.232/t) re  56.5% pages 0/0 cov [1, 0, 1, -2]
+e_pit_dbg      ticks  2993 cam x 96..5942 y 445..827
+    base       69340439   7/3000  dec  694 (0.232/t) re  57.2% pages 0/0 cov [1, 0, 0, -2]
+e_osc_h4       ticks   900 cam x 112..3360 y 144..144
+    base       69340439   0/900   dec  112 (0.124/t) re   7.1% pages 0/0 cov [2, -2, -15, -16]
+e_osc_d4       ticks   882 cam x 112..800 y 144..816
+    base       69340439  18/900   dec  849 (0.963/t) re  92.6% pages 0/0 cov [2, -2, 2, -16]

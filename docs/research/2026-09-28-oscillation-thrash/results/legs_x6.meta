@@ -1,0 +1,16 @@
+c_fly_right rc=0 load=18.87->18.08
+c_fly_down rc=0 load=18.08->20.32
+c_run rc=0 load=20.32->20.23
+c_run_dbg rc=0 load=20.23->19.04
+c_osc_h4 rc=0 load=19.04->18.24
+c_osc_h8 rc=0 load=18.24->17.74
+c_osc_d4 rc=0 load=17.74->17.04
+e_fly_right rc=0 load=17.04->16.63
+e_run rc=0 load=16.63->16.10
+e_run_dbg rc=0 load=16.10->15.46
+e_deadend_dbg rc=0 load=15.46->14.39
+e_pit rc=0 load=14.39->14.26
+e_pit_dbg rc=0 load=14.26->17.25
+e_osc_h4 rc=0 load=17.25->17.05
+e_osc_d4 rc=0 load=17.05->16.89
+finished=15
