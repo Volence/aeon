@@ -1765,5 +1765,13 @@ if __name__ == "__main__":
 #       red there. The parcel's record of both runs is in DEFERRED_WORK's closure of
 #       SHORT-TUNNEL-VSCROLL-RATCHET.
 #
+#   (d) THE DEAD SNAP TEST (2026-09-28, PARALLAX-STEP5-SNAP-DEAD). Put `clr.b Parallax_Snap_Pending`
+#       back at the foot of Parallax_Update's band loop, before its `jbra Parallax_Step5_Vscroll`.
+#       EXPECT: A7 red on leg P only. RUN: mutant DEBUG crc 0403710a (source restored from the fix
+#       commit 4726422c before the run): exit 1, A7 alone, 19 of 19 stores off target (0, 41, 57
+#       ... 329 against 544: the lerp's 1/16 on the warp's own store, then the rate clamp at 16 a
+#       frame on the tall row). The unfixed tree (e47493aa, crc ef4a4385) is red identically; the
+#       fixed tree (crc 8236bc31) PASS, exit 0, every store at 544.
+#
 # A mutation that leaves the tool green is a runner defect, not a pass: check that the rebuilt
 # ROM is the one the witness loaded (`--rom`) before concluding anything about the instrument.
