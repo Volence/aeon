@@ -2,14 +2,9 @@
   "focus": "Owner asleep. Seven fixes landed tonight; now the second song bank, one step at a time.",
   "inFlight": [
     {
-      "what": "Landing song-bank step 2: the sound driver can switch to a song's own bank (inert today); music checks on the Sonic 2 test level",
+      "what": "Second song bank, step 1: song lists move out of the sound bank so songs can live in bank 2 (the assembler change it needed landed)",
       "where": "branch parcel/song-bank-2",
-      "agent": false
-    },
-    {
-      "what": "Second song bank, step 1 onward: waiting for the assembler lane's small change before the agent resumes",
-      "where": "branch parcel/song-bank-2",
-      "agent": false
+      "agent": true
     },
     {
       "what": "Fix the overnight eviction test drive, which refused to run after code moved under it",
@@ -17,7 +12,7 @@
       "agent": true
     },
     {
-      "what": "Why the loop test drive's player no longer lands at the start (this morning's nightly); bisecting against tonight's parallax landing",
+      "what": "Why the loop test drive's player no longer lands at the start (this morning's nightly); bisecting",
       "where": "branch fix/loop-step-over-landing",
       "agent": true
     }
@@ -69,7 +64,7 @@
     },
     {
       "id": "S2CLIP-MTZ-SONG-BANK",
-      "title": "Sonic 2 zone songs: step 2 building; step 1 waits on one small assembler change (asked, taken)",
+      "title": "Sonic 2 zone songs: step 2 of 4 landed (driver ready); step 1 (move the song lists) building now",
       "state": "doing",
       "size": "M",
       "blockedBy": null,
@@ -164,5 +159,5 @@
   ],
   "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-09-28T09:52:34Z"
+  "updatedAt": "2026-09-28T09:57:37Z"
 }
