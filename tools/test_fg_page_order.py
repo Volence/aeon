@@ -21,6 +21,7 @@ many distinct tiles a camera window meets.
 """
 
 import os
+import re
 import sys
 
 import numpy as np
@@ -234,10 +235,66 @@ def test_check_passes_the_committed_tree_and_refuses_one_frame_under_its_worst(m
     under = dict(c)
     under["PAGE_FRAMES"] = worst - 1
     under["POOL_TILE_CEILING"] = (worst - 1) * c["ART_POOL_PAGE_TILES"]
-    monkeypatch.setattr(fpo, "load_budget_constants", lambda path=None: under)
+    monkeypatch.setattr(fpo, "load_budget_constants", lambda path=None, stress_evict=0: under)
     assert fpo.check() == 1
     out = capsys.readouterr().out
     assert "FG page budget REFUSED" in out and f"worst window needs {worst}" in out
+
+
+def test_stress_evict_check_counts_its_own_pins_against_its_own_clamp(monkeypatch, capsys):
+    """P1-FAMINE-PINNED-CAPACITY (2026-09-28). `check --stress-evict` folds pm_flags at
+    STRESS_EVICT=1 and counts against PAGE_FRAMES_CLAMP, both read from source at that
+    define. Everything below is derived from the committed tree and the constants: the
+    shape passes as committed; it refuses one frame under its own worst; and handed the
+    CANONICAL pins (what the fixture shipped before the fix) it refuses exactly when those
+    pins overfill the clamp somewhere."""
+    c0, c1 = fpo.load_budget_constants(), fpo.load_budget_constants(stress_evict=1)
+    assert c0["PAGE_FRAMES_CLAMP"] == c0["PAGE_FRAMES"]
+    assert c1["PAGE_FRAMES_CLAMP"] < c1["PAGE_FRAMES"], "STRESS_EVICT no longer clamps"
+    assert fpo.check(shape="stress-evict") == 0
+    assert "stress-evict shape" in capsys.readouterr().out
+    pg, pins1, n_pages = fpo.committed_placement(c1)
+    _pg, pins0, _n = fpo.committed_placement(c0)
+    lefts, tops, _, _ = fpo.camera_windows(c1, pg.shape[1], pg.shape[0])
+    worst1 = int(fpo.window_needed(pg, n_pages, pins1, c1, lefts, tops)[0].max())
+    assert worst1 <= c1["PAGE_FRAMES_CLAMP"]
+    over0 = int((fpo.window_needed(pg, n_pages, pins0, c1, lefts, tops)[0]
+                 > c1["PAGE_FRAMES_CLAMP"]).sum())
+    print(f"canonical pins {pins0} at the clamp: {over0} window(s) over; clamp pins {pins1}")
+    real_placement = fpo.committed_placement
+    monkeypatch.setattr(fpo, "committed_placement",
+                        lambda c: (pg, pins0, n_pages) if c["STRESS_EVICT"] else real_placement(c))
+    assert fpo.check(shape="stress-evict") == (1 if over0 else 0)
+    under = dict(c1)
+    under["PAGE_FRAMES_CLAMP"] = worst1 - 1
+    monkeypatch.setattr(fpo, "committed_placement", real_placement)
+    monkeypatch.setattr(fpo, "load_budget_constants",
+                        lambda path=None, stress_evict=0: under if stress_evict else c0)
+    capsys.readouterr()
+    assert fpo.check(shape="stress-evict") == 1
+    out = capsys.readouterr().out
+    assert "FG page budget REFUSED" in out and "(PAGE_FRAMES_CLAMP)" in out
+    assert f"worst window needs {worst1}" in out
+
+
+def test_check_refuses_an_unknown_pm_flags_spelling(monkeypatch, tmp_path, capsys):
+    """A pm_flags spelling the emitter never writes is UNMEASURABLE (exit 2), not a guess."""
+    import fg_working_set as fws
+    pool = os.path.join(fws.GEN_DIR, "ojz_act_pool.emp")
+    text = open(pool).read()
+    bad = re.sub(r"pm_flags: 0 \}", "pm_flags: 2 - STRESS_EVICT }", text, count=1)
+    assert bad != text
+    real_open = open
+
+    def fake_open(path, *a, **k):
+        if os.path.abspath(str(path)) == os.path.abspath(pool):
+            p = tmp_path / "pool.emp"
+            p.write_text(bad)
+            return real_open(p, *a, **k)
+        return real_open(path, *a, **k)
+    monkeypatch.setattr("builtins.open", fake_open)
+    assert fpo.main(["check"]) == 2
+    assert "not one elect_pool_pages emits" in capsys.readouterr().out
 
 
 def test_check_has_no_report_only_mode(capsys):

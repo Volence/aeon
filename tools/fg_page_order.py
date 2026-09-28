@@ -78,10 +78,22 @@ its budget does not stress the cache, it deadlocks it. So the stress bake now ta
 frame-aware pin pass (`place_fixed_pool`, the placed-pool half of `place_pool`) and the same
 refusal, and there is no report-only mode left: every shape that counts, refuses.
 
+AND SO IS STRESS_EVICT, AT ITS OWN CLAMP (P1-FAMINE-PINNED-CAPACITY, 2026-09-28). That
+fixture builds the COMMITTED act with PAGE_FRAMES_CLAMP (9) frames instead of PAGE_FRAMES
+(12), and it used to keep the pins chosen for 12: once page 9 was resident, pins
+[0,1,7,8,9] plus section 0's five unpinned pages needed 10 frames at camera x 1376, and the
+DEBUG engine halted on AllocFrame (tools/evict_witness.py flew it). The bake now runs the
+same frame-aware pin pass at the clamp (`stress_evict_pins`) and ships the difference as a
+comptime expression of the STRESS_EVICT define (elect_pool_pages.PM_FLAGS_SPELLINGS), so the
+canonical bytes do not move, and `check --stress-evict` (build.sh, STRESS_EVICT=1 only)
+refuses that shape when its own pins plus a window exceed its own clamp.
+
 Usage:
-    python3 tools/fg_page_order.py check
+    python3 tools/fg_page_order.py check [--stress-evict]
       exit 0 every window of every act fits; 1 a window is over budget;
       2 UNMEASURABLE (a constant, an input or an act the decoder does not know).
+      --stress-evict counts the STRESS_EVICT fixture instead: pm_flags folded at
+      STRESS_EVICT=1, against PAGE_FRAMES_CLAMP (both read from source at that define).
     python3 tools/fg_page_order.py rom-window --lst L --rom R [--built-after EPOCH]
       the post-sigil arm (GPP-FG-WINDOW-MODEL): exit 0 the ROM's Tile_Cache_Fill computes
       the window `check` counts with; 1 it does not (named); 2 UNMEASURABLE or stale pair.
@@ -121,15 +133,32 @@ class BudgetError(Exception):
 # Constants
 # ---------------------------------------------------------------------------
 
-def load_budget_constants(path=CONSTANTS_EMP):
-    """The budget parameters, read from engine source. Returns a dict name -> int."""
+def load_budget_constants(path=CONSTANTS_EMP, stress_evict=0):
+    """The budget parameters, read from engine source. Returns a dict name -> int.
+
+    `stress_evict` is the value of the STRESS_EVICT build define (0 in every shipped shape,
+    1 in the `STRESS_EVICT=1 ./build.sh` fixture; sigil seeds 0 by default). The dict also
+    carries STRESS_EVICT and PAGE_FRAMES_CLAMP, the frame count PageCache_Init actually
+    threads in that shape, evaluated from the engine's own expression
+    (engine/system/constants.emp) with the define set, never typed here."""
+    if stress_evict not in (0, 1):
+        raise BudgetError(f"STRESS_EVICT is a 0/1 define, not {stress_evict!r}")
     src = ConstantSource()
     src.load_file(path)
     try:
+        src.define("STRESS_EVICT", stress_evict)
         c = {n: src.get(n) for n in BUDGET_CONSTANTS}
+        c["STRESS_EVICT"] = stress_evict
+        c["PAGE_FRAMES_CLAMP"] = src.get("PAGE_FRAMES_CLAMP")
     except (KeyError, ValueError) as exc:
         raise BudgetError(f"budget constant unreadable from {path}: {exc}")
     validate_budget_constants(c)
+    if not 1 <= c["PAGE_FRAMES_CLAMP"] <= c["PAGE_FRAMES"]:
+        raise BudgetError(f"PAGE_FRAMES_CLAMP {c['PAGE_FRAMES_CLAMP']} is outside "
+                          f"[1, PAGE_FRAMES {c['PAGE_FRAMES']}] at STRESS_EVICT={stress_evict}")
+    if stress_evict == 0 and c["PAGE_FRAMES_CLAMP"] != c["PAGE_FRAMES"]:
+        raise BudgetError("PAGE_FRAMES_CLAMP != PAGE_FRAMES at STRESS_EVICT=0: the clamp is no "
+                          "longer byte-inert in the shipped shapes — re-derive this module")
     return c
 
 
@@ -610,10 +639,12 @@ def frame_aware_pins(pg, candidates, F, needed_pin0, c, lefts, tops):
     return kept, needed
 
 
-def budget_verdict(needed, lefts, tops, c):
+def budget_verdict(needed, lefts, tops, c, frames=None, budget_name="PAGE_FRAMES"):
     """The refusal's facts: the worst window (first in row-major order at the peak), its
-    count, and how many windows are over PAGE_FRAMES. Refuses an empty population."""
-    F = c["PAGE_FRAMES"]
+    count, and how many windows are over the budget. The budget is PAGE_FRAMES unless the
+    caller counts a shape that threads fewer frames (the STRESS_EVICT fixture passes its
+    PAGE_FRAMES_CLAMP as `frames`, named by `budget_name`). Refuses an empty population."""
+    F = c["PAGE_FRAMES"] if frames is None else frames
     if needed.size == 0:
         raise BudgetError("no camera window to count: the act has no content — UNMEASURABLE, not a pass")
     peak = int(needed.max())
@@ -621,6 +652,7 @@ def budget_verdict(needed, lefts, tops, c):
     left, top = int(lefts[li[0]]), int(tops[ti[0]])
     return {
         "frames": F,
+        "budget_name": budget_name,
         "page_tiles": c["ART_POOL_PAGE_TILES"],
         "window": [c["TILE_CACHE_COLS"], c["TILE_CACHE_ROWS"]],
         "windows": int(needed.size),
@@ -637,7 +669,10 @@ def budget_verdict(needed, lefts, tops, c):
 def verdict_line(v, subject):
     w, cam = v["worst_window_tile"], v["worst_camera_px"]
     return (f"{subject}: {v['windows']} camera windows ({v['window'][0]}x{v['window'][1]} tiles), "
-            f"budget {v['frames']} frames x {v['page_tiles']}-tile pages; worst window needs "
+            f"budget {v['frames']} frames"
+            + ("" if v.get("budget_name", "PAGE_FRAMES") == "PAGE_FRAMES"
+               else f" ({v['budget_name']})")
+            + f" x {v['page_tiles']}-tile pages; worst window needs "
             f"{v['worst']} (tile left {w['left']} top {w['top']}, e.g. camera x={cam['x']} "
             f"y={cam['y']} px; {v['worst_positions']} window(s) at that count); "
             f"{v['over']} window(s) over budget")
@@ -652,9 +687,16 @@ def refuse_over_budget(v, subject, remedy=PLACEMENT_REMEDY):
         raise SystemExit(
             f"REFUSED — FG page budget: {verdict_line(v, subject)}.\n"
             f"  A camera holding that window would need more art pages resident than the cache "
-            f"has frames (PAGE_FRAMES = POOL_TILE_CEILING / ART_POOL_PAGE_TILES, "
+            f"has frames ({_BUDGET_DEFINITION.get(v.get('budget_name'), v.get('budget_name'))}, "
             f"engine/system/constants.emp), and the release engine holds the camera until a "
             f"frame frees, which it never does. {remedy}")
+
+
+_BUDGET_DEFINITION = {
+    "PAGE_FRAMES": "PAGE_FRAMES = POOL_TILE_CEILING / ART_POOL_PAGE_TILES",
+    "PAGE_FRAMES_CLAMP": ("PAGE_FRAMES_CLAMP, the frames PageCache_Init threads in the "
+                          "STRESS_EVICT shape = STRESS_EVICT_FRAMES"),
+}
 
 
 # ---------------------------------------------------------------------------
@@ -704,6 +746,27 @@ def pin_and_count(pg, n_pages, rule, c, lefts, tops):
     _needed, needed_pin0 = window_needed(pg, n_pages, {0}, c, lefts, tops)
     pins, needed = frame_aware_pins(pg, sorted(rule), c["PAGE_FRAMES"], needed_pin0, c, lefts, tops)
     return pins, needed, needed_pin0
+
+
+def stress_evict_pins(placement, c_se):
+    """THE SAME pin rule, run at the STRESS_EVICT shape's frame count (P1-FAMINE-PINNED-
+    CAPACITY, 2026-09-28). `placement` is place_pool's result; `c_se` is
+    load_budget_constants(stress_evict=1), whose PAGE_FRAMES_CLAMP is the frames that shape
+    threads. The STRESS_EVICT fixture runs the COMMITTED act with fewer frames than the bake
+    pinned against, so pins chosen for PAGE_FRAMES can leave too few evictable frames there
+    (OJZ act 1: pins [0,1,7,8,9] need 10 frames at camera x 1376 against a clamp of 9). The
+    generator ships this set as the pin bits that apply when STRESS_EVICT=1 (elect_pool_pages
+    spells a difference as a comptime expression of the define), so the canonical shapes'
+    bytes do not move. Returns the kept pins."""
+    for k in ("page_grid", "rule_pins", "needed_pin0", "lefts", "tops"):
+        if k not in placement:
+            raise BudgetError(f"placement has no {k!r}: stress_evict_pins needs place_pool's result")
+    if c_se.get("STRESS_EVICT") != 1:
+        raise BudgetError("stress_evict_pins needs the constants at STRESS_EVICT=1")
+    pins, _needed = frame_aware_pins(placement["page_grid"], sorted(placement["rule_pins"]),
+                                     c_se["PAGE_FRAMES_CLAMP"], placement["needed_pin0"], c_se,
+                                     placement["lefts"], placement["tops"])
+    return pins
 
 
 def place_fixed_pool(glob, n_pages, rule, c):
@@ -807,7 +870,10 @@ def _known_acts():
 
 def committed_placement(c):
     """Page grid (from sec*_blocks.bin through each section's local map) and pins (the
-    manifest table's pm_flags bit 0) of the committed OJZ act 1 tree."""
+    manifest table's pm_flags bit 0, folded at c["STRESS_EVICT"]: a pin that differs by
+    shape is spelled as an expression of that define, elect_pool_pages.pm_flags_value) of
+    the committed OJZ act 1 tree."""
+    import elect_pool_pages
     import fg_working_set as fws
     model = fws.Model()
     if model.page_tiles != c["ART_POOL_PAGE_TILES"] or model.page_shift != c["PAGE_FRAME_TILE_SHIFT"]:
@@ -817,31 +883,59 @@ def committed_placement(c):
     pool = os.path.join(fws.GEN_DIR, "ojz_act_pool.emp")
     if not os.path.isfile(pool):
         raise BudgetError(f"{pool} missing — UNMEASURABLE")
-    entries = re.findall(r"pm_tiles:\s*(\d+)\s*,\s*pm_form:\s*(\d+)\s*,\s*pm_flags:\s*(\d+)",
-                         open(pool).read())
+    entries = re.findall(r"pm_tiles:\s*(\d+)\s*,\s*pm_form:\s*(\d+)\s*,\s*"
+                         + elect_pool_pages.PM_FLAGS_FIELD_RE, open(pool).read())
     if not entries:
         raise BudgetError(f"no PageManifest entries in {pool} — UNMEASURABLE")
-    pins = sorted({0} | {i for i, (_t, _f, fl) in enumerate(entries) if int(fl) & 1})
+    if "STRESS_EVICT" not in c:
+        raise BudgetError("the budget constants carry no STRESS_EVICT: pm_flags cannot be folded")
+    try:
+        flags = [elect_pool_pages.pm_flags_value(fl, c["STRESS_EVICT"]) for _t, _f, fl in entries]
+    except elect_pool_pages.ElectError as exc:
+        raise BudgetError(f"{pool}: {exc} — UNMEASURABLE")
+    pins = sorted({0} | {i for i, fl in enumerate(flags) if fl & 1})
     n_pages = len(entries)
     if pg.size and int(pg.max()) >= n_pages:
         raise BudgetError(f"a cell references page {int(pg.max())} past the {n_pages}-page manifest")
     return pg, pins, n_pages
 
 
-def check(out=print):
-    c = load_budget_constants()
+#: `check`'s shapes: the STRESS_EVICT define's value, the budget it counts against, and the
+#: remedy it prints. The shipped shapes thread PAGE_FRAMES; the STRESS_EVICT fixture threads
+#: PAGE_FRAMES_CLAMP and ships the pin bits folded at STRESS_EVICT=1.
+CHECK_SHAPES = {
+    "canonical": (0, "PAGE_FRAMES", PLACEMENT_REMEDY),
+    "stress-evict": (1, "PAGE_FRAMES_CLAMP", (
+        "The STRESS_EVICT fixture runs this committed act with PAGE_FRAMES_CLAMP frames, and "
+        "with its pins (pm_flags folded at STRESS_EVICT=1) resident a window there needs more "
+        "than that: the page cache would starve on a DEMAND (the P-1 famine). The bake ships "
+        "the frame-aware pins at the clamp (ojz_strip_gen Pass 7b's `pinned_stress_evict`, "
+        "fg_page_order.stress_evict_pins); re-bake with tools/regenerate-level.sh, or, if the "
+        "act itself no longer fits the clamp, raise STRESS_EVICT_FRAMES "
+        "(engine/system/constants.emp).")),
+}
+
+
+def check(out=print, shape="canonical"):
+    if shape not in CHECK_SHAPES:
+        raise BudgetError(f"unknown shape {shape!r}; one of {sorted(CHECK_SHAPES)}")
+    stress_evict, budget_name, remedy = CHECK_SHAPES[shape]
+    c = load_budget_constants(stress_evict=stress_evict)
+    frames = c[budget_name]
     status = 0
     for label, _gen in _known_acts():
         pg, pins, n_pages = committed_placement(c)
         H, W = pg.shape
         lefts, tops, _, _ = camera_windows(c, W, H)
         needed, _pin0 = window_needed(pg, n_pages, pins, c, lefts, tops)
-        v = budget_verdict(needed, lefts, tops, c)
-        line = verdict_line(v, f"{label} (committed tree; {n_pages} pages, pins {pins})")
+        v = budget_verdict(needed, lefts, tops, c, frames=frames, budget_name=budget_name)
+        line = verdict_line(v, f"{label} (committed tree, {shape} shape; {n_pages} pages, "
+                               f"pins {pins})")
         if v["ok"]:
             out(f"FG page budget OK — {line}")
         else:
             out(f"FG page budget REFUSED — {line}")
+            out(f"  {remedy}")
             status = 1
     return status
 
@@ -1014,17 +1108,21 @@ def rom_window_check(lst_path, rom_path, c, out=print):
 
 
 USAGE = """Usage:
-    python3 tools/fg_page_order.py check
+    python3 tools/fg_page_order.py check [--stress-evict]
     python3 tools/fg_page_order.py rom-window --lst L --rom R [--built-after EPOCH]"""
 
 
 def _mode_check(rest):
+    shape = "canonical"
     for a in rest:
+        if a == "--stress-evict":
+            shape = "stress-evict"
+            continue
         print(f"ERROR: unknown argument {a!r}")
         print(USAGE)
         sys.exit(1)
     try:
-        return check()
+        return check(shape=shape)
     except BudgetError as exc:
         print(f"FG page budget UNMEASURABLE — {exc}")
         return 2

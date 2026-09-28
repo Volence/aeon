@@ -126,6 +126,17 @@ class ConstantSource:
                 # first definition wins; a name is defined once per tree
                 self._raw.setdefault(name, (expr, path))
 
+    def define(self, name, value):
+        """A BUILD define (sigil's `defines`, e.g. STRESS_EVICT): a name the engine source
+        reads but never declares, whose value is the build shape's. Set it before the first
+        `get` that needs it; a name the source also declares is refused (it would shadow)."""
+        if name in self._raw:
+            raise ValueError(f"{name} is declared in {self._raw[name][1]}; a define would shadow it")
+        if name in self.values and self.values[name] != value:
+            raise ValueError(f"define {name} already set to {self.values[name]}, not {value}")
+        self.values[name] = int(value)
+        self.origin[name] = "build define"
+
     def get(self, name):
         if name in self.values:
             return self.values[name]

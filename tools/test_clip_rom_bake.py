@@ -21,6 +21,7 @@ appears is a RUNTIME claim and is tagged for the foreground, not asserted anywhe
 import json
 import os
 import random
+import re
 import struct
 import subprocess
 import sys
@@ -100,7 +101,8 @@ def _pool(tmp_path, pages, page_bytes=2048, pinned=None, compressible=True):
         f"pub const OJZ_ACT_POOL_PAGES = {pages}\n")
     (d / "ojz_act_pool_manifest.json").write_text(json.dumps({
         "pages": [{"index": k, "tiles": page_bytes // TILE,
-                   "pinned": bool((pinned or [0])[0] == k or k in (pinned or [0]))}
+                   "pinned": bool((pinned or [0])[0] == k or k in (pinned or [0])),
+                   "pinned_stress_evict": bool((pinned or [0])[0] == k or k in (pinned or [0]))}
                   for k in range(pages)]}))
     return d
 
@@ -168,7 +170,8 @@ def test_every_elected_blob_is_even_length(tmp_path):
         (d / "act_pool_page0.bin").write_bytes(bytes((i // 7) & 0x0F for i in range(n)))
         (d / "ojz_act_pool_manifest.emp").write_text("pub const OJZ_ACT_POOL_PAGES = 1\n")
         (d / "ojz_act_pool_manifest.json").write_text(json.dumps(
-            {"pages": [{"tiles": max(1, n // TILE), "pinned": True}]}))
+            {"pages": [{"tiles": max(1, n // TILE), "pinned": True,
+                        "pinned_stress_evict": True}]}))
         res = _elect(d, page_bytes=2048)
         assert res["forms"] == [EPP.FORM_ZX0], f"page size {n} did not elect ZX0"
         blob = (d / "act_pool_page0.zx0")
@@ -214,7 +217,8 @@ def test_the_emitted_emp_embeds_the_elected_extension_for_each_page(tmp_path):
         random.Random(99).randbytes(512))                                    # -> raw
     (d / "ojz_act_pool_manifest.emp").write_text("pub const OJZ_ACT_POOL_PAGES = 2\n")
     (d / "ojz_act_pool_manifest.json").write_text(json.dumps(
-        {"pages": [{"tiles": 16, "pinned": True}, {"tiles": 16, "pinned": False}]}))
+        {"pages": [{"tiles": 16, "pinned": True, "pinned_stress_evict": True},
+                   {"tiles": 16, "pinned": False, "pinned_stress_evict": False}]}))
     res = _elect(d, page_bytes=2048)
     emp = (d / "pool.emp").read_text()
     exts = ["zx0" if f == EPP.FORM_ZX0 else "raw" for f in res["forms"]]
@@ -222,6 +226,39 @@ def test_the_emitted_emp_embeds_the_elected_extension_for_each_page(tmp_path):
         assert f'pub data P{k} = embed("gen/act_pool_page{k}.{ext}")' in emp
     assert "pm_form: 0" in emp and "pm_form: 1" in emp, exts
     assert "pm_flags: 1" in emp and "pm_flags: 0" in emp
+
+
+def test_a_pin_that_differs_at_the_stress_evict_clamp_is_a_define_expression(tmp_path):
+    """P1-FAMINE-PINNED-CAPACITY: a page pinned at PAGE_FRAMES but not at the STRESS_EVICT
+    clamp (OJZ page 9) is spelled so it folds to the canonical literal at STRESS_EVICT=0
+    and to the clamp's pin bit at 1; every spelling the emitter writes reads back to the
+    sidecar it came from in both shapes, and one it does not write is refused."""
+    import itertools
+    pairs = list(itertools.product((False, True), repeat=2))
+    d = _pool(tmp_path, len(pairs))
+    side = json.loads((d / "ojz_act_pool_manifest.json").read_text())
+    for k, (pin, pin_se) in enumerate(pairs):
+        side["pages"][k]["pinned"], side["pages"][k]["pinned_stress_evict"] = pin, pin_se
+    (d / "ojz_act_pool_manifest.json").write_text(json.dumps(side))
+    _elect(d)
+    spellings = re.findall(EPP.PM_FLAGS_FIELD_RE, (d / "pool.emp").read_text())
+    assert len(spellings) == len(pairs), spellings
+    assert "1 - STRESS_EVICT" in spellings and "STRESS_EVICT" in spellings, spellings
+    for (pin, pin_se), sp in zip(pairs, spellings):
+        assert EPP.pm_flags_value(sp, 0) == int(pin), (sp, pin)
+        assert EPP.pm_flags_value(sp, 1) == int(pin_se), (sp, pin_se)
+    with pytest.raises(EPP.ElectError):
+        EPP.pm_flags_value("2 - STRESS_EVICT", 0)
+
+
+def test_a_sidecar_without_the_stress_evict_pins_is_refused(tmp_path):
+    d = _pool(tmp_path, 2)
+    side = json.loads((d / "ojz_act_pool_manifest.json").read_text())
+    del side["pages"][1]["pinned_stress_evict"]
+    (d / "ojz_act_pool_manifest.json").write_text(json.dumps(side))
+    with pytest.raises(EPP.ElectError) as exc:
+        _elect(d)
+    assert "pinned_stress_evict" in str(exc.value)
 
 
 # ---------------------------------------------------------------------------

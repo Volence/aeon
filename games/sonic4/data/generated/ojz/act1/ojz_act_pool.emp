@@ -32,5 +32,5 @@ pub data OJZ_Act_Pool_PageTable: [PageManifest; 10] = [
   PageManifest{ pm_source: extern("OJZ_Act_Pool_Page6"), pm_tiles: 64, pm_form: 0, pm_flags: 0 },
   PageManifest{ pm_source: extern("OJZ_Act_Pool_Page7"), pm_tiles: 64, pm_form: 0, pm_flags: 1 },
   PageManifest{ pm_source: extern("OJZ_Act_Pool_Page8"), pm_tiles: 64, pm_form: 0, pm_flags: 1 },
-  PageManifest{ pm_source: extern("OJZ_Act_Pool_Page9"), pm_tiles: 36, pm_form: 0, pm_flags: 1 },
+  PageManifest{ pm_source: extern("OJZ_Act_Pool_Page9"), pm_tiles: 36, pm_form: 0, pm_flags: 1 - STRESS_EVICT },
 ]
