@@ -1,10 +1,10 @@
 {
-  "focus": "Wing Fortress and Oil Ocean songs landed. Fixing the Sonic 2 test builds, which fail since this morning, so you can listen.",
+  "focus": "Sonic 2 build fix is done and being re-checked on top of the songs; your listening ROM comes out of the same run.",
   "inFlight": [
     {
-      "what": "Sonic 2 test-level builds exit with an error since this morning's check change; fixing it",
-      "where": "branch fix/bganim-room-zero-length",
-      "agent": true
+      "what": "Final check of the Sonic 2 build fix on the merged tree, plus building the listening ROM",
+      "where": "landing tree .aeon-land-bganim (merge 0ee80dd0)",
+      "agent": false
     }
   ],
   "blockedOnOwner": [
@@ -29,11 +29,11 @@
       "since": "2026-09-28"
     }
   ],
-  "nextBoundary": "When the Sonic 2 build fix lands; then a listening ROM for the two new songs. (Sigil's reference advance is done; no hold on sound or RAM moves.)",
+  "nextBoundary": "When that check passes: push the fix, hand you the listening ROM.",
   "queue": [
     {
       "id": "CLIP-BUILD-BGANIM-ROOM",
-      "title": "Sonic 2 test-level builds report an error since this morning's background-animation check; fix in progress",
+      "title": "Sonic 2 test-level builds: fix done (0 ROM bytes moved), final check on the merged tree running",
       "state": "doing",
       "size": "S",
       "blockedBy": null
@@ -156,5 +156,5 @@
   ],
   "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-09-28T18:12:51Z"
+  "updatedAt": "2026-09-28T19:13:01Z"
 }
