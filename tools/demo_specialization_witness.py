@@ -565,17 +565,32 @@ from scene_spans import (AEON, capability_bits, expected_spans, game_caps,
 # band-count load spans the band loop, and with the loop 4 B shorter its displacement falls from
 # $82 (130, beq.w: 67 00 00 82) to $7C (124, beq.s: 67 7C). Demo's loop is shorter (no drift
 # block) and was already in short reach, so demo moves by the clr alone.
+# RE-DERIVATION LOG — 2026-09-28, PERF-PARALLAX-PERBAND (`perf/parallax-perband`). The pin FAILED
+# and was right to. THREE rows moved, all UNGATED code, DERIVED from the source change and then read
+# off demo.debug.lst's own label addresses, and the two agree:
+#   Parallax_Fill_PerLine 98 -> 94 (-4): `.band_done`'s two `addq.l #2, a2/a3` (2 B each) are gone;
+#       the pack's `move.w (a2)/(a3)` became `(a2)+/(a3)+`, the same size.
+#   Parallax_Update 256 -> 258 (+2): the per-band snap/transition test (`tst.b` abs.w 4 + `bne` 2 +
+#       `tst.b` 4 + `beq` 2 = 12) is replaced by the once-per-frame hoist (the same 12 + `bset #31`
+#       4 = 16) plus the per-band `tst.l d6` 2 + `bpl` 2: +8. `adda.l #imm, a1` 6 -> `lea d16(a1)` 4:
+#       -2. The two `addq.l #2` 2 B each: -4. Net +2. sonic4 284 -> 286, the same +2.
+#   Parallax_Step4_Fill 188 -> 268 (+80): Step 4a's frame-coherence key. Old 4a after `.found_k` =
+#       112 B at demo's 10 B record. New, by label (demo.debug.lst): the key test 20 (cmpa.l abs 4,
+#       bne 2, cmp.w abs 4, bne 2, move.w abs 4, jbra .reorder_scroll 4 — RELAXED to .w, the
+#       target sits 144 B on), `.found_k` 42, the copy loop 46, the key publish 24, the scroll
+#       re-rotation 60: 192. 192 - 112 = +80. The 4b `clr.l` and the hoist's `lea` are inside
+#       CAP_ANCHORS / CAP_FACTOR_CURVE blocks, so demo emits neither.
 DEMO_SPECIALISED_PROCS = {
     "Effects_LatchWorldLines":   26,   # CAP_ANCHOR_MOTION          (sonic4 126)
     "Effects_SetTargetY":         2,   # CAP_ANCHOR_MOTION          (sonic4  36) — a bare rts
     "Parallax_Active_Config":     6,   # CAP_TRANSITIONS            (sonic4  18)
-    "Parallax_Fill_PerLine":     98,   # CAP_DEFORM, CAP_MULTI_DEFORM_TABLE, CAP_FACTOR_CURVE, CAP_ROLE_SWAP (sonic4 962 with the curve raised) — the flat filler. 100 -> 98 on 2026-09-06 with NO code change: see the live-effects-hook log above; the pad it used to include now belongs to the proc placed after it
+    "Parallax_Fill_PerLine":     94,   # 98 -> 94 on 2026-09-28, the two cursor `addq`s folded into the pack, -4 DERIVED, see the log above. CAP_DEFORM, CAP_MULTI_DEFORM_TABLE, CAP_FACTOR_CURVE, CAP_ROLE_SWAP (sonic4 962 with the curve raised) — the flat filler. 100 -> 98 on 2026-09-06 with NO code change: see the live-effects-hook log above; the pad it used to include now belongs to the proc placed after it
     "Parallax_Init":             42,   # CAP_ROLE_SWAP              (sonic4  46)
     "Parallax_Set_Roles_Swapped": 0,   # CAP_ROLE_SWAP              (sonic4  56) — no unconditional caller, so the whole proc elides
     "Parallax_StartTransition":  78,   # CAP_PER_COL_VSRAM, CAP_TRANSITIONS  (sonic4 106)
-    "Parallax_Step4_Fill":      188,   # CAP_ANCHORS, CAP_FACTOR_CURVE  (sonic4 656 at its 32 B record stride). 192 -> 188 on 2026-09-13, RE-DERIVED, not re-baselined: the band record is per game now (GAME_SCANLINE_CAPS) and demo's is the legacy 10 B, not sonic4's 32. Two ungated sites follow sizeof(band_record): `mul_const.w d3, #sizeof(band_record), d5` goes from x32 = `lsl.w #5` (2 B) to x10 = the word LTR chain move/lsl #2/add/double (8 B, +6), and copy_band_entry_fwd goes from 8 x move.l (16 B) to 2 x move.l + move.w (6 B, -10). Net -4, derived before building in docs/superpowers/notes/2026-09-13-per-game-band-defines.md §1.3
+    "Parallax_Step4_Fill":      268,   # 188 -> 268 on 2026-09-28, Step 4a's frame-coherence key, +80 DERIVED by label, see the log above. CAP_ANCHORS, CAP_FACTOR_CURVE  (sonic4 656 at its 32 B record stride). 192 -> 188 on 2026-09-13, RE-DERIVED, not re-baselined: the band record is per game now (GAME_SCANLINE_CAPS) and demo's is the legacy 10 B, not sonic4's 32. Two ungated sites follow sizeof(band_record): `mul_const.w d3, #sizeof(band_record), d5` goes from x32 = `lsl.w #5` (2 B) to x10 = the word LTR chain move/lsl #2/add/double (8 B, +6), and copy_band_entry_fwd goes from 8 x move.l (16 B) to 2 x move.l + move.w (6 B, -10). Net -4, derived before building in docs/superpowers/notes/2026-09-13-per-game-band-defines.md §1.3
     "Parallax_Step5_Vscroll":   190,   # CAP_PER_COL_VSRAM, CAP_TRANSITIONS, CAP_ROLE_SWAP  (sonic4 432; 186 -> 190 on 2026-09-28, the Snap_Pending clear moved in, +4 DERIVED, see the log above; sonic4 428 before; 176 -> 186 on 2026-09-27, the layout-change snap, +10 DERIVED, see the log above; sonic4 418 before; 170 -> 176 on 2026-09-27, the one-plane arm, +6 DERIVED, see the log above. Before that: sonic4 412, MEASURED this parcel — the parenthetical said 280 and the listing said 362 even before step 4 moved it; these numbers are commentary and nothing asserts them, so the stale one had gone unnoticed). 120 -> 170 on 2026-09-16, regions part 2 step 4's BG V-scroll clamp: DERIVED +50 instruction by instruction before the build, see the RE-DERIVATION LOG above
-    "Parallax_Update":          256,   # CAP_ROLE_SWAP              (sonic4 284). 260 -> 256 on 2026-09-28: the Snap_Pending clear moved to Step 5, -4 DERIVED (sonic4 290 -> 284, -6 with a beq relaxation), see the log above. 246 -> 260 on 2026-09-06: the DEBUG-only live-effects arm poll, +14 in BOTH fixtures (shape-gated, not capability-gated) — see the log above
+    "Parallax_Update":          258,   # CAP_ROLE_SWAP              (sonic4 286). 256 -> 258 on 2026-09-28: the lerp test hoisted out of the band loop, +2 DERIVED (sonic4 284 -> 286), see the log above. 260 -> 256 on 2026-09-28: the Snap_Pending clear moved to Step 5, -4 DERIVED (sonic4 290 -> 284, -6 with a beq relaxation), see the log above. 246 -> 260 on 2026-09-06: the DEBUG-only live-effects arm poll, +14 in BOTH fixtures (shape-gated, not capability-gated) — see the log above
     "Raster_GetChannelBand":      8,   # CAP_ANCHORS                (sonic4  50)
     "Raster_HInt":              316,   # CAP_DENSE_TIER             (sonic4 338) — see the
                                         # RE-DERIVATION LOG above; unmeasurable before the
