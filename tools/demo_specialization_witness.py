@@ -580,11 +580,22 @@ from scene_spans import (AEON, capability_bits, expected_spans, game_caps,
 #       target sits 144 B on), `.found_k` 42, the copy loop 46, the key publish 24, the scroll
 #       re-rotation 60: 192. 192 - 112 = +80. The 4b `clr.l` and the hoist's `lea` are inside
 #       CAP_ANCHORS / CAP_FACTOR_CURVE blocks, so demo emits neither.
+# RE-DERIVATION LOG — 2026-09-28, PERF-PARALLAX-PERBAND-2 (`perf/parallax-perband-2`). The pin
+# FAILED (94 -> 102) and was right to. ONE row moved, UNGATED code: PPB-6's `.lp_flat` (flat lines
+# by movem.l, written back from the band's end). DERIVED from the source change and read off
+# demo.debug.lst's own labels, and the two agree:
+#   Parallax_Fill_PerLine 94 -> 102 (+8). `.lp_flat` -> `.fl_line` is 36 B (was 20): +16 for
+#       `add.w d2,d2` x2, `adda.w d2,a4`, `movea.l a4,a0`, the second `move.w d1,d2` and the three
+#       `move.l d0,dN` copies, 2 B each. `.fl_line` -> `.fl_tail` is 12 B (was 20): two
+#       `movem.l d0/d3/d5-d6,-(a0)` (4 B each) replace eight `move.l d0,(a4)+` (2 B each), -8.
+#       The remainder's `move.l d0,(a4)+` -> `move.l d0,-(a0)` is the same size. Net +8. The
+#       PPB-3 / PPB-5 code is all inside CAP_DEFORM / CAP_FACTOR_CURVE spans, so demo emits none
+#       of it (the span half above: demo 0 spans). sonic4's Fill_PerLine is 1030.
 DEMO_SPECIALISED_PROCS = {
     "Effects_LatchWorldLines":   26,   # CAP_ANCHOR_MOTION          (sonic4 126)
     "Effects_SetTargetY":         2,   # CAP_ANCHOR_MOTION          (sonic4  36) — a bare rts
     "Parallax_Active_Config":     6,   # CAP_TRANSITIONS            (sonic4  18)
-    "Parallax_Fill_PerLine":     94,   # 98 -> 94 on 2026-09-28, the two cursor `addq`s folded into the pack, -4 DERIVED, see the log above. CAP_DEFORM, CAP_MULTI_DEFORM_TABLE, CAP_FACTOR_CURVE, CAP_ROLE_SWAP (sonic4 962 with the curve raised) — the flat filler. 100 -> 98 on 2026-09-06 with NO code change: see the live-effects-hook log above; the pad it used to include now belongs to the proc placed after it
+    "Parallax_Fill_PerLine":    102,   # 94 -> 102 on 2026-09-28 (round 2), PPB-6's movem flat loop, +8 DERIVED, see the log above. 98 -> 94 on 2026-09-28, the two cursor `addq`s folded into the pack, -4 DERIVED. CAP_DEFORM, CAP_MULTI_DEFORM_TABLE, CAP_FACTOR_CURVE, CAP_ROLE_SWAP (sonic4 962 with the curve raised) — the flat filler. 100 -> 98 on 2026-09-06 with NO code change: see the live-effects-hook log above; the pad it used to include now belongs to the proc placed after it
     "Parallax_Init":             42,   # CAP_ROLE_SWAP              (sonic4  46)
     "Parallax_Set_Roles_Swapped": 0,   # CAP_ROLE_SWAP              (sonic4  56) — no unconditional caller, so the whole proc elides
     "Parallax_StartTransition":  78,   # CAP_PER_COL_VSRAM, CAP_TRANSITIONS  (sonic4 106)
