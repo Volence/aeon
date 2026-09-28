@@ -40967,6 +40967,49 @@ for every gate; it is not the proxy/subject shape.
     commit-and-push drill). "Clean" is `git status`, which cannot see gitignored inputs such as
     `*.bin`, and `sigil_md5` is recorded but not keyed. Fix sketch: refuse the stamp when a Source
     Digest input is not in `git ls-files` (outside declared regenerated dirs).
+
+    **MEASURED, then FIXED 2026-09-28 (`fix/gpp-unmeasured`, base origin/master `c76c9f90`).**
+    - **Promise:** "code reaches master only if a completed landing run proved that exact
+      content green" (land_gate.py docstring). **Predicate:** the stamp key is the CODE-class
+      `git ls-tree` of HEAD; "clean" is `git status`. Neither sees a gitignored input.
+    - **The drill (nothing real pushed; stamps in a scratch `AEON_LAND_GATE_DIR`).** A throwaway
+      detached commit `2b2fb8ac` (never pushed, never on a branch) appended to
+      `games/sonic4/data/dust_data.emp`: `const _lg_drill = embed("games/sonic4/data/lg_drill.bin")`
+      / `pub data LgDrill = _lg_drill`, with `lg_drill.bin` (ignored by `*.bin`) = 16 x `A`
+      on disk only. `land_gate.py begin`: clean=1, key `ffd820f0dc519b82`. `DEBUG=1 ./build.sh`
+      rc 0, ROM crc `510e5c23`, the listing's Source Digest carries
+      `DIGEST-READ ... path=games/sonic4/data/lg_drill.bin`, ROM `$2F982` = `AAAA...`.
+      `finish --rc 0`: **STAMP WRITTEN**. Then `lg_drill.bin` = 16 x `B`: `begin` still clean=1,
+      **key unchanged** `ffd820f0dc519b82`; rebuild rc 0, ROM crc `3952302d`, `$2F982` = `BBBB...`.
+      `pre-push` fed git's stdin for `2b2fb8ac -> refs/heads/master` over `c76c9f90` (the same
+      line the installed hook pipes to it): **"code proven green: stamp ffd820f0dc519b82 ...
+      ALLOWED"**, exit 0. `git show 2b2fb8ac:games/sonic4/data/lg_drill.bin` fails: a clone
+      has no such file and cannot build. So one stamp vouched for two different ROMs and for a
+      commit no clone can build. **The gap was real.**
+    - **Fix (tools only):** `finish` takes `--lst` (one per landing shape) and `--built-after
+      $T0`; `landing_build.sh` passes both (`s4.lst s4.debug.lst demo.debug.lst`, from
+      `LANDING_SHAPES`). Before writing, it reads each listing's Source Digest
+      (`artifact_provenance.read_digest`) and refuses the stamp (exit 1) unless every
+      `DIGEST-READ` path is tracked at the stamped HEAD, or lies under a declared
+      `REGENERATED_EACH_BUILD` prefix (`engine/sound/generated/`, `engine/debug/generated/`,
+      the only untracked reads on this base, both rewritten before sigil by every build),
+      in which case the file's crc/size must equal the row and its mtime must post-date
+      `--built-after`. `origin=external` is refused. No listing named, a listing older than
+      the run, or an unreadable digest is unmeasurable: no stamp. The stamp records
+      `listings` and `inputs_checked`.
+    - **Red on the same drill, with the fixed gate** (a scratch copy, run on `2b2fb8ac`, fresh
+      `DEBUG=1` build after T0): "NO STAMP: ... s4.debug.lst reads games/sonic4/data/lg_drill.bin,
+      which is NOT COMMITTED at 2b2fb8ac849c", exit 1. The 15 regenerated reads in the same
+      listing passed (crc and mtime), so the refusal names only the drill file.
+      `tools/test_land_gate.py` +5 rows (ignored input, no listing, external, regenerated
+      stale/wrong bytes, stale listing); the existing `finish` rows now pass a listing.
+      Green: `landing_build.sh` on the tip (see the merge evidence).
+    - **Still not covered (named):** the toolchain. `sigil_md5` is recorded, not keyed, and
+      `SIGIL_EMIT` is not recorded at all; the regenerated sound blobs are functions of it.
+      Whether the stamp should cover the toolchain is a design call (a stamp would then stop
+      travelling between machines), so it stays open here. Also: only what sigil READ is
+      checked, not every file a Python gate opens (a gate reading a gitignored file is not
+      seen).
 12. **GPP-PALETTE-ORDER-IS-A-PIN** (`editor_palette_golden.py`, residual of the fix). The channel
     order is now checked against a stated `CYCLE_WIRE_ORDER`, not decoded from `Palette_DoCycle`.
     The engine-side alternative is an `offsetof` `ensure` beside `Palette_DoCycle`. That is a zero-byte
