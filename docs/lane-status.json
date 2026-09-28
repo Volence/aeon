@@ -2,23 +2,18 @@
   "focus": "Owner asleep. Seven fixes landed tonight; now the second song bank, one step at a time.",
   "inFlight": [
     {
-      "what": "Landing song-bank step 1: song lists leave the sound bank (plus a fix to step 2), checked by playing songs both ways",
-      "where": "branch parcel/song-bank-2",
+      "what": "Song bank 2 with Metropolis's song: built; the assembler lane is rebuilding its tool with the last change, then it lands",
+      "where": "branch parcel/song-bank-2-step3",
       "agent": false
     },
     {
-      "what": "Song bank 2 with Metropolis's song: built and plays identically from the new bank; waiting on one assembler change so the Sonic 2 test levels can place it",
-      "where": "branch parcel/song-bank-2-step3",
+      "what": "Landing the re-aimed overnight eviction test drive",
+      "where": "branch fix/evict-witness-phase1",
       "agent": false
     },
     {
       "what": "Parallax round 2: three more small savings (about 1.3k cycles a tick), same picture",
       "where": "branch perf/parallax-perband-2",
-      "agent": true
-    },
-    {
-      "what": "Re-aim the overnight eviction test drive so it proves pages really swap after the level starts",
-      "where": "branch fix/evict-witness-phase1",
       "agent": true
     }
   ],
@@ -69,7 +64,7 @@
     },
     {
       "id": "S2CLIP-MTZ-SONG-BANK",
-      "title": "Sonic 2 zone songs: bank 2 with Metropolis is built and plays right; step 1 landing now; the rest waits on one assembler change (asked)",
+      "title": "Sonic 2 zone songs: step 1 landed (songs by name); Metropolis in bank 2 lands once the assembler tool is rebuilt",
       "state": "doing",
       "size": "M",
       "blockedBy": null,
@@ -160,9 +155,16 @@
       "size": "S",
       "blockedBy": "decision card S2CLIP-OBJECTS",
       "project": "REGIONS"
+    },
+    {
+      "id": "P1-FAMINE-PINNED-CAPACITY",
+      "title": "Streaming acts: pinned art pages can crowd out the pages a screen needs (found in the stress test level); engine design question",
+      "state": "open",
+      "size": "M",
+      "blockedBy": null
     }
   ],
   "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-09-28T11:17:11Z"
+  "updatedAt": "2026-09-28T11:51:04Z"
 }
