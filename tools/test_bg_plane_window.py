@@ -123,6 +123,44 @@ class BootLadderOrder(unittest.TestCase):
             f"stale value happens to be 0 — no emulator run of the shipped boot can see it, "
             f"which is why it is pinned here.")
 
+    def test_the_boot_ladder_primes_after_its_crossing_and_a_snapped_update(self):
+        """BOOT-TALL-VSCROLL-RATCHET (2026-09-28): the warp's order, on the boot ladder."""
+        where = "GameState_OJZScroll_Init"
+        body = _proc_body(_text(LADDER), where, LADDER)
+        init_at, _ = _index_of(body, r"\bjbsr\s+Parallax_Init\b", "the parallax boot init", where)
+        dirty_at, n_dirty = _index_of(body, r"\bst\s+Section_Plane_Dirty\b",
+                                      "the boot's plane prime trigger", where)
+        check_at, n_check = _index_of(body, r"\bjbsr\s+Parallax_CheckBoundary\b",
+                                      "the boot's region crossing", where)
+        upd_at, n_upd = _index_of(body, r"\bjbsr\s+Parallax_Update\b",
+                                  "the boot's own Parallax_Update", where)
+        set_at, n_set = _index_of(body, r"\bst\s+Parallax_BG_Snap\b",
+                                  "the snap that stores the scroll at its target", where)
+        clr_at, n_clr = _index_of(body, r"\bclr\.b\s+Parallax_BG_Snap\b",
+                                  "the snap's clear after its one Update", where)
+        stream_at, _ = _index_of(body, r"\bjbsr\s+BG_Stream_Update\b",
+                                 "the tracker check after the prime", where)
+        self.assertEqual((n_dirty, n_check, n_upd, n_set, n_clr), (1, 1, 1, 1, 1),
+                         "expected exactly one each of `st Section_Plane_Dirty`, `jbsr "
+                         "Parallax_CheckBoundary`, `jbsr Parallax_Update`, `st Parallax_BG_Snap` "
+                         f"and `clr.b Parallax_BG_Snap` in {where}, found "
+                         f"{(n_dirty, n_check, n_upd, n_set, n_clr)}. A second Parallax_Update "
+                         "after the prime is fine in itself, but then 'the Update the prime "
+                         "reads' is not a well-formed question for this leg; re-derive it.")
+        self.assertTrue(
+            init_at < check_at < set_at < upd_at < clr_at < dirty_at < stream_at,
+            f"THE BOOT LADDER ORDER IS BROKEN (proc lines: Parallax_Init {init_at}, "
+            f"CheckBoundary {check_at}, st Parallax_BG_Snap {set_at}, Parallax_Update {upd_at}, "
+            f"clr.b Parallax_BG_Snap {clr_at}, st Section_Plane_Dirty {dirty_at}, "
+            f"BG_Stream_Update {stream_at}). The order is Parallax_Init -> crossing -> snap -> "
+            f"Update -> clear -> prime -> BG_Stream_Update. Parallax_Init's own tail Update runs "
+            f"with Region_Current NULL, so Step 5 reads the act-default ceiling (VSCROLL_BG_MAX) "
+            f"and a boot deep in a map taller than the plane primes from a capped scroll, then "
+            f"slides at the rate clamp: MEASURED 288 -> 544 over 16 invocations (DEBUG OJZ crc "
+            f"8236bc31, Boot_At into tall row 11) and 288 -> 446 over 10 on s2_hpz_solo's "
+            f"authored start (crc eb69092c). tools/bg_vscroll_rate_witness.py leg B (A8) grades "
+            f"the picture; this grades the order.")
+
 
 class WarpLadderOrder(unittest.TestCase):
 

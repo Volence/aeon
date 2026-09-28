@@ -902,6 +902,30 @@ pub proc GameState_OJZScroll_Init () clobbers(d0-d7/a0-a6) preserves(sr.mask) {
 .init_have_config:
         jbsr    Parallax_Init
 
+        // -- the region CROSSING, and the SCROLL, BEFORE the planes (BOOT-TALL-VSCROLL-RATCHET,
+        //    2026-09-28): the warp ladder's step 6, in the same order and for the same reason.
+        //    Parallax_Init's tail Update ran with Region_Current still NULL, so Step 5 read the
+        //    act-default ceiling (VSCROLL_BG_MAX, 288) and stored the scroll capped there. Primed
+        //    from that store, a boot deep in a map taller than the plane showed a window 256 px
+        //    short, and the first frame's crossing (which never snaps on a null previous row)
+        //    handed the gap to the rate clamp: MEASURED, a Boot_At into DEBUG OJZ's tall row 11
+        //    slid 288 -> 544 over 16 invocations (crc 8236bc31), and s2_hpz_solo's AUTHORED start
+        //    288 -> 446 over 10 (crc eb69092c). So the crossing runs here: Parallax_Init's
+        //    sentinel forces its rescan, Region_Current becomes the start row (its ceiling now
+        //    reaches Step 5), and the config it installs is the one Parallax_Init was just given
+        //    (the same Effects_ResolveParallax rungs), so Parallax_StartTransition has nothing
+        //    to stage. The Update under `Parallax_BG_Snap` stores the scroll AT its target
+        //    because the prime below repaints the whole window from that store (the byte's one
+        //    meaning), and the clear is for the reason the warp gives: `.no_config` skips Step
+        //    5's clear, and a snap left armed would exempt frame 1's store. The frame's own
+        //    Parallax_CheckBoundary then takes its fast path. S3K's order: the BG camera first
+        //    (BackgroundInit), then the plane drawn from it (Refresh_PlaneFull). --
+        jbsr    Parallax_CheckBoundary
+        jbsr    BgAnim_Init
+        st      Parallax_BG_Snap               // (Parallax_BG_Snap).w — the prime repaints from this store
+        jbsr    Parallax_Update
+        clr.b   Parallax_BG_Snap               // (Parallax_BG_Snap).w — this Update's only
+
         // -- synchronous plane fill: trigger Section_RedrawPlanes before display
         //    on so the nametable is fully populated from frame 1.
         //
@@ -912,15 +936,14 @@ pub proc GameState_OJZScroll_Init () clobbers(d0-d7/a0-a6) preserves(sr.mask) {
         //    loop wipes. Run the pair ABOVE the init, as this ladder did until this parcel,
         //    and the prime reads the previous act's scroll or boot garbage and blits the
         //    WRONG window, which is worse than the stale-but-harmless row 0 it used to blit.
-        //    Below the init the cell is real: `Parallax_Init` zeroes it and its own tail
-        //    `Parallax_Update` re-derives it from this act's camera, and the rate clamp
-        //    bounds anything the second `Parallax_Update` below adds to 16 px = 2 rows,
-        //    inside the streamer's 17-row lead. THE WARP LADDER HAS NO `Parallax_Init` TO
-        //    HOIST; since WARP-VSCROLL-PRIME (2026-09-28) it runs its whole parallax crossing
-        //    ABOVE its prime instead, with the scroll stored at its post-warp target, so the
-        //    window it primes is the one the screen shows (it used to prime from the PRE-warp
-        //    scroll and ratchet). `tools/test_bg_plane_window.py` grades both orders, because
-        //    neither routine can see them from the inside.
+        //    Below the init the cell is real: `Parallax_Init` zeroes it, and since
+        //    BOOT-TALL-VSCROLL-RATCHET (2026-09-28) the region crossing and a snapped
+        //    `Parallax_Update` above store it AT its target under the start row's own ceiling
+        //    (the init's tail Update alone read the act-default ceiling and capped it at 288).
+        //    THE WARP LADDER HAS NO `Parallax_Init` TO HOIST; since WARP-VSCROLL-PRIME
+        //    (2026-09-28) it runs the same crossing + snapped Update ABOVE its prime, so both
+        //    ladders now prime the window the screen shows. `tools/test_bg_plane_window.py`
+        //    grades both orders, because neither routine can see them from the inside.
         //
         //    WARP TWIN: Debug_Warp_Consume below repeats this two-line pair (and
         //    the Parallax boundary resolution further down). Both sites are
@@ -928,10 +951,9 @@ pub proc GameState_OJZScroll_Init () clobbers(d0-d7/a0-a6) preserves(sr.mask) {
         //    proc was rejected for the step-2 parcel because it would move RELEASE
         //    bytes and that parcel's hard gate was a byte-identical release ROM. If
         //    that constraint ever lifts, these are the two lines to hoist — but note
-        //    they sit at DIFFERENT points of the two ladders relative to the parallax
-        //    calls (here between Parallax_Init and the second Parallax_Update; on the
-        //    warp, below all of them), so a shared proc would have to take the ordering
-        //    with it.
+        //    they sit at the SAME point of both ladders relative to the parallax calls
+        //    since BOOT-TALL-VSCROLL-RATCHET (below the crossing + snapped Update), so a
+        //    shared proc would take the ordering with it.
         //    Without this pair, Section_UpdateColumns gradually fills over ~3 frames,
         //    causing a visible snap when starting at non-zero X. --
         //    Section_RedrawPlanes owns its own Z80 posture in both build shapes
@@ -943,14 +965,11 @@ pub proc GameState_OJZScroll_Init () clobbers(d0-d7/a0-a6) preserves(sr.mask) {
         st      Section_Plane_Dirty            // (Section_Plane_Dirty).w
         jbsr    Section_UpdateColumns
 
-        jbsr    BgAnim_Init
-
-        // -- prime HScroll/VScroll buffers so the first frame displays with
-        //    correct scroll offsets (otherwise HScroll=0 for one frame) --
-        jbsr    Parallax_Update
-        // -- regions part 2 step 5: prime the BG window against the scroll the line
-        //    above just produced. At boot Parallax_Init has zeroed the scroll, so on
-        //    every act whose map is the plane's height this is a two-test rts. --
+        // -- the HScroll/VScroll buffers were primed by the snapped Parallax_Update above the
+        //    plane prime (it used to stand here, below it: BOOT-TALL-VSCROLL-RATCHET), so the
+        //    first frame displays with correct scroll offsets. Regions part 2 step 5: the BG
+        //    window was primed against that same scroll, so this finds the tracker where it
+        //    belongs; on every act whose map is the plane's height it is a two-test rts. --
         jbsr    BG_Stream_Update
 
         // -- enable display now that VRAM and nametable are populated --

@@ -1297,15 +1297,15 @@ pub proc Parallax_CheckBoundary () clobbers(d0-d4/a0-a3) {
         //    A NULL PREVIOUS ROW NEVER SNAPS HERE, and that is the predicate being exact rather
         //    than a shortcut. Region_Current is null only before the first resolve (the boot
         //    ladder) and after the DEBUG warp clears it to force this crossing
-        //    (Debug_Warp_Consume). The two ladders differ in ORDER, which is why this proc
-        //    cannot answer for both: the boot ladder has already primed Plane B SYNCHRONOUSLY
-        //    through Section_RedrawPlanes from the scroll it had, so a snap on its first crossing
-        //    would leave that window behind the scroll by the whole jump (measured on the first
-        //    cut: a warp inside DEBUG OJZ's tall region, when the warp still primed first,
-        //    jumped 366 px in one store over a window primed for the old value). The warp ladder
-        //    now runs this crossing BEFORE its prime and sets Parallax_BG_Snap itself around its
-        //    own Parallax_Update, because it knows the prime follows (WARP-VSCROLL-PRIME,
-        //    2026-09-28, which closed BG-RATE-PRIME-EXEMPTION). --
+        //    (Debug_Warp_Consume). Both are synchronous-prime ladders, and it is the CALLER
+        //    that knows whether a prime follows: a snap here with the prime already done would
+        //    leave the window behind the scroll by the whole jump (measured on the first cut: a
+        //    warp inside DEBUG OJZ's tall region, when the warp still primed first, jumped 366
+        //    px in one store over a window primed for the old value). So both ladders run this
+        //    crossing BEFORE their prime and set Parallax_BG_Snap themselves around their own
+        //    Parallax_Update (WARP-VSCROLL-PRIME, 2026-09-28, which closed
+        //    BG-RATE-PRIME-EXEMPTION; the boot ladder by BOOT-TALL-VSCROLL-RATCHET, the same
+        //    day, which it primed BEFORE this crossing until then and slid). --
         movea.l Region_Current, a1                  // (Region_Current).w — the row being left
         cmpa.w  #0, a1
         beq     .new_picture                        // a synchronous prime path: see above
@@ -3110,7 +3110,12 @@ proc Parallax_Step5_Vscroll () clobbers(d0-d7/a0-a6) {
         // with Parallax_BG_Snap set, so (b1) below stores the target outright and the prime
         // seeds the window from that store — the S3K order (a background init computes the BG
         // camera, THEN redraws the plane from it). Only the warp consumer's own invocation is
-        // exempt; the same tick's body runs after the prime and is clamped as usual.
+        // exempt; the same tick's body runs after the prime and is clamped as usual. The BOOT
+        // ladder (GameState_OJZScroll_Init) had the same shape, capped rather than stale: its
+        // prime read a store made with Region_Current still null (the act-default ceiling,
+        // 288), and a boot deep in a tall map slid to its target (BOOT-TALL-VSCROLL-RATCHET,
+        // 2026-09-28: 288 -> 544 over 16 invocations on DEBUG OJZ's tall row). It now runs the
+        // same crossing + snapped Update above its prime, the byte's third writer.
         //
         // THE SIGNALS THAT WERE NOT USED, and why, kept because each looks right at a glance.
         // `Parallax_Snap_Pending` was not available here when this was written (Step 3 cleared
