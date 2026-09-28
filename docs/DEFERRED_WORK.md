@@ -41070,6 +41070,30 @@ for every gate; it is not the proxy/subject shape.
     - **Not followed (named, not covered):** an `anim_table` write in a helper the calling
       routine calls; the slot's a0 at the call is taken as the SST convention, not tracked.
 
+    **Palette half MEASURED 2026-09-28 (`fix/gpp-unmeasured`, base origin/master `c76c9f90`):
+    sigil does NOT refuse `palstage`. STILL BOOKED: the fix is an engine edit.**
+    - **Promise** (`palette.emp:91-93`): "Palette_State span guard ... a drift on either side
+      must fail the build", message "Palette_State RAM block drifted from palette.emp's
+      layout". **Predicate:** `Palette_State_End - Palette_State == PALETTE_STATE_SIZE`, one
+      SUM; no field's span or offset is compared.
+    - **Mutation, built** (`engine/ram.emp`, two lines, sum kept):
+      `Pal_Variant_Stage:  [u8; 128 * 2 - 8],` and `Pal_Variant_Ptr:    [u32; 4],`.
+      `DEBUG=1 NO_LINT=1 ./build.sh` rc 0, and the full `DEBUG=1 ./build.sh` (both pytest
+      halves: 3836 passed / 3 skipped, needs_build 20 passed / 16 skipped) **rc 0**, ROM crc
+      `515d5b8e` (baseline `198fd717`). Listing: `Pal_Variant_Stage` `$FFFF8E32`,
+      `Pal_Variant_Ptr` `$FFFF8F2A` (= Stage + 248, was + 256), `Palette_State_End`
+      `$FFFF8F4A` unchanged. So slot 1's last 8 bytes (the `slot*128 + line*32 + entry*2`
+      addressing the RAM comment names) now alias `Pal_Variant_Ptr[0..1]`, and every gate on
+      the landing path, sigil included, stayed green. Restored with `git show HEAD:engine/ram.emp`.
+    - **Why not fixed here:** the guard that makes the promise is an engine `ensure`, and the
+      honest repair is there: per-field `ensure`s beside the sum, e.g.
+      `extern("Pal_Variant_Ptr") - extern("Pal_Variant_Stage") == 128 * PAL_MAX_VARIANTS` and
+      `extern("Pal_Cycle_Script") - extern("Pal_Variant_Ptr") == 4 * PAL_MAX_VARIANTS` (the
+      same `extern` difference form line 92 already uses, so zero bytes). A tools-only check
+      would have to restate `palette.emp`'s layout in Python, which is the proxy shape this
+      audit exists to remove. This parcel lands no engine file, so it is booked for an engine
+      parcel.
+
 ## THREE INSTRUMENTS, THREE WAYS OF BEING WRONG — 2026-09-19
 
 Closes **`COST-PROBE-W20-STALE`** and **`TWO-BROKEN-TOOLS`**. Three tools were booked as wrong
