@@ -40808,6 +40808,38 @@ for every gate; it is not the proxy/subject shape.
    Presence proves the module was lowered, not that the descriptor reaches it, because
    `ojz_effects.emp` also `use`s it. The one measured mutation is now caught by step 2.
    A real witness needs an equ that exists only through the descriptor's call.
+
+   **MEASURED 2026-09-28 (`fix/gpp-unmeasured`, base origin/master `c76c9f90`): step 3 on its
+   own stays GREEN when the descriptor's seam is dropped. STILL BOOKED: no tools-only witness
+   exists.**
+   - **Promise** (step 3's own failure text): a witness absent from the listing means
+     "act_descriptor.emp's seam import has been dropped or renamed"; the docstring calls that
+     import "the module's only `use`-closure edge". **Predicate:** six `EQU`s present in the
+     listing with values equal to a recount from the editor inputs.
+   - **The premise is false on this base.** `games.sonic4.ojz_effects_editor_act1` is `use`d
+     by four modules, seven lines: `act_descriptor.emp` (:75 and :91), `ojz_effects.emp`
+     (:117, :124, :160), `generated/ojz/act1/regions.emp` (:59), `test/ojz_scroll_test.emp`
+     (:204). Any one of them lowers the module and mints the witnesses.
+   - **Mutation, built:** `act_descriptor.emp` line 75 `use games.sonic4.ojz_effects_editor_act1.{ojz_act1_act_default}`
+     deleted, and :254 `act_parallax_config: ojz_act1_act_default(hand: ParallaxConfig_OJZ_Default),`
+     -> `act_parallax_config: ParallaxConfig_OJZ_Default,`. `DEBUG=1 NO_LINT=1 ./build.sh`:
+     sigil built, ROM crc `198fd717` (= baseline: byte-neutral, as the audit found), and
+     build.sh exit 1 at the seam gate's **step 2** ("seam import does not name
+     ojz_act1_act_default"). **Step 3's predicate on that listing:** all six witnesses present,
+     `EditorScenes_OJZ_Act1_Count=4`, `_Bindings=4`, `EditorRaster=2`, `EditorCycle=0`,
+     `EditorVariant=0`, `EditorPatch=1`, 835 equates: identical to the unmutated tree, so step 3
+     alone would pass. The descriptor edge is held today by step 2 (source, comment-stripped
+     since the audit), not by step 3. Restored with `git show HEAD:`.
+   - **Why not fixed here:** the mutation is byte-neutral by construction (the chooser
+     returns `hand:` while the act `sceneRef` is null), so no ROM or listing read can see it,
+     and an equ minted "only through the call" does not exist: the call is a `comptime fn`
+     evaluation, and sigil's listing records no comptime call sites. A real witness needs
+     either sigil (a per-call-site record, or an unreachable/uncalled-`pub comptime fn`
+     diagnostic the gate can read) or a generator/format design in which the chooser's result
+     carries a ROM-visible marker the descriptor must pass on. Both are outside a tools-only
+     parcel. The step-3 failure text and the docstring's "only `use`-closure edge" are also
+     wrong on this base; they are left for the parcel that decides the witness, so the text
+     and the mechanism change together.
 3. **GPP-EXPECT-FAIL-RESTATES** (`emp_expect_fail.py`, measured). Three poisons carry their OWN copy
    of the guard they are labelled as proving. `ring_sparkle.emp:113`'s shipped `ensure` weakened to
    `>= 0` gave exit 0. Same shape: `poison_instashield_frames`, `poison_dplc_tile_start`. Fix
