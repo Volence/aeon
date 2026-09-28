@@ -36476,6 +36476,17 @@ ceiling reached Step 5, and the rate clamp walked the scroll to its target 16 px
 * **Release bytes move: +12** (`jbsr Parallax_CheckBoundary`, `st` and `clr.b Parallax_BG_Snap`; FAST
   release 829975 -> 829987 bytes, crc `d6ccbe7d` -> `d2c5842a`). Behaviour on a release OJZ boot: the
   start region's preset install moves from frame 1's crossing into the init (same row, same config).
+* **CLOSED 2026-09-28 (`parcel/boot-entry-picture`, BOOT-ENTRY-PICTURE): the picture is graded now.**
+  `tools/clip_bg_scroll_witness.py --boot-entry` (the BOOT leg) boots through `Boot_At` into each
+  tall layout (its first and deepest probe) and at the authored start, and grades the first 90
+  frames with the ENTRY leg's own per-frame grade (`_grade_frames`: every line against Sonic 2's
+  kind, the plane rows against the ROM's blob, no frame off its target). RED on the parent
+  `28880431` (s2_hpz_solo crc `eb69092c`): 6 of 9 boots FAIL, first frame at 288 against 446..912,
+  slides of 11..40 frames, up to 22 of them torn; RED on the fix minus its `st Parallax_BG_Snap`
+  (crc `2ed1cac4`, primed from 304); GREEN on `42e4ec8c` (9 of 9) and woven `37b10bad` (10 graded,
+  authored start SKIP: Emerald Hill). Runner: `tools/keepalive_manifest.toml` rows
+  `clip_bg_scroll_witness.py` (woven, `--boot-entry` added) and `clip_bg_scroll_witness.py#hpz_solo`
+  (`--require-authored-tall`; the nightly now builds `s4.s2clip_hpz.debug.*`). The original bullet:
 * **Not graded here:** the boot's first-frame PICTURE on Hidden Palace's band chain (the warp-entry leg
   grades warps only). The scroll is at its target from the prime, the state the warp reaches and that
   leg grades exact; a boot-entry picture leg in `clip_bg_scroll_witness` would close it.
