@@ -88,6 +88,22 @@ expect = 0
 timeout = 300
 note = "sibling of the probe that was dead 2026-08-26..2026-09-18"
 
+[wired."parallax_shadow_key_witness.py"]
+args = ["--rom", "{rom}", "--lst", "{lst}"]
+expect = 0
+timeout = 300
+note = """PERF-PARALLAX-PERBAND (2026-09-28). Step 4a keeps the rotated shadow band view while
+(config, Vscroll_BG & 511) matches Parallax_Shadow_Key_*; this asks the machine, per sampled
+tick, whether the view it kept equals the one a forced rebuild makes (checkpoint, run, restore,
+poke the key to 0, run, compare HScroll + VSRAM buffer + Vscroll_Factor + the whole shadow).
+parallax_hscroll_identity.py above cannot see this path: its fixtures are RAM configs, and a
+RAM config is never keyed. Coverage classes (hit, vs-moved, split) are required non-zero, so
+a leg that stops reaching one is COULD NOT RUN, not green. MEASURED on the branch's canonical
+DEBUG FAST build crc 743e3ca2: exit 0, 180 samples, hit 81 / vs-moved 10 / split 99, 0 differ.
+RED-FIRST on two rebuilt mutants (docs/research/2026-09-28-parallax-perband/build_mutant.sh):
+A (key ignores vs) exit 1, 13 samples differ; B (split keeps the key) exit 1, 118 differ.
+~7 s a run at load 20 (2026-09-28 03:04, uptime 4 days)."""
+
 # ---- positional rom/lst ---------------------------------------------------------------
 
 [wired."band_capture.py"]
@@ -134,7 +150,17 @@ PLANE. GREEN on the new lines (DEBUG crc f0a35f5a, plain crc f1c2ae37): exit 0, 
 graded, 24 crossings, 0 disagree, 5 drives one lap and out on A; right 16 px/frame NOT
 MEASURED (stops dead on the right arc at angle $E0 before any lap, the same on both line
 sets: a slope fault). LOOP-COLLISION (2026-09-27, crc 037eff9d): exit 0, 6 drives, 27
-crossings, 0 disagree, all 6 one lap and out on A (right 16 px/frame now rides it)."""
+crossings, 0 disagree, all 6 one lap and out on A (right 16 px/frame now rides it).
+LOOP-STEP-OVER-LANDING (2026-09-28): the 2026-09-28 nightly (origin/master d4f8c479) had this
+row, #phase-sweep and #fault-drives at the SETUP red again ("after 8 landing frames he is at
+y=558, y_vel=336"). A WITNESS defect, not a physics one: the landing wait was 8 EMULATOR frames
+and the 2 px drop takes 7 GAME TICKS; with the camera catching up about one frame in three is
+a lag frame, so the wait held 7 ticks on 3db049cd (crc 1000eded, green) and 6 from 4f3a3ef8
+(PERF-PARALLAX-PERBAND Step 4a, crc f9ebb328, red), with the per-tick trajectory identical. The
+wait now keeps its 8-frame floor and then waits for the landing counted in Logic_Tick (bound
+LAND_TICK_LIMIT). On 3db049cd the fixed witness's output is byte-identical to the old one's;
+on origin/master 33923201 (DEBUG crc 3a8a8e5a) all five rows exit 0 (default: 6 drives, 27
+crossings, 0 disagree, all 6 one lap and out on A)."""
 
 [wired."loop_step_over_witness.py#no-assert-grounded"]
 args = ["--rom", "{rom}", "--lst", "{lst}", "--no-assert-grounded"]
@@ -702,6 +728,7 @@ it is not a verdict about pagecache_audit_poison."""
 "row_remap_witness.py" = "UNEXECUTED (census 2026-09-25): nothing imports or runs it; row_remap_gate.py names it in prose and in a printed message. Priced 2026-09-19: exit 1 in 1 s with three substantive FAILs, so a row would be declared-red and need baseline_args and --out {outdir}."
 "snapshot_poison_gate.py" = "reachable: tools/effects_gates.py runs it as a child process, and tools/nightly_effects_gates.sh runs effects_gates.py every night"
 "tile_cache_fill_gate.py" = "reachable: tools/effects_gates.py runs it as a child process, and tools/nightly_effects_gates.sh runs effects_gates.py every night"
+"oscillation_thrash_gate.py" = "reachable: tools/effects_gates.py runs it as a child process, and tools/nightly_effects_gates.sh runs effects_gates.py every night"
 "vsplit_landing_gate.py" = "reachable: tools/effects_gates.py runs it as a child process, and tools/nightly_effects_gates.sh runs effects_gates.py every night"
 "warp_mailbox_gate.py" = "reachable: tools/effects_gates.py runs it as a child process, and tools/nightly_effects_gates.sh runs effects_gates.py every night"
 "waterline_stamp_witness.py" = "reachable: tools/effects_gates.py runs it as a child process, and tools/nightly_effects_gates.sh runs effects_gates.py every night"

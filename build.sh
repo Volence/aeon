@@ -624,7 +624,8 @@ if [[ "$FAST" == "1" ]]; then
     echo "            executed) · instashield_gate (NEITHER the insta-shield NOR the"
     echo "            Tails-flight precondition is executed, NOR are the walk-off state"
     echo "            writers derived) · layer_line_gate (the layer"
-    echo "            lines' read site is NOT executed) · ctags · effects_seam_gate's"
+    echo "            lines' read site is NOT executed, NOR is any sensor's plane"
+    echo "            select checked against the layer byte) · ctags · effects_seam_gate's"
     echo "            REACHABILITY half (its witnesses need this build's listing — see below)"
     echo "   run:     emit_sound_blob · gen_compression_vectors · sigil build (+checksum,"
     echo "            +deb2 symbols) · level re-bake IF STALE · effects_seam_gate"
@@ -1966,6 +1967,13 @@ if [[ "$FAST" == "0" ]]; then
         # walks every row of the table the ROM ships (OJZ's own, or a clip act's). No
         # emulator, ~4 s. (tools/loop_crossover_gate.py, the retired painted marks' gate,
         # stood here until then.)
+        # THE SENSOR ARM (GPP-CROSSOVER-SENSORS, 2026-09-28; tools/layer_sensor_arm.py, run
+        # from inside this gate): the lines deciding Sst.layer is half the promise. The arm
+        # derives every path into Collision_GetType's plane select from THIS ROM and proves
+        # each hands it the layer byte (static flow, every sensor incl. climb/glide), then
+        # EXECUTES every self-contained sensor entry at layer 0 and 1 and requires every
+        # Tile_Cache_Collision read to land in the plane the byte names. Exit 1 a sensor
+        # that ignores the layer; exit 2 an empty or unfollowable path set.
         if ! gate strict "layer_line_gate.py" python3 "${TOOLS}/layer_line_gate.py" --lst "${ROM_NAME}.lst" \
                 --rom "${ROM_NAME}.bin" --built-after "${SIGIL_T0}"; then
             echo "Layer-line gate failed — see above (tools/layer_line_gate.py)."
@@ -2016,7 +2024,8 @@ if [[ "$FAST" == "1" ]]; then
     else
     echo "   · effects_seam_gate (sonic4 only — ${GAME} has no act descriptor)."
     fi
-    echo "   · layer_line_gate (the layer lines' read site is NOT executed)."
+    echo "   · layer_line_gate (the layer lines' read site is NOT executed; the"
+    echo "     sensors' plane select is NOT checked against the layer byte)."
     echo "   · collision_consistency --rom-tables (ROM collision tables NOT compared)."
     echo "   This is a DEV artifact. It is byte-identical to the canonical ROM on this"
     echo "   tree, but NOTHING here checked that — run ./build.sh before you land it."

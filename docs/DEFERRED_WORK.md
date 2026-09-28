@@ -46,6 +46,58 @@ against the AS-era tree and cite `.asm` paths and line numbers into files that *
 
 ---
 
+## LOOP-STEP-OVER-LANDING: the loop witness's landing wait counted emulator frames, and a perf change moved the lag frames under it (FIXED 2026-09-28, `fix/loop-step-over-landing`)
+
+**Symptom.** The 2026-09-28 keepalive nightly (origin/master `d4f8c479`): `loop_step_over_witness.py`
+default, `#phase-sweep` and `#fault-drives` exit 1 at SETUP, "THE PLAYER NEVER LANDED ... after 8
+landing frames he is at y=558, y_vel=336, player_state=6". `#no-assert-grounded` and `#stand-reverse`
+passed.
+
+**Bisect, by building** (FAST DEBUG builds, the current witness's default row against each ROM):
+
+| commit | what | DEBUG crc | default row |
+|---|---|---|---|
+| `3db049cd` | master before the parallax branch | `1000eded` | exit 0 |
+| `4584a862` | `33bba0a0`'s first parent | `1000eded` | exit 0 |
+| `4f3a3ef8` | parallax Step 4a (shadow view rebuilt only on a key change; +8 B RAM) | `f9ebb328` | **exit 1** |
+| `33bba0a0` | the perf/parallax-perband merge | `743e3ca2` | exit 1 |
+| `d33fa8d0` | lane-status merge on top (its first parent is `33bba0a0`) | `743e3ca2` | exit 1 |
+| `dad60af5` / `33923201` | origin/master at dispatch / at branch | `3a8a8e5a` | exit 1 |
+
+**Mechanism, MEASURED** (a per-frame probe of the witness's own steps 1-3, by symbol, on `3db049cd` and
+`4f3a3ef8`): the physics is the same tick for tick. After the last pin write both ROMs fall
+555.000 -> 555.219 -> 555.656 -> 556.312 -> 557.188 -> 558.281 and land at y 557.281, y_vel 0,
+player_state 0 on the 7th game tick. What moved is which emulator frames are lag frames: the camera
+followed the player back toward his boot x during SETTLE_FRAMES, so after the placement it catches up
+to x 1000 at 16 px a frame and about one frame in three runs no game tick. The pin frame plus the 8
+landing frames held 7 ticks on `3db049cd` (landed on the last frame, zero margin) and 6 on `4f3a3ef8`
+(red, landed one frame later). `4f3a3ef8` runs MORE ticks overall (Logic_Tick 245 vs 244 at the same
+emulator frame): the perf change is faster, it only shifted the lag phase.
+- (a) a hard-coded RAM address that moved: REFUTED. Every read is by symbol or struct offset and
+  reads the same physics on both ROMs. The hard-coded thing was a FRAME count, `LAND_FRAMES = 8`.
+- (b) a real engine regression: REFUTED. It forbids the player landing on the same tick with the same
+  numbers; he does.
+- (c) placement timing: CONFIRMED, in the form above (lag frames under a fixed emulator-frame wait),
+  not a warp or prime taking longer.
+
+**Fix (witness only; no engine change).** The landing wait keeps its 8-frame floor, then runs one
+frame at a time until the player is grounded with y_vel 0, giving up after `LAND_TICK_LIMIT` (30)
+game ticks by `Logic_Tick`, or `LAND_FRAME_LIMIT` (120) frames if the tick counter stalls. A run the
+old wait landed is driven from the same frame: on `3db049cd` the fixed witness's default-row output is
+byte-identical to the old one's. On `33923201` (crc `3a8a8e5a`) all five rows exit 0.
+`LAND_FRAMES` stays as the floor and as the unit five importing witnesses scale by 4.
+Mutations on disk against `33923201`'s DEBUG ROM, each restored with `git show HEAD:path > path`:
+the pre-fix witness exits 1 (the nightly's exact message); the fixed witness with
+`LAND_TICK_LIMIT = 5` exits 1 at the assertion ("after 5 game ticks (8 emulator frames)"), so the
+landing check still bites; with 6 it exits 0 (the count starts after the pin frame, whose own tick
+is the drop's first).
+
+**Still open, not fixed here.** SETTLE_FRAMES "camera first, then settle" does not hold the camera:
+the camera tracks the player at his boot x through the settle and then scrolls 400+ px to catch up
+after the placement, so every drive starts inside a camera catch-up with lag frames. The drives
+grade per game tick, so this is not a grading error, but the setup is not the steady state the
+header describes. Changing it moves every drive's start and needs its rows re-measured.
+
 ## WOVEN-HPZ-BG-MISALIGNED: after Wing Fortress, every other zone's background bands carried its cloud drift, tearing Hidden Palace's waterfall wall at every band edge (FIXED 2026-09-27, `fix/woven-hpz-bg`)
 
 **Symptom (owner, 2026-09-27, woven DEBUG crc `2a0f1df3`).** Hidden Palace's background had a hard
@@ -40869,6 +40921,48 @@ for every gate; it is not the proxy/subject shape.
 10. **GPP-CROSSOVER-SENSORS** (`loop_crossover_gate.py`, measured). `Player_SensorSurface`'s
     `move.b layer(a0), d3` -> `nop` gave exit 0: the byte decides `Sst.layer`, and nothing checks
     that the sensors read it. Sensor entries live in several files, so this is not a one-site fix.
+
+    **FIXED 2026-09-28 (`fix/gpp-layer-sensors`, base master `19b960d4`).**
+    - **Re-derived first, because the named gate is gone.** `a974bc2e` (LINES-EVERYWHERE)
+      retired `loop_crossover_gate.py` and the painted marks; `tools/layer_line_gate.py` is what
+      build.sh runs. Its promise (docstring, build.sh block) is about `Player_LayerLines`: it
+      executes that routine against Sonic 2's Obj03 rule and compares `Sst.layer`, `art_tile`
+      and the write set. Nothing in it, or anywhere else on the landing path, looked at who
+      READS the layer. Measured on this base: `player_sensors.emp:389` (the booked line has
+      moved from :344) `move.b  layer(a0), d3` -> `nop` built with `DEBUG=1 ./build.sh` rc 0,
+      layer_line_gate OK, pytest 3817 passed / needs_build 20 passed. So the gap was live under
+      the current mechanism.
+    - **The fix does not start from the reads.** A deleted read is not in a read set, which is
+      exactly the audited mutation. New `tools/layer_sensor_arm.py`, run from inside
+      `layer_line_gate.py` (so build.sh's existing call gates it), starts at the plane select
+      (`Collision_GetType`'s `tst.b d3` -> `+TILE_CACHE_COLL_SIZE`) and walks outward over the
+      ROM. **Static:** every transfer or `lea`/`pea` into the d3-carrying family, over the whole
+      image; each containing routine's d3.b is followed from its entry (stack push/peek/pop,
+      resolved jump tables, `jsr (aN)`); at a handoff it must be the byte loaded from
+      `SST_layer(a0)`, a routine that passes its own d3 through joins the family, anything
+      else is exit 1. **Executed:** the self-contained sensor entries run at layer 0 and 1 over
+      a synthetic tile cache (air / full / partial blocks from this ROM's own tables, every
+      quadrant, direction and policy); every `Tile_Cache_Collision` read must land in the
+      plane the byte names, and every call site inside the carriers must run at both layers.
+      Source Digest cross-check per proc. Empty or unfollowable = exit 2.
+    - **Derived set (s4.debug):** carriers `Collision_Probe{Down,Up,Left,Right}` and
+      `Player_SensorPair` (through a2). 8 layer reads in 6 routines, 11 handoff sites:
+      Player_SensorSurface, Player_SensorWallDir (x4 directions), Player_AtLedgeEdge (its
+      `.foot_probe`, which a text grep for the sensor files had missed), Glide_Collide,
+      PState_Climb (x3), Knuckles_Gliding_WallCatch. Executed: SensorSurface, SensorWallDir,
+      AtLedgeEdge, 864 runs, 18 carrier call sites. `Player_DebugExit`'s `tst.b layer(a0)` is
+      listed as flag-only (a priority derivation, no plane).
+    - **Red-first, each on a rebuilt ROM through `DEBUG=1 ./build.sh` (rc 1), restored from the
+      committed file:** M1 `player_sensors.emp:389` read -> `nop` (static: SensorSurface hands
+      Player_SensorPair the constant $00; executed: 144 runs at layer 1 read plane A).
+      M2 `player_climb.emp:265` read -> `nop` (static only: PState_Climb $0118BC hands
+      Collision_ProbeUp $00). M3 `player_sensors.emp:150` the probe core's forward re-probe
+      `move.w (sp), d3` -> `moveq #0, d3` (static: all four cores; executed: SensorSurface 48,
+      AtLedgeEdge 48, WallDir 84 runs). M4 `collision_lookup.emp:74` `tst.b d3` -> `tst.b d2`
+      (executed only: 144 runs of each entry at layer 0 read plane B).
+    - **Not seen:** a0 is not tracked (the read must be `layer(a0)`, the player convention).
+      The layer reads inside PState_Climb, Glide_Collide and Knuckles_Gliding_WallCatch are
+      graded by the static flow only; those routines call outside the sensor family.
 11. **GPP-LAND-GATE-IGNORED-INPUTS** (`land_gate.py`, doubtful, unmeasured, since it needs a
     commit-and-push drill). "Clean" is `git status`, which cannot see gitignored inputs such as
     `*.bin`, and `sigil_md5` is recorded but not keyed. Fix sketch: refuse the stamp when a Source
@@ -41268,6 +41362,38 @@ table (`inject_editor_bg.py`) — no witness. Now that the witness runs headless
 there plus a `[not_wired]` → `[wired]` move with a surface baseline. Not done here: this parcel
 repaired three instruments, and wiring one of them into a lane is a different proof obligation
 with different accounting.
+
+**`EVICT-WITNESS-SITE`: the SETUP half is FIXED 2026-09-28 (`fix/evict-witness-site`). The
+witness's Phase 1 is now a GENUINE FAIL, and that half stays OPEN (`EVICT-WITNESS-PHASE1-PREMISE`
+below).** Found by the 2026-09-28 nightly (origin/master `514c3546`): `FAIL: SETUP — 2 cmpi.w
+#imm,d6 site(s) in the 64 bytes at Level_LoadArt`. **The nightly did not pass the night before.**
+`nightly.log` records 09-27 at `3238fb47` as `EVICTION WITNESS FAILED` too, and a rebuild of
+`3238fb47` (crc32 `e33c856f`) gives the same SETUP refusal. The 09-26 build failed. So the leg
+has not produced a real verdict since it was wired.
+
+*Cause, bisected by building both sides.* `787a9980` (2026-09-25 10:56, five hours after the
+wiring landed) added the streaming act's bulk-load cap: a second `cmpi.w #PAGE_FRAMES_CLAMP,d6`
+at +$30 in `Level_LoadArt`, inside the 64-byte window. At its parent `75170561` (crc32
+`914a705e`) the old witness gives `PASS (with known famine)`: 10 distinct pages, page 2 evicted
+at +51. At `787a9980` (crc32 `969eec17`) it refuses SETUP.
+
+*Fix (tools only).* The site is now located by the listing's local labels
+(`$<module>$Level_LoadArt$streaming_pool` / `$bulk_count_ok`). The clamp is read off the one
+`cmpi.w #imm,d6` in `[Level_LoadArt, .streaming_pool)`, which is the fully-resident latch. The
+cap's `cmpi` and `moveq` in `[.streaming_pool, .bulk_count_ok)` must agree with it. Zero or two
+sites, a missing or duplicate label, or disagreeing immediates are all the same loud SETUP
+refusal. The `.lst` has no per-instruction source text, so the labels are the structural anchor.
+No engine edit.
+
+**`EVICT-WITNESS-PHASE1-PREMISE` (OPEN, found by the fix above).** With the locator fixed, the
+witness gives a genuine FAIL at `787a9980`, `3238fb47` and `6e1f6cca` (crc32 `93bd2a52`): `no
+eviction proven — distinct resident pages [0..8] (= 9) never exceeded the 9-frame clamp (868
+samples)`. This is not an engine bug. Phase 1's premise ("the init load itself evicts") is what
+`787a9980` removed on purpose: a streaming act now bulk-loads only its first
+`PAGE_FRAMES_CLAMP` pages, so the load cannot evict. The eviction proof has to move to a
+post-init stimulus, such as a scroll or warp that demands page 9+ (Phase 2 hits the known P-1
+famine today). That is a change to the witness's design, and the witness owner has to decide
+it. Until then the nightly's STRESS_EVICT witness leg stays red for this reason.
 
 **`PARALLAX-ANCHOR-COEFFS-REPUBLISH`: `effects_budget_model.toml` has no record for today's
 fit.** Its own standing rule is that a parcel touching a `Parallax_*` routine re-measures; this
@@ -43027,12 +43153,149 @@ These equal the FAST builds every measurement used. The base `366b777c` FAST bui
 
 **Open:**
 1. **Scripted runs cannot pass Emerald Hill x ~6000.** The clip carries no objects, so there is a pit under the missing bridge at x 6040, and from a warp to (6300, 690) the player oscillates at x 6530..6870 before a spring route. So the run legs cover spawn to x 5850 (53% of EHZ). The owner meets the same dead ends. Whether EHZ objects (bridges, springs) join the clip is a content call.
-2. **Bouncing in that dead end cost 98 lag frames in 1500 (DEBUG).** This is the perf survey's candidate 7 (the oscillation thrash lead), now seen on the owner's act. Measured once, not diagnosed.
+2. **Bouncing in that dead end cost 98 lag frames in 1500 (DEBUG).** This is the perf survey's candidate 7 (the oscillation thrash lead), now seen on the owner's act. Measured once, not diagnosed. **DIAGNOSED 2026-09-28 (OSCILLATION-THRASH below):** on `32a3f074` that leg is 8/1500 (the soft budget spread the re-decodes); the thrash itself is real (81.5% of its decodes re-decode a block) and its speculative half is fixed on `perf/oscillation-thrash`.
 3. **The remaining run lag (1 release, 6 to 7 DEBUG) is column and row COPY at spindash speed.** `TileCache_FillColumn` measured 50.7k per overrunning tick, of which `PageCache_PatchRun_Col` was 23.9k, with one decode per tick. That is the streaming act's translating copy (bounded-direct), which RESIDENT-PLAIN-COPY does not cover. GENERAL-PATCH-LOOP / RPC-1 are the levers, not measured here.
 4. **Parallax is still 14.6k per tick in EHZ, mostly per-band work** for the 7-band record: Step 4 3.7k, update + factor decodes 3.3k. Stubbing it entirely (an upper bound) takes the DEBUG run 6 -> 1. The perf survey's candidate 5 (cheaper per-band overhead) is not built.
+   **PARTLY DONE 2026-09-28, PERF-PARALLAX-PERBAND (section below):** 14,461 -> 11,814 cycles a tick on the EHZ DEBUG run, output byte-identical, run lag unchanged (6). The survey's parallax row is its candidate **2**, not 5 (candidate 5 is `Canopy_Probe`); the line above has said 5 since it was written.
 5. **Content options, priced, not done (the owner's look).** On the after build, flattening the ripple band or the curve each buys 0 frames on the run and 2 on the fly-diagonal EHZ band (31 -> 29); both together buy 4.
 6. **`Canopy_Probe`: 4,026 cycles every tick.** It is worth 5 lag frames on the DEBUG run before this parcel and 1 after. It stays armed (owner's call).
 7. **The choice of soft value and lead is measured, not modelled.** Soft 2 and 3, and lead 12/15, all measured worse; the response is not monotone.
+
+## PERF-PARALLAX-PERBAND: parallax's per-band overhead, cut 18% with identical output (branch `perf/parallax-perband`, 2026-09-28)
+
+This is PERF-EHZ-RUN-LAG's open item 4. Findings and every number are in
+`docs/research/2026-09-28-parallax-perband.md`; tools and raw results are in the directory
+beside it. Base `origin/master` `3db049cd`.
+
+**What landed.**
+
+1. **Step 4a's frame-coherence key.** The rotated shadow band view is a pure function of the
+   config's ROM bytes and `Vscroll_BG & 511`. It is now rebuilt only when that pair changes
+   (`Parallax_Shadow_Key_Config` / `_VS` / `_K`, 8 bytes at the tail of `Parallax_State`), and
+   the scroll words are re-rotated every tick. The rules that keep the cache exact:
+   - A RAM config is never keyed.
+   - Step 4b's split drops the key.
+   - `Parallax_Init` clears it.
+
+   The Step 4a banner has the four-clause argument. On EHZ this part went 2,617 -> 430 cycles
+   a tick.
+2. **Per-frame decisions stop being made per band.**
+   - The lerp decision is made once, into bit 31 of d6.
+   - The cursors step by post-increment.
+   - `adda.l #imm` becomes `lea`.
+   - The role-swapped pack is the normal pack plus one `swap`.
+3. **`tools/parallax_shadow_key_witness.py`**, wired in `keepalive_manifest.toml`. It checks that
+   the cached view equals a forced rebuild, tick by tick, as a differential on the machine (no
+   model). Coverage classes hit / vs-moved / split must each be non-zero. It was red-first on two
+   rebuilt mutants: A (the key ignores vs) at 13/180 and B (the split keeps the key) at 118/180.
+
+**Measured** (lag / video frames over the same tick span; `Parallax_Update` inclusive
+cycles/tick; base -> branch):
+
+| leg | lag | parallax cyc/tick |
+|---|---|---|
+| clip run, release | 0 -> 0 | 14,344 -> 11,697 |
+| clip run, DEBUG | 6 -> 6 | 14,461 -> 11,814 |
+| clip fly diagonal, EHZ band (DEBUG) | 18/74 -> 16/72 | 14,293 -> 11,679 |
+| canonical run, release / DEBUG | 0 -> 0 | 10,000 -> 8,154 / 10,117 -> 8,270 |
+| canonical fly diagonal (DEBUG) | 12 -> 12 | 9,727 -> 8,200 |
+
+- **Output.** `Hscroll_Buffer`, the VSRAM column buffer and `Vscroll_Factor` are byte-identical
+  at every compared tick of all 14 legs. The 14 include two new anchored legs in OJZ region 5,
+  where the split is live every tick.
+- **Fixture identity.** `parallax_hscroll_identity.py --ref <base>` reports OK.
+- **Upper bound.** Stubbing Step 5, Step 4 and the fill takes the DEBUG run 6 -> 0. So the
+  remaining run lag needs more than the 2.65k saved here.
+
+**Files another lane reads.**
+- `engine/ram.emp`: +8 B RAM in `Parallax_State`. `PARALLAX_STATE_LONGS`' head is 104 -> 112.
+- New cross-seam RAM names, for sigil's `*_port` lists: `Parallax_Shadow_Key_Config`,
+  `Parallax_Shadow_Key_VS`, `Parallax_Shadow_Key_K`.
+- Unchanged: `engine/structs.emp`, `engine/effects/*`, and the record or config format.
+
+**Landing evidence** (full, non-FAST builds at `4e71b763`, the last code/tool commit; the commit adding this paragraph is docs only). The assembler was sigil `80bcaf72`, md5(SIGIL_BUILD) `5a68be69`. Its source check reported COULD NOT CHECK (the pair worktree it names is not on disk); that is not a pass.
+- `tools/landing_build.sh`: **exit 0, `finished=0`**, land-gate stamp written.
+  - pre-build pytest: 3783 passed, 3 skipped, 36 deselected;
+  - needs_build: 35 passed, 1 EXEMPTED (`test_deb2_appendix[demo.bin]`).
+  - Two earlier runs were red, and both reds were real. `test_citation_form`: `vblank.emp` cited `ram.emp:589` by number, and the Parallax_State insert moved it onto a bare line; now cited by name. `demo_specialization_witness`: three demo image pins moved, re-derived instruction by instruction in its log.
+- `S2CLIP=s2_ehz_cpz ./build.sh` rc 0 and `DEBUG=1 S2CLIP=s2_ehz_cpz ./build.sh` rc 0.
+- **Effects-gates ritual** (`tools/effects_gates.py --rom s4.debug.bin --lst s4.debug.lst`): rc 0, all 22 scheduled gates produced a complete row set, 41 PASS, 0 FAIL.
+- `tools/parallax_shadow_key_witness.py` on the landing `s4.debug.bin`: GREEN (hit 81, vs-moved 10, split 99, 0 differ).
+
+| ROM | CRC32 | bytes |
+|---|---|---|
+| `s4.bin` | `fb86e15e` | 830,169 |
+| `s4.debug.bin` | `743e3ca2` | 857,170 |
+| `demo.debug.bin` | `d15d69ea` | 106,909 |
+| `s4.s2clip.bin` | `116ab256` | 929,777 |
+| `s4.s2clip.debug.bin` | `d7f19db3` | 956,590 |
+
+These equal the FAST builds every measurement used (the step-2 row of the research note's referent table).
+
+**Open riders.**
+- **PPB-1 (sigil lane): the decode inline is BLOCKED.**
+  - What it buys: inlining `Parallax_Update`'s `jbsr Decode_Factor_A/_B` saves ~0.5k a tick on
+    EHZ.
+  - What blocks it: removing the calls turns two frozen closure-baseline rows GONE, and the build
+    fails. The rows are `("Parallax_Update", "Decode_Factor_A", "d2")` in `D1C_BASELINE` and
+    `(.., "Decode_Factor_B", "d2")` in `D1C_DEMO_EXTRA`, both in
+    `crates/sigil-harness/src/contract_baseline.rs`.
+  - Measured: stubbing the whole routine is refused with `GONE firings: Parallax_Update @
+    Decode_Factor_A :: d2`.
+  - It needs a paired sigil commit that drops both rows.
+- **PPB-2 (design note first): a factor progression encoding.** It follows S3K's `sub.l` per
+  band, which is ~10 cycles against ~100 for a band decode. It changes the band record that
+  aurora/`effects_gen` emit.
+- **PPB-3: cache the fill's per-band loop selection under the same key.** About 80 cycles a
+  band, ~0.5k a tick on EHZ.
+- **PPB-4: keep the view across an anchored split.** Today an anchored region rebuilds every tick
+  (1.4k). The alternative is a pristine copy, +528 B of RAM at MAX 16.
+- **PPB-5: the curve hoist's walk over non-curve bands.** About 0.3k a tick on EHZ.
+- **PPB-6: flat lines by `movem.l`.** About 0.5k a tick on EHZ, less the setup. The fill has few
+  free registers.
+- **PPB-7: `[parallax.cost_model]` in `tools/effects_budget_model.toml` is stale.** Every band
+  term moved down. It is not gated anywhere and was not re-fitted.
+- **PPB-8: the replay net's RAM-hash checkpoints.** The DEBUG RAM layout moved: 8 B inside
+  `Parallax_State`, and everything after it moves 8 B. The GPL-A3-3 question again. Not measured
+  here.
+
+## OSCILLATION-THRASH: a swinging camera re-decodes the same blocks (branch `perf/oscillation-thrash`, 2026-09-28)
+
+The perf survey's candidate 7 and PERF-EHZ-RUN-LAG open item 2. Findings, legs and every number: `docs/research/2026-09-28-oscillation-thrash.md` (tools and raw results in `docs/research/2026-09-28-oscillation-thrash/`). Base `32a3f074`.
+
+**What it was.** On an oscillating camera 81-99% of block decodes re-decode a block decoded before (straight flight: 0%). Two mechanisms: (1) the speculative column scan re-aims at every reversal, stages the block past the far edge, never uses it, and each such claim evicts one of the 16 round-robin staging slots holding the window-edge blocks the demand fill re-reads; (2) on swings wider than the window's slack the demand working set alone exceeds 16 slots. Page ping-pong: none (0 page loads on every leg). **Lag: mostly already gone** — the soft budget holds re-decodes to one per tick: the OJZ bounce is 0/1800 in both shapes, the EHZ dead end 8/1500 (was 98/1500).
+
+**What landed on the branch.** The arming run: `Tile_Cache_Fill`'s column scan (and the corner) STAGE only after the camera has moved `H_PFX_ARM` = 128 px (one block) with the H direction latch since it was set or flipped (`Cache_H_Pfx_Run`); the target is still published for the page tier; the first latch set after `Tile_Cache_Init` arms at once. One ensure bounds `H_PFX_ARM` between one camera step and the cache margin (red-first at 16 and 168 px). ARCH §9.7 updated.
+
+| leg (decodes are staging claims over the same ticks) | before | after |
+|---|---|---|
+| OJZ one-block oscillation (DEBUG fly) | 0/700 lag, 518 decodes | 0/700, 44 (0 after warm-up) |
+| OJZ bounce, release / DEBUG | 0/1800, 757 | 0/1800, 560 |
+| EHZ oscillating diagonal | 18/900, 849 | 16/898, 78 |
+| EHZ dead end (DEBUG) | 8/1500, 319 | 8/1500, 286 |
+| EHZ pit, release / DEBUG | 1/3000 / 7/3000, 696 / 694 | same lag, 642 / 640 |
+| the 2026-09-27 leg set (runs, spins, fly diag/right/down, both acts, both shapes) | | lag, coverage and parallax output identical |
+
+**Gate.** `tools/oscillation_thrash_gate.py`, in `tools/effects_gates.py` after `tile_cache_fill`: a DEBUG free-flight swing of exactly `H_PFX_ARM` must claim 0 staging slots in 600 ticks after warm-up (0 derived: the swing's demand working set, 10 blocks, fits the 16 slots; checked, exit 2 if not). Red-first: arming gate removed -> RED 452 claims; restored -> GREEN 0.
+
+**Landing evidence** (full, non-FAST builds at `965c856d`, the code tip; the commit that adds this paragraph changes docs only):
+- `tools/landing_build.sh` **exit 0, `finished=0`**: pre-build pytest 3783 passed, 3 skipped, 35 deselected; `emp_expect_fail` 56/56; needs_build 34 passed, 1 EXEMPTED (`test_deb2_appendix[demo.bin]`). (A first run at `52275365` failed 1 test: `test_every_bus_instrument_in_the_tree_is_declared` named the new gate; `tools/keepalive_manifest.toml` now declares it. A second run was invalidated by my own clip build racing it in the same tree; this is the third, run alone.)
+- `S2CLIP=s2_ehz_cpz ./build.sh` rc 0 and `DEBUG=1 S2CLIP=s2_ehz_cpz ./build.sh` rc 0.
+- **Effects-gates ritual** (`tools/effects_gates.py --rom s4.debug.bin --lst s4.debug.lst`): rc 0, all 23 scheduled gates produced a complete row set (42 result rows), including `oscillation_thrash` and `tile_cache_fill`.
+
+| ROM (full builds, equal to the FAST builds every measurement used) | CRC32 | bytes |
+|---|---|---|
+| `s4.bin` | `421a8433` | 830,062 |
+| `s4.debug.bin` | `318adbe6` | 857,039 |
+| `demo.debug.bin` | `e20b8adf` | 106,776 |
+| `s4.s2clip.bin` | `518bc1c3` | 929,665 |
+| `s4.s2clip.debug.bin` | `f487505c` | 956,461 |
+
+**Open:**
+1. **Demand re-decoding on large swings (mechanism 2), design-sized.** The OJZ bounce still decodes 560 blocks in 1800 ticks (87% again), the EHZ dead end 286. Levers priced in the research doc: 16 more staging slots (12,288 B RAM of the ~15.8 KB between `Game_RAM_End` and the stack, plus widening the u16 memo masks / `rol.w` eviction windows and `PageCache_Prefetch`'s four `clr.l`), or trailing-edge hysteresis on the cache window (a 39 - 2L column swing needs no refill at minimum lead L; costs lead in sustained motion after a reversal, and catch-up is the column-copy burst OJZF-2 measured as lag). Both change the §9.7 contract; not built.
+2. **No vertical arming run, by measurement.** At 3, 8 and 16 rows it cut more bounce decodes (757 -> 473-524) but put 2-3 lag frames on the release EHZ run and spindash run (hill crests are vertical reversals; the delayed row prefetch became a demand decode on the lag tick). Deleted, not left inert. A vertical rule that tells a hill crest from a bounce is untried.
+3. **The fix buys CPU, not lag, on every leg measured** (lag moved only 18 -> 16 on the EHZ oscillating diagonal). Its value is 0.1-0.7 fewer ~11.5k-cycle decodes per tick while a camera swings.
+4. **New cross-seam names** for sigil's port tests to supply if a port lowers `engine/level/tile_cache.emp` or `engine/ram.emp`: `H_PFX_ARM` (const), `Cache_H_Pfx_Run` (RAM). Not checked against sigil's tree from here.
 
 ## OJZ-FEEL: the lag he still feels playing OJZ act 1, and the fall cap (branch `perf/ojz-feel`, booked 2026-09-26T22:34:06Z)
 

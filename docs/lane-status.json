@@ -1,29 +1,19 @@
 {
-  "focus": "Owner asleep. Tonight: Sonic 2 songs in a second sound bank, code optimizations, and check fixes.",
+  "focus": "Owner asleep. Seven fixes landed tonight; now the second song bank, one step at a time.",
   "inFlight": [
     {
-      "what": "Why bouncing in place in Emerald Hill lags (98 lag frames in 1500), and fix it if contained",
-      "where": "branch perf/oscillation-thrash",
+      "what": "Song bank 2 with Metropolis's song: assembler rebuilt, finishing and checking it on every Sonic 2 test level",
+      "where": "branch parcel/song-bank-2-step3",
       "agent": true
     },
     {
-      "what": "Make parallax cheaper in Emerald Hill (14.6k cycles a tick, mostly per-band work), same picture",
-      "where": "branch perf/parallax-perband",
-      "agent": true
-    },
-    {
-      "what": "Check that Sonic's collision sensors really read the loop layer he is on (the old check for it was retired)",
-      "where": "branch fix/gpp-layer-sensors",
-      "agent": true
-    },
-    {
-      "what": "Landing the cheaper parallax (18% fewer cycles a tick, same picture): full build + effects checks",
-      "where": "branch perf/parallax-perband",
+      "what": "Landing the re-aimed overnight eviction test drive",
+      "where": "branch fix/evict-witness-phase1",
       "agent": false
     },
     {
-      "what": "Second song bank so Metropolis's song fits (assembler rebuilt, resumed)",
-      "where": "branch parcel/song-bank-2",
+      "what": "Parallax round 2: three more small savings (about 1.3k cycles a tick), same picture",
+      "where": "branch perf/parallax-perband-2",
       "agent": true
     }
   ],
@@ -49,20 +39,20 @@
       "since": "2026-09-28"
     }
   ],
-  "nextBoundary": "When the three agents (insta-shield check, bounce lag, parallax cost) return and land.",
+  "nextBoundary": "When song-bank step 2 lands; step 1 then waits on one small assembler change (taken by that lane).",
   "queue": [
     {
-      "id": "PERF-OSCILLATION-THRASH",
-      "title": "Lag while bouncing in place in Emerald Hill's dead end: re-measure on today's tree, diagnose, fix if contained",
+      "id": "EVICT-WITNESS-SITE",
+      "title": "Overnight eviction test drive: locator fixed (landed); re-aiming its first phase, which a 09-25 change made obsolete",
       "state": "doing",
-      "size": "M",
+      "size": "S",
       "blockedBy": null
     },
     {
-      "id": "PERF-PARALLAX-PERBAND",
-      "title": "Cheaper parallax: 18% fewer cycles a tick with a byte-identical picture; landing now",
+      "id": "PERF-PARALLAX-PERBAND-2",
+      "title": "Parallax round 2: three more small savings (about 1.3k cycles a tick in Emerald Hill), same picture",
       "state": "doing",
-      "size": "M",
+      "size": "S",
       "blockedBy": null
     },
     {
@@ -73,16 +63,8 @@
       "blockedBy": "decision card WOVEN-EDITABLE"
     },
     {
-      "id": "WOVEN-NIGHTLY-ROM-NAME",
-      "title": "Read the next nightly's first runs of the woven act and Hidden Palace test drives (05:00 local)",
-      "state": "next",
-      "size": "S",
-      "blockedBy": null,
-      "project": "REGIONS"
-    },
-    {
       "id": "S2CLIP-MTZ-SONG-BANK",
-      "title": "Sonic 2 zone songs: building the second song bank and Metropolis's song now",
+      "title": "Sonic 2 zone songs: step 1 landed (songs by name); Metropolis in bank 2 lands once the assembler tool is rebuilt",
       "state": "doing",
       "size": "M",
       "blockedBy": null,
@@ -125,8 +107,8 @@
     },
     {
       "id": "GATE-PREDICATE-VS-PROMISE",
-      "title": "Checks guarding something near their subject: 13 fixed (collision tables and insta-shield tonight); the rest need a design call or another lane",
-      "state": "doing",
+      "title": "Checks guarding something near their subject: 14 fixed (3 tonight); the rest need a design call, another lane, or are unmeasured doubts",
+      "state": "next",
       "size": "M",
       "blockedBy": null
     },
@@ -173,9 +155,16 @@
       "size": "S",
       "blockedBy": "decision card S2CLIP-OBJECTS",
       "project": "REGIONS"
+    },
+    {
+      "id": "P1-FAMINE-PINNED-CAPACITY",
+      "title": "Streaming acts: pinned art pages can crowd out the pages a screen needs (found in the stress test level); engine design question",
+      "state": "open",
+      "size": "M",
+      "blockedBy": null
     }
   ],
   "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-09-28T08:17:01Z"
+  "updatedAt": "2026-09-28T11:52:19Z"
 }

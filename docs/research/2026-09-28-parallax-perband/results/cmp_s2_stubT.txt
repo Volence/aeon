@@ -1,0 +1,5 @@
+leg            lag/frames before         after  ticks       parallax cyc/tick  path                        output identity
+debug_run           6 / 1207         0 / 1201     1201      11814 ->     3216    2 ticks off (dx 5, dy 1)  1195 of 1195 ticks differ (6 cam-mismatch skipped)
+debug_diag         20 / 1100        12 / 1092     1080      10055 ->     2629    0 ticks off (dx 0, dy 0)  1080 of 1080 ticks differ (0 cam-mismatch skipped)
+              Emerald Hill band (cam y < 1024): 16/72 -> 10/66; parallax seg0 11679 -> 3176
+finished=1 differing_ticks=2275 legs_missing_or_empty=0

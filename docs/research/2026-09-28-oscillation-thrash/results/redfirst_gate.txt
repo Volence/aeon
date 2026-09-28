@@ -1,0 +1,25 @@
+== mutation (git diff of engine/level/tile_cache.emp):
+diff --git a/engine/level/tile_cache.emp b/engine/level/tile_cache.emp
+index a9784197..d2feab17 100644
+--- a/engine/level/tile_cache.emp
++++ b/engine/level/tile_cache.emp
+@@ -1835,8 +1835,6 @@ pub proc Tile_Cache_Fill () clobbers(d0-d7/a0-a6) {
+         move.w  d6, Cache_Pfx_Col_Target       // record for the corner (H2) + the PAGE tier
+         tst.w   Cache_Spec_Blocked             // F2a GATE (mirror of .pfx's)
+         bne     .col_done
+-        cmpi.w  #H_PFX_ARM, Cache_H_Pfx_Run    // ARMING GATE (horizontal)
+-        blt     .col_done
+         // Memo skip — the exact mirror of .pfx above, including both halves of the
+         // F2 re-key: BLOCK-ALIGNED row bounds (the scan visits block-aligned rows
+         // only, so the raw Top/Bottom moved 8x more often than the set they name)
+mutant build rc=0 s4.debug.bin crc=91471c12
+rom s4.debug.bin crc32 91471c12; working set <= 10 blocks of 16 slots; expected claims 0
+flight step 16 px/tick; half-period 8 ticks (H_PFX_ARM 128 px); warm-up 32 ticks; measured 600 ticks: camera x 752..864 (swing 112), 74 reversals; staging claims 452
+RED   452 staging claim(s) while the camera swung by one block: the speculative scans are re-aiming at every reversal and evicting edge blocks
+gate on mutant rc=1 (want 1)
+restored build rc=0 s4.debug.bin crc=318adbe6 diff-lines=0
+rom s4.debug.bin crc32 318adbe6; working set <= 10 blocks of 16 slots; expected claims 0
+flight step 16 px/tick; half-period 8 ticks (H_PFX_ARM 128 px); warm-up 32 ticks; measured 600 ticks: camera x 752..864 (swing 112), 74 reversals; staging claims 0
+GREEN a one-block oscillation claimed no staging slot
+gate on restored rc=0 (want 0)
+finished=1

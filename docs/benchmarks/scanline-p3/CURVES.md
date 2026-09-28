@@ -313,6 +313,25 @@ The three span pairs in I1's listing:
 
 ---
 
+### 3.9 The hoist under Step 4a's frame-coherence key (2026-09-28, PERF-PARALLAX-PERBAND)
+
+Step 4a now keeps the rotated shadow view while (config, `Vscroll_BG & 511`) is unchanged,
+instead of re-copying it every frame. Nothing here moved, for three reasons:
+
+- **The hoist still runs every tick.** It rewrites `bc_step` / `bc_frac` for every curve band
+  with a positive span, and those are the only reads of them. The spread is a function of camX,
+  so there was never anything to cache.
+- **A band the hoist skips (span <= 0) keeps the ROM zero it was built with.** Its span is a
+  function of the key, so it stays skipped for as long as the view is kept, and no reader takes
+  those words for a band with no lines.
+- **`CURVE_FLAG_CONT_BIT` still reaches the fill only on the tick of a split.** The split drops
+  the key, so the next tick rebuilds.
+
+The curve's own cost is unchanged: the line loop at 21.25 cycles a line and the two divides.
+EHZ's 80-line curve is vertically locked, so its divisor is constant under the key. The divide
+still has to run, because it takes both the quotient and the remainder of the per-tick spread.
+Evidence: `docs/research/2026-09-28-parallax-perband.md`.
+
 ## 4. The interaction: an anchor split inside a curve CONTINUES it
 
 Design §2: *"an anchor split inside a curve layer **continues** the curve (the per-line delta
@@ -326,7 +345,9 @@ Two halves make that true, and neither is free:
    manufactures and the fill seeds from `Parallax_Curve_Carry` instead of the base scroll.
    The bit is set unconditionally under the capability — the fill reads it only after the
    ACTIVE bit says the band is a curve at all, so it is inert on a flat split — and it cannot
-   go stale, because Step 4a re-copies the whole shadow view from ROM before the overlay runs.
+   go stale, because the view the overlay receives is always a pure ROM rotation: Step 4a
+   re-copied it every frame until 2026-09-28, and since then either rebuilds it or keeps one its
+   frame-coherence key vouches for, a key every split drops (§3.9).
 
 The seed is also parked BEFORE the empty-entry early-out, which is not defensive: Step 4a can
 clamp a layer to zero on-screen lines (two shadow tops both at 224), and a split below a
