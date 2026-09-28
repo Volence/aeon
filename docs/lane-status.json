@@ -17,11 +17,6 @@
       "agent": true
     },
     {
-      "what": "Second song bank so Metropolis's song fits (the assembler lane's half landed tonight)",
-      "where": "branch parcel/song-bank-2",
-      "agent": true
-    },
-    {
       "what": "Landing the cheaper parallax (18% fewer cycles a tick, same picture): full build + effects checks",
       "where": "branch perf/parallax-perband",
       "agent": false
@@ -82,10 +77,10 @@
     },
     {
       "id": "S2CLIP-MTZ-SONG-BANK",
-      "title": "Sonic 2 zone songs: the assembler lane's half landed; building the second song bank and Metropolis's song now",
-      "state": "doing",
+      "title": "Sonic 2 zone songs: ready to build; waiting for the assembler lane to rebuild its release binary with tonight's change",
+      "state": "blocked",
       "size": "M",
-      "blockedBy": null,
+      "blockedBy": "sigil: rebuild the release assembler so it includes their song-bank change (asked 2026-09-28)",
       "project": "REGIONS"
     },
     {
@@ -177,5 +172,5 @@
   ],
   "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-09-28T08:14:12Z"
+  "updatedAt": "2026-09-28T08:15:19Z"
 }
