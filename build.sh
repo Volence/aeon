@@ -1250,6 +1250,8 @@ fi
 # when it reaches an empty list, drop the file and this flag.
 # sonic4 only: games/demo has no collision data, and running it there would be a
 # vacuous pass on another game's tree.
+# ⚠ THIS CALL GRADES FILES, NOT THE ROM. Its post-sigil arm (`--rom-tables`, after
+# layer_line_gate below) is what ties those files to the labels the engine reads.
 if [[ "${GAME}" == "sonic4" ]]; then
     # An S2CLIP build also exempts the clip act's OWN declared donor data, when the clip
     # carries a collision_baseline.json beside its clips.json (the woven act s2_mtz_cpz,
@@ -1959,6 +1961,23 @@ if [[ "$FAST" == "0" ]]; then
             echo "Layer-line gate failed — see above (tools/layer_line_gate.py)."
             exit 1
         fi
+
+        # collision_consistency's POST-SIGIL ARM (GPP-COLLISION-ROM-TABLES, 2026-09-28).
+        # The pre-sigil call above grades heightmaps/angles/solidity.bin ON DISK, and
+        # `pub data AngleTable = _solidity` built with that gate at exit 0 (measured,
+        # docs/research/2026-09-26-gate-predicate-audit.md). This arm reads THIS build:
+        # the bytes at the listing's HeightMaps/AngleTable/SolidityTable must be the
+        # graded files, Collision_ProbeDown must read each in the role the rules model,
+        # and Player_SensorSurface must still carry the `btst #0,d1` odd-flag resolution
+        # Rule A's odd-angle exemption stands on. sonic4-only, like the pre-sigil arm.
+        # EXIT 2 HERE MEANS: COULD NOT MEASURE -- a label, the ROM or a graded file is
+        # absent, or the (.bin, .lst) pair is not fresh (artifact_provenance).
+        if ! gate strict "collision_consistency.py --rom-tables" python3 "${TOOLS}/collision_consistency.py" \
+                --rom-tables --lst "${ROM_NAME}.lst" --rom "${ROM_NAME}.bin" --built-after "${SIGIL_T0}"; then
+            echo "Collision ROM tables disagree with the graded files — see above"
+            echo "  (tools/collision_consistency.py --rom-tables)."
+            exit 1
+        fi
     fi
 fi
 
@@ -1987,6 +2006,7 @@ if [[ "$FAST" == "1" ]]; then
     echo "   · effects_seam_gate (sonic4 only — ${GAME} has no act descriptor)."
     fi
     echo "   · layer_line_gate (the layer lines' read site is NOT executed)."
+    echo "   · collision_consistency --rom-tables (ROM collision tables NOT compared)."
     echo "   This is a DEV artifact. It is byte-identical to the canonical ROM on this"
     echo "   tree, but NOTHING here checked that — run ./build.sh before you land it."
     echo "================================================================================"

@@ -161,6 +161,34 @@ Green does NOT mean:
     pairing is tools/ojz_block_gen.py's and the staleness gate's job.
   * anything about games/demo (it has no collision data at all).
 
+-----------------------------------------------------------------------------
+THE POST-SIGIL ARM (--rom-tables), GPP-COLLISION-ROM-TABLES 2026-09-28
+-----------------------------------------------------------------------------
+The rules above grade FILES. Until this arm, nothing tied those files to the
+ROM: `pub data AngleTable = _solidity` built and this gate exited 0 (measured,
+docs/research/2026-09-26-gate-predicate-audit.md). build.sh now also runs,
+after sigil,
+
+    collision_consistency.py --rom-tables --lst s4[.debug].lst --rom s4[.debug].bin
+                             --built-after T0
+
+which reads the BUILT image and refuses (exit 1) unless:
+  (1) DATA: the bytes at the listing's HeightMaps / AngleTable / SolidityTable
+      are heightmaps.bin / angles.bin / solidity.bin, whole;
+  (2) READ SITES: Collision_ProbeDown's `.cell` loads each of the three in the
+      role the rules model (SolidityTable -> d0 then `and.b d6,d0`, AngleTable
+      -> d1, HeightMaps -> d0), exactly once each;
+  (3) ODD-ANGLE PREMISE: Player_SensorSurface resolves the odd flag with
+      `btst #0,d1` / `bne .substitute` / `.substitute: move.b d3,d1`, the
+      fact Rule A's odd-byte exemption stands on.
+Exit 2 when it cannot measure (a label, the ROM or a graded file is missing, or
+the pair is not fresh). It reads byte patterns, so a re-encoding of the same
+behaviour fails closed with the premise named: re-derive, then update the arm.
+What it does NOT cover: the odd-flag resolution at the OTHER angle consumers
+(Player_SensorWallDir `.resolve`, Glide_Collide) or any future one, the d6 =
+SOLID_TOP each floor caller passes, and HeightMapsRot (not graded here). Those
+are booked in docs/DEFERRED_WORK.md under GPP-COLLISION-ROM-TABLES.
+
 VACUITY: this gate REFUSES TO PASS on an empty population. If it finds no
 section files, no non-air cells, or no floor-exposed spans, it exits non-zero
 saying so. A green line from this tool always carries the counts it examined, so
@@ -196,6 +224,9 @@ Usage:
     python3 tools/collision_consistency.py --baseline tools/collision_baseline.json
         (--baseline repeats; the union is exempted. An S2CLIP build adds the clip act's
          own games/sonic4/data/clips/<id>/collision_baseline.json when it has one.)
+    python3 tools/collision_consistency.py --rom-tables --lst s4.debug.lst \\
+            --rom s4.debug.bin [--built-after EPOCH]
+        (the post-sigil arm above; exit 0 agree, 1 disagree, 2 could not measure)
 """
 
 import os
@@ -976,7 +1007,269 @@ def _hashable(x):
     return tuple(x) if isinstance(x, list) else x
 
 
+# ---------------------------------------------------------------------------
+# THE POST-SIGIL ARM (--rom-tables): the graded files ARE what the ROM carries
+# under the names the engine reads, and the premises Rule A rests on are in the
+# emitted code. GPP-COLLISION-ROM-TABLES, 2026-09-28.
+# ---------------------------------------------------------------------------
+#
+# WHY IT EXISTS. Everything above grades three FILES on disk. Measured
+# 2026-09-26 (docs/research/2026-09-26-gate-predicate-audit.md, row
+# `collision_consistency.py`): `pub data AngleTable = _solidity` in
+# games/sonic4/data/collision/collision_data.emp built, and this gate exited 0 —
+# both blobs are 256 B, and nothing here ever learned which bytes the label the
+# engine reads is bound to. So a green said nothing about the shipped tables.
+#
+# THE ROLE MAP BELOW IS THE GATE'S OWN MODEL, NOT A COPY OF collision_data.emp.
+# It says which graded file plays which role. Deriving it from the `pub data`
+# lines would reproduce exactly the mutation this arm exists to catch.
+# HeightMapsRot is deliberately absent: the gate does not grade it (see
+# "Green does NOT mean" in the module docstring), so this arm does not either.
+ROM_TABLE_ROLES = (
+    ("HeightMaps", "heightmaps.bin", MAX_ATTRS * PROFILE_LEN),
+    ("AngleTable", "angles.bin", MAX_ATTRS),
+    ("SolidityTable", "solidity.bin", MAX_ATTRS),
+)
+
+# The premises, as 68000 encodings (the arm reads BYTES, so a re-encoding of the
+# same behaviour, e.g. pc-relative, fails closed with a message naming the
+# premise; that is the intended failure, re-derive the premise and update here).
+_LEA_ABS_L_A1 = bytes.fromhex("43F9")          # lea (xxx).l, a1
+_MOVEA_L_IMM_A1 = bytes.fromhex("227C")        # movea.l #imm, a1
+_MOVE_B_A1_D3W_D0 = bytes.fromhex("10313000")  # move.b (a1,d3.w), d0
+_MOVE_B_A1_D3W_D1 = bytes.fromhex("12313000")  # move.b (a1,d3.w), d1
+_AND_B_D6_D0 = bytes.fromhex("C006")           # and.b d6, d0
+_BTST_0_D1 = bytes.fromhex("08010000")         # btst #0, d1
+_MOVE_B_D3_D1 = bytes.fromhex("1203")          # move.b d3, d1
+
+
+def parse_listing_labels(path):
+    """{label: address} for every label row of a sigil listing, locals included
+    (`(0) 914/6EE4 :        Collision_ProbeDown:`). Raises GateError when the
+    file cannot be read or yields no labels: an empty map is not a pass."""
+    rx = re.compile(r"\(\d+\) \d+/([0-9A-Fa-f]+) :\s+(\S+):\s*$")
+    out = {}
+    try:
+        with open(path, encoding="utf-8", errors="replace") as fh:
+            for ln in fh:
+                m = rx.match(ln)
+                if m:
+                    out[m.group(2)] = int(m.group(1), 16)
+    except OSError as exc:
+        raise GateError(f"cannot read listing {path}: {exc}") from exc
+    if not out:
+        raise GateError(f"{path} yielded no label rows — not a sigil listing")
+    return out
+
+
+def _span(labels, name, phased):
+    """[start, end) of global label `name`: end is the next GLOBAL label (no `$`)
+    above it that is not PHASED (a phased symbol carries a bank-local VMA, not a ROM
+    address, so it can land inside an unrelated routine by coincidence:
+    scene_spans.vma_phased_symbol_names, tools/test_routine_extent_phased.py).
+    Raises GateError when the label is absent or is the last one."""
+    if name not in labels:
+        raise GateError(f"label {name} is not in the listing")
+    start = labels[name]
+    above = [a for n, a in labels.items()
+             if "$" not in n and n not in phased and a > start]
+    if not above:
+        raise GateError(f"{name} has no global label after it, so its extent is unknown")
+    return start, min(above)
+
+
+def _local(labels, lo, hi, suffix):
+    """The address of the ONE local label ending in `$<suffix>` inside [lo, hi).
+    Several or none is a GateError: the premise has no single subject."""
+    hits = sorted(a for n, a in labels.items()
+                  if n.endswith("$" + suffix) and lo <= a < hi)
+    if len(hits) != 1:
+        raise GateError(f"expected exactly one local label `.{suffix}` in "
+                        f"${lo:X}..${hi:X}, found {len(hits)}")
+    return hits[0]
+
+
+def _next_label(labels, addr, phased):
+    """The next label of ANY kind above `addr` (locals included), phased ones excluded."""
+    above = [a for n, a in labels.items() if n not in phased and a > addr]
+    if not above:
+        raise GateError(f"no label after ${addr:X}, so the span is unknown")
+    return min(above)
+
+
+def _count(hay, needle):
+    n, i = 0, hay.find(needle)
+    while i >= 0:
+        n += 1
+        i = hay.find(needle, i + 1)
+    return n
+
+
+def check_rom_tables(lst, rom_path, root=None):
+    """The post-sigil arm. Returns (problems, facts): each problem is a sentence
+    naming what disagrees; `facts` is what was measured, printed on green so a
+    pass carries its referents. GateError = could not measure (exit 2)."""
+    labels = parse_listing_labels(lst)
+    try:
+        with open(rom_path, "rb") as fh:
+            rom = fh.read()
+    except OSError as exc:
+        raise GateError(f"cannot read ROM {rom_path}: {exc}") from exc
+    coll = coll_dir_for(root)
+    problems, facts = [], []
+    from scene_spans import vma_phased_symbol_names
+    phased = vma_phased_symbol_names()
+    if not phased:
+        raise GateError("scene_spans.vma_phased_symbol_names() is empty, so a phased "
+                        "symbol could cut a routine extent; refusing to measure")
+
+    def u32(a):
+        return a.to_bytes(4, "big")
+
+    # (1) DATA: the bytes at each role's label are the graded file, whole.
+    for sym, fname, size in ROM_TABLE_ROLES:
+        fpath = os.path.join(coll, fname)
+        try:
+            with open(fpath, "rb") as fh:
+                want = fh.read()
+        except OSError as exc:
+            raise GateError(f"cannot read graded file {fpath}: {exc}") from exc
+        if len(want) != size:
+            raise GateError(f"{fpath} is {len(want)} B, expected {size} B")
+        if sym not in labels:
+            raise GateError(f"{sym} is not in {lst}; the engine's read of it has no "
+                            f"subject this arm can find")
+        addr = labels[sym]
+        got = rom[addr:addr + size]
+        if len(got) != size:
+            raise GateError(f"{rom_path} ends before {sym} ${addr:X} + {size} B")
+        if got != want:
+            diff = sum(1 for x, y in zip(got, want) if x != y)
+            others = [f for _, f, s in ROM_TABLE_ROLES
+                      if f != fname and s == size
+                      and open(os.path.join(coll, f), "rb").read() == got]
+            also = (f"; the ROM bytes there ARE {others[0]}" if others else "")
+            problems.append(
+                f"DATA: {sym} @ ${addr:X} carries {diff} of {size} bytes that differ "
+                f"from the graded {fname}{also}. The rules above graded a file the "
+                f"engine does not read under that name (check the `pub data {sym} = ...` "
+                f"binding in games/sonic4/data/collision/collision_data.emp)")
+        else:
+            facts.append(f"{sym} @ ${addr:X} == {fname} ({size} B)")
+
+    # (2) READ SITES: the floor probe core reads each table in the role the rules
+    # model. Rule A's class gate is `SolidityTable[attr] & d6`, its angle is
+    # `AngleTable[attr]`, and both rules read heights from HeightMaps. Checked in
+    # Collision_ProbeDown's `.cell` only: that is the floor probe the rules derive
+    # from (the other three cores are ceiling/wall reads the gate does not audit).
+    lo, hi = _span(labels, "Collision_ProbeDown", phased)
+    cell = _local(labels, lo, hi, "cell")
+    cell_end = _next_label(labels, cell, phased)
+    body = rom[cell:cell_end]
+    sites = (
+        ("SolidityTable", _LEA_ABS_L_A1, _MOVE_B_A1_D3W_D0 + _AND_B_D6_D0,
+         "lea SolidityTable,a1 / move.b (a1,d3.w),d0 / and.b d6,d0 (the class gate)"),
+        ("AngleTable", _LEA_ABS_L_A1, _MOVE_B_A1_D3W_D1,
+         "lea AngleTable,a1 / move.b (a1,d3.w),d1 (the raw angle)"),
+        ("HeightMaps", _MOVEA_L_IMM_A1, _MOVE_B_A1_D3W_D0,
+         "movea.l #HeightMaps,a1 / move.b (a1,d3.w),d0 (the height column)"),
+    )
+    for sym, op, tail, text in sites:
+        n = _count(body, op + u32(labels[sym]) + tail)
+        if n != 1:
+            problems.append(
+                f"READ SITE: Collision_ProbeDown `.cell` (${cell:X}..${cell_end:X}) "
+                f"carries {n} copies of `{text}`, expected exactly 1. The rules model "
+                f"{sym} in that role; the probe the engine runs does not read it so "
+                f"(games/sonic4/player/player_sensors.emp probe_core)")
+        else:
+            facts.append(f"Collision_ProbeDown.cell reads {sym} as modelled")
+
+    # (3) THE ODD-ANGLE PREMISE: Rule A exempts every odd angle byte because the
+    # floor pair tests `btst #0,d1` and substitutes the cardinal before the value
+    # is used. Checked in Player_SensorSurface (Player_SensorFloor/Land/Ceiling
+    # all resolve there): between `.pair` and `.substitute`, exactly one
+    # `btst #0,d1` immediately followed by a `bne` to `.substitute`, whose first
+    # instruction is `move.b d3,d1`.
+    lo, hi = _span(labels, "Player_SensorSurface", phased)
+    pair = _local(labels, lo, hi, "pair")
+    sub = _local(labels, lo, hi, "substitute")
+    if not pair < sub:
+        raise GateError(f"Player_SensorSurface `.pair` ${pair:X} is not before "
+                        f"`.substitute` ${sub:X}; the premise's shape moved")
+    region = rom[pair:sub]
+    hits = []
+    i = region.find(_BTST_0_D1)
+    while i >= 0:
+        at = pair + i + 4
+        op = rom[at:at + 4]
+        target = None
+        if len(op) >= 2 and op[0] == 0x66 and op[1] not in (0x00, 0xFF):
+            target = at + 2 + (op[1] - 256 if op[1] >= 128 else op[1])
+        elif len(op) == 4 and op[0] == 0x66 and op[1] == 0x00:
+            d = int.from_bytes(op[2:4], "big")
+            target = at + 2 + (d - 65536 if d >= 32768 else d)
+        hits.append((pair + i, target))
+        i = region.find(_BTST_0_D1, i + 1)
+    good = [h for h in hits if h[1] == sub]
+    if len(hits) != 1 or len(good) != 1 or rom[sub:sub + 2] != _MOVE_B_D3_D1:
+        problems.append(
+            f"ODD-ANGLE PREMISE: Player_SensorSurface ${pair:X}..${sub:X} carries "
+            f"{len(hits)} `btst #0,d1` ({len(good)} followed by a bne to `.substitute` "
+            f"${sub:X}), and `.substitute` begins {rom[sub:sub + 2].hex().upper()} "
+            f"(want 1203, move.b d3,d1). Rule A exempts every ODD angle as 'never "
+            f"consumed as an angle'; that is only true while the floor pair resolves "
+            f"it. Without this, the exemption hides real slope claims")
+    else:
+        facts.append(f"Player_SensorSurface btst #0,d1 @ ${good[0][0]:X} -> "
+                     f".substitute ${sub:X} (move.b d3,d1)")
+    return problems, facts
+
+
+def rom_tables_main(argv):
+    """`--rom-tables --lst L --rom R [--built-after T0] [--root DIR]`.
+    Exit 0 agree, 1 disagree, 2 could not measure (incl. a stale pair)."""
+    import argparse
+    ap = argparse.ArgumentParser(prog="collision_consistency.py --rom-tables")
+    ap.add_argument("--rom-tables", action="store_true", required=True)
+    ap.add_argument("--lst", required=True)
+    ap.add_argument("--rom", required=True)
+    ap.add_argument("--built-after", type=float, default=None)
+    ap.add_argument("--root", default=None)
+    a = ap.parse_args(argv)
+    if a.built_after is not None:
+        import artifact_provenance
+        # No expect_game: the primitive derives the shape from the canonical artifact
+        # name (s4.bin / s4.debug.bin), as layer_line_gate's call does. A non-sonic4
+        # pair then reads FRESH and this arm refuses it at the first missing label (2).
+        rc = artifact_provenance.gate_check("collision_consistency --rom-tables",
+                                            a.rom, a.lst, a.built_after)
+        if rc:
+            return rc
+    try:
+        problems, facts = check_rom_tables(a.lst, a.rom, root=a.root)
+    except GateError as exc:
+        print("=" * 78)
+        print("COLLISION CONSISTENCY ROM-TABLES ARM: COULD NOT MEASURE")
+        print(exc)
+        print("=" * 78)
+        return 2
+    if not problems:
+        print(f"Collision consistency (ROM tables, {a.rom}): OK — " + "; ".join(facts))
+        return 0
+    print("=" * 78)
+    print(f"COLLISION CONSISTENCY ROM-TABLES ARM FAILED ({a.rom})")
+    print("  The pre-sigil rules graded the files in games/sonic4/data/collision/;")
+    print("  this build does not ship them, or read them, the way those rules assume.")
+    for p in problems:
+        print(f"  * {p}")
+    print("=" * 78)
+    return 1
+
+
 def main(argv):
+    if "--rom-tables" in argv:
+        return rom_tables_main(argv)
     verbose = "--verbose" in argv or "-v" in argv
     root = None
     baseline_paths = []

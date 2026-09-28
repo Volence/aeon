@@ -40670,7 +40670,7 @@ that spell a tool through a parametrized variable are under-credited; `docs/` sc
 an emulator (`f3rt_run.py`, `f3rt_watch.py`) are outside the `tools/` population by scope;
 `cart_verify_spawn_proof` is dead and unmeasured since 2026-09-12.
 
-## GATE-ON-WHAT-THE-REFUSAL-PROTECTS: a guard that fires on a proxy believes it is guarding the subject (NARROWED 2026-09-26, `parcel/gate-predicate-audit`: landing path audited, 11 gates fixed, 13 rows OPEN below; booked 2026-09-19, M)
+## GATE-ON-WHAT-THE-REFUSAL-PROTECTS: a guard that fires on a proxy believes it is guarding the subject (NARROWED 2026-09-26, `parcel/gate-predicate-audit`: landing path audited, 11 gates fixed, 13 rows OPEN below (row 5 GPP-COLLISION-ROM-TABLES FIXED 2026-09-28); booked 2026-09-19, M)
 
 **Oracle's finding, relayed 2026-09-19 and recorded as THEIRS.** Their `drift` guard was in truth
 answering *"something moved near this"* while its message and every reader believed it answered
@@ -40761,6 +40761,38 @@ for every gate; it is not the proxy/subject shape.
    256 B). The odd-angle exemption also rests on `player_sensors.emp`'s `btst #0` being there.
    Needs a post-sigil arm comparing ROM `AngleTable`/`SolidityTable`/`HeightMaps` with the graded
    files.
+   **FIXED 2026-09-28** (`fix/gpp-collision-rom-tables`). New post-sigil arm
+   `collision_consistency.py --rom-tables --lst --rom --built-after`, wired `gate strict` in
+   build.sh's sonic4 post-sigil block after `layer_line_gate`. It refuses (exit 1) unless
+   (1) DATA: the bytes at the listing's `HeightMaps`/`AngleTable`/`SolidityTable` are
+   `heightmaps.bin`/`angles.bin`/`solidity.bin`, whole (the role map is the gate's own model, not
+   read from `collision_data.emp`, which would reproduce the mutation); (2) READ SITES:
+   `Collision_ProbeDown`'s `.cell` reads each once in the modelled role (`lea SolidityTable,a1` /
+   `move.b (a1,d3.w),d0` / `and.b d6,d0`; `lea AngleTable,a1` / `move.b (a1,d3.w),d1`;
+   `movea.l #HeightMaps,a1` / `move.b (a1,d3.w),d0`); (3) ODD-ANGLE PREMISE (the `btst #0`
+   dependency, taken, not booked): `Player_SensorSurface` carries exactly one `btst #0,d1`
+   between `.pair` and `.substitute`, followed by a `bne` to `.substitute`, which begins
+   `move.b d3,d1`. Exit 2 on anything unmeasurable (missing label/ROM/graded file, stale pair).
+   **Evidence, `DEBUG=1 NO_LINT=1 ./build.sh` per mutation, each restored with `git show HEAD:`:**
+   control crc `1000eded` rc 0, arm OK. M1 `pub data AngleTable    = _solidity` (the audit's):
+   rc 1 at this arm, crc `8ee28613`, "DATA: AngleTable @ $753F6 carries 59 of 256 bytes that
+   differ ... the ROM bytes there ARE solidity.bin". M2 `player_sensors.emp:454` `btst #0, d1` ->
+   `btst #1, d1`: rc 1, crc `77d269d2`, "ODD-ANGLE PREMISE ... 0 `btst #0,d1`". M3
+   `player_sensors.emp:203` `lea SolidityTable, a1` -> `lea AngleTable, a1`: rc 1, crc `b974846a`,
+   "READ SITE ... 0 copies of `lea SolidityTable,a1 / ...`". M4 `pub data HeightMaps    =
+   _heightmaps_rot`: rc 1, crc `c77b4cec`, "DATA: HeightMaps @ $733F6 carries 721 of 4096 bytes
+   that differ". In all four the pre-sigil arm still printed "OK (rule A: 0 new violations, rule B:
+   0 new violations)", which re-confirms the audit's measurement. Restored tree: crc `1000eded`
+   again, arm OK. All five builds were re-run from scratch after the arm's extent helper gained the
+   phased-symbol filter (`tools/test_routine_extent_phased.py` caught the unfiltered
+   `a > start`), with identical rc/crc/messages. Synthetic tests in `tools/test_collision_consistency.py` (`-k rom_tables`, 7).
+   **STILL NOT COVERED (residual, open):** the odd-flag resolution at the OTHER angle consumers
+   (`Player_SensorWallDir` `.resolve`, `Glide_Collide`'s `btst #0,d3`) and any future consumer:
+   the arm pins one named site, not every path an AngleTable byte can reach `angle(a0)` by; the
+   honest fix enumerates by what touches the value. Also unchecked: the `d6 = SOLID_TOP` each floor
+   caller passes, and `HeightMapsRot` (not graded by this gate at all). The arm matches BYTE
+   patterns, so a behaviour-preserving re-encoding (e.g. pc-relative `lea`) fails closed with the
+   premise named; that is intended.
 6. **GPP-ART-ROM-UNNAMED-EMBEDS** (`art_rom_report.py`, measured). It sums only the embeds a
    `PageManifest` row names. An orphan `embed(sonic.bin)` in `ojz_act_pool.emp` gave an identical
    report and exit 0. Fix direction: sum every embed, or measure the section spans from the listing.

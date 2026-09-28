@@ -821,3 +821,94 @@ def test_the_donor_baker_still_reads_bits_15_14_as_path_b_solidity():
     clear = 0x0001 | (cp.SOL_ALL << cp.PATH_A_SOL_SHIFT)
     a2, b2 = cp.bake_cell(clear, index, index, profiles, angles, cp.AttrSet())
     assert a2 != 0 and b2 == 0, f"expected path-B air, got ({a2}, {b2})"
+
+
+# ---------------------------------------------------------------------------
+# The post-sigil arm (--rom-tables), GPP-COLLISION-ROM-TABLES. Synthetic image +
+# listing in tmp_path; the real-build red/green evidence is in the commit record
+# and docs/DEFERRED_WORK.md. Each mutation test below changes ONE thing in a
+# green image, so a red here is that arm's red and nothing else's.
+# ---------------------------------------------------------------------------
+
+def _rom_arm_fixture(tmp_path, *, angle_at=None, btst_bit=0, sol_lea_to=None,
+                     drop_label=None):
+    """A tiny ROM + listing laid out like the real one. Returns (lst, rom, root)."""
+    root = tmp_path / "root"
+    coll = root / "games" / "sonic4" / "data" / "collision"
+    coll.mkdir(parents=True)
+    hm = bytes((i * 7) & 0xFF for i in range(4096))
+    an = bytes((i * 3 + 1) & 0xFF for i in range(256))
+    so = bytes(i & 3 for i in range(256))
+    (coll / "heightmaps.bin").write_bytes(hm)
+    (coll / "angles.bin").write_bytes(an)
+    (coll / "solidity.bin").write_bytes(so)
+
+    HM, AN, SO = 0x1000, 0x2000, 0x2100
+    labels = {"HeightMaps": HM, "AngleTable": angle_at or AN, "SolidityTable": SO,
+              "End_Tables": 0x2200}
+    rom = bytearray(0x2200)
+    rom[HM:HM + 4096] = hm
+    rom[AN:AN + 256] = an
+    rom[SO:SO + 256] = so
+
+    def l(a):
+        return a.to_bytes(4, "big")
+    # Collision_ProbeDown @ $100, .cell @ $110, .cl_hanging @ $140, next global $180
+    cell = (b"\x43\xF9" + l(sol_lea_to or SO) + b"\x10\x31\x30\x00" + b"\xC0\x06"
+            + b"\x43\xF9" + l(labels["AngleTable"]) + b"\x12\x31\x30\x00"
+            + b"\x22\x7C" + l(HM) + b"\x10\x31\x30\x00" + b"\x4E\x75")
+    rom[0x110:0x110 + len(cell)] = cell
+    labels.update({"Collision_ProbeDown": 0x100, "$m$asm1$cell": 0x110,
+                   "$m$asm1$cl_hanging": 0x140, "Collision_ProbeUp": 0x180})
+    # Player_SensorSurface @ $200: .pair $210: btst #b,d1 / bne.s .substitute
+    surf = (bytes([0x08, 0x01, 0x00, btst_bit]) + b"\x66\x02" + b"\x4E\x71"
+            + b"\x12\x03" + b"\x4E\x75")
+    rom[0x210:0x210 + len(surf)] = surf
+    labels.update({"Player_SensorSurface": 0x200, "$m$Player_SensorSurface$pair": 0x210,
+                   "$m$Player_SensorSurface$substitute": 0x218,
+                   "$m$Player_SensorSurface$keep": 0x21A, "Player_SensorWallAt": 0x240})
+    if drop_label:
+        del labels[drop_label]
+    lst = tmp_path / "t.lst"
+    lst.write_text("".join(f"(0) {i}/{a:X} :        {n}:\n"
+                           for i, (n, a) in enumerate(sorted(labels.items(),
+                                                             key=lambda kv: kv[1]))))
+    romp = tmp_path / "t.bin"
+    romp.write_bytes(bytes(rom))
+    return str(lst), str(romp), str(root)
+
+
+def test_rom_tables_green_on_a_faithful_image(tmp_path):
+    lst, rom, root = _rom_arm_fixture(tmp_path)
+    problems, facts = cc.check_rom_tables(lst, rom, root=root)
+    assert problems == []
+    assert len(facts) == 7, facts          # 3 data + 3 read sites + 1 premise
+
+
+def test_rom_tables_red_when_angle_table_is_bound_to_the_solidity_bytes(tmp_path):
+    """The audit's own mutation, `pub data AngleTable = _solidity`: the label now sits
+    on the solidity bytes. The pre-sigil rules cannot see it; this arm must."""
+    lst, rom, root = _rom_arm_fixture(tmp_path, angle_at=0x2100)
+    problems, _ = cc.check_rom_tables(lst, rom, root=root)
+    data = [p for p in problems if p.startswith("DATA: AngleTable")]
+    assert len(data) == 1 and "ARE solidity.bin" in data[0], problems
+
+
+def test_rom_tables_red_when_the_class_gate_reads_the_wrong_table(tmp_path):
+    lst, rom, root = _rom_arm_fixture(tmp_path, sol_lea_to=0x2000)
+    problems, _ = cc.check_rom_tables(lst, rom, root=root)
+    assert [p for p in problems if "READ SITE" in p and "SolidityTable" in p], problems
+
+
+def test_rom_tables_red_when_the_odd_flag_test_is_gone(tmp_path):
+    lst, rom, root = _rom_arm_fixture(tmp_path, btst_bit=1)
+    problems, _ = cc.check_rom_tables(lst, rom, root=root)
+    assert [p for p in problems if p.startswith("ODD-ANGLE PREMISE")], problems
+
+
+@pytest.mark.parametrize("label", ["AngleTable", "$m$asm1$cell",
+                                   "$m$Player_SensorSurface$substitute"])
+def test_rom_tables_could_not_measure_is_loud(tmp_path, label):
+    lst, rom, root = _rom_arm_fixture(tmp_path, drop_label=label)
+    with pytest.raises(cc.GateError):
+        cc.check_rom_tables(lst, rom, root=root)

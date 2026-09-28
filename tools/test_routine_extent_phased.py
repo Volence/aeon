@@ -32,6 +32,7 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+import collision_consistency                                       # noqa: E402
 import instashield_gate                                            # noqa: E402
 import layer_line_gate                                             # noqa: E402
 import scene_spans                                                 # noqa: E402
@@ -65,12 +66,17 @@ def consumers():
     def layer_line(syms):
         return layer_line_gate.extent(syms, "P")
 
+    def collision_rom_tables(syms):
+        return collision_consistency._span(syms, "P",
+                                           scene_spans.vma_phased_symbol_names())
+
     return [
         ("instashield_gate.routine_extent", instashield, "P", "$m$P$loop"),
         ("sprite_tilt_gate.routine_extent", sprite_tilt, "Player_ApplyTilt",
          "$games.sonic4.player_common$Player_ApplyTilt$loop"),
         ("waterline_art_gate.proc_span", waterline, "P", "$m$P$loop"),
         ("layer_line_gate.extent", layer_line, "P", "$m$P$loop"),
+        ("collision_consistency._span", collision_rom_tables, "P", "$m$P$loop"),
     ]
 
 
@@ -170,6 +176,7 @@ class TestNoSIXTHConsumerSlipsIn(unittest.TestCase):
     CLAIMED = {
         "instashield_gate.py", "sprite_tilt_gate.py",
         "waterline_art_gate.py", "scene_spans.py", "layer_line_gate.py",
+        "collision_consistency.py",
     }
 
     def test_every_file_using_the_next_symbol_idiom_is_claimed_and_filtered(self):
