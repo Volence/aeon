@@ -23,7 +23,7 @@
       "since": "2026-09-28"
     }
   ],
-  "nextBoundary": "Now: nothing in flight. Next owner-free item: Hidden Palace's song (the song packer can't handle one of its commands yet).",
+  "nextBoundary": "Clearable now: nothing in flight, everything pushed. A fresh session takes Hidden Palace's song first (DEFERRED_WORK, S2CLIP-MTZ-SONG-BANK, 'Still open' line).",
   "queue": [
     {
       "id": "WOVEN-BOOT-AUDIO",
@@ -135,7 +135,7 @@
       "project": "REGIONS"
     }
   ],
-  "awaiting": "your listen: woven act with Metropolis, Wing Fortress and Oil Ocean songs (aeon/s4.s2clip.debug.bin crc 0e086143, plain s4.s2clip.bin 3be528b0), and which emulator gave you the broken start music",
+  "awaiting": "a clear for this session (context 285k by the transcript's last usage record, over the ~200k line; nothing unbanked); then your listen on aeon/s4.s2clip.debug.bin (crc 0e086143) and which emulator gave the broken start music; your WOVEN-TOUCHUPS pick",
   "atBoundary": true,
-  "updatedAt": "2026-09-28T23:04:02Z"
+  "updatedAt": "2026-09-28T23:04:26Z"
 }
