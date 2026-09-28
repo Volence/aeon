@@ -2,8 +2,8 @@
   "focus": "All three new Sonic 2 songs are in the woven act and fresh listening ROMs are ready for you.",
   "inFlight": [
     {
-      "what": "Tidy the sound-bank file's declared name (zero bytes); asked sigil whether their tools key on it",
-      "where": "branch fix/mt-bank-module-name",
+      "what": "Fix the woven route checker so it tells stacked tunnels apart",
+      "where": "branch fix/woven-route-p2-rect",
       "agent": true
     }
   ],
@@ -143,26 +143,26 @@
     {
       "id": "P1-FAMINE-PINNED-CAPACITY",
       "title": "Stress-test setup only: re-pin it for its smaller cache and make the build refuse a mismatch (real levels are proven safe)",
-      "state": "open",
+      "state": "next",
       "size": "S",
       "blockedBy": null
     },
     {
       "id": "MT-BANK-MODULE-NAME",
-      "title": "Sound-bank file name tidy: must land paired with sigil (their MT-BANK-RENAME-PAIR). On return: commit the measurement to DEFERRED_WORK on master and send sigil the SHA",
-      "state": "doing",
+      "title": "Sound-bank file name tidy: built and measured, waits on the assembler lane's matching change",
+      "state": "blocked",
       "size": "S",
-      "blockedBy": null
+      "blockedBy": "sigil MT-BANK-RENAME-PAIR (their tolerant gate row + rebuilt pair); branch fix/mt-bank-module-name ready"
     },
     {
       "id": "WOVEN-ROUTE-WITNESS-P2-XSPAN",
       "title": "The woven act's route checker misreads which tunnel you're in when two are stacked; fix its test to use height too",
-      "state": "next",
+      "state": "doing",
       "size": "S",
       "blockedBy": null
     }
   ],
   "awaiting": "your listen: woven act with Metropolis, Wing Fortress and Oil Ocean songs (aeon/s4.s2clip.debug.bin crc 0e086143, plain s4.s2clip.bin 3be528b0), and which emulator gave you the broken start music",
   "atBoundary": false,
-  "updatedAt": "2026-09-28T20:24:28Z"
+  "updatedAt": "2026-09-28T21:10:03Z"
 }
