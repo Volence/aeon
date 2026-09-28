@@ -507,9 +507,11 @@ pub const PAGE_PREFETCH_MAX   = 2           // max prefetch enqueues attempted p
 
 // STRESS_EVICT forced-eviction dev fixture (Task 7). The build define STRESS_EVICT
 // (0 in every shipped shape; 1 only in the off-canonical `stress_evict` dev profile)
-// clamps the usable frame count so OJZ's 10 pages can NO LONGER all be resident (5
-// pinned pages 0/1/7/8/9 + 4 dynamic frames; `python3 tools/fg_page_order.py check`
-// prints the committed pin set), forcing continuous evict/reload traffic
+// clamps the usable frame count so OJZ's 10 pages can NO LONGER all be resident (4
+// pinned pages 0/1/7/8 + 5 dynamic frames: the bake re-runs its frame-aware pin pass at
+// this clamp and page 9's pm_flags is `1 - STRESS_EVICT`, P1-FAMINE-PINNED-CAPACITY;
+// `python3 tools/fg_page_order.py check --stress-evict` prints the set and refuses a
+// window over PAGE_FRAMES_CLAMP), forcing continuous evict/reload traffic
 // through every path. PageCache_Init threads only PAGE_FRAMES_CLAMP frames into the
 // free list; the remaining frame RECORDS stay initialized (audit-clean, unassigned)
 // but unreachable. Byte-INERT at STRESS_EVICT=0 (PAGE_FRAMES_CLAMP == PAGE_FRAMES).
@@ -927,8 +929,13 @@ pub const SINE_CYCLE_ENTRIES    = $100
 // PAGE_FRAMES_MAX-sized (a resize moves no RAM) and the replay hash is
 // layout-proof. What a cut DOES cost is page-frames, i.e. headroom for future
 // acts — and there is a FLOOR: not below 640 tiles / 10 frames until C4-3 (the
-// famine capacity fix) lands, because the STRESS_EVICT famine is measured
-// evidence that tight-cache mode has an open defect.
+// famine capacity fix) lands. Its stated reason, the STRESS_EVICT famine, turned
+// out NOT to be a tight-cache defect: that fixture shipped pins chosen for
+// PAGE_FRAMES into PAGE_FRAMES_CLAMP frames, and it is closed (P1-FAMINE-PINNED-
+// CAPACITY, 2026-09-28: the fixture now pins at its own clamp and its build refuses
+// a window over it). What measurably limits a cut today is content: 4 of the 6
+// streaming clip acts need 12 frames as placed (docs/research/2026-09-28-p1-famine-
+// reach.md). Whether the floor moves is the owner's call; this parcel left it alone.
 pub const POOL_TILE_CEILING = 768       // the pool loads to tiles 0..N-1; everything at or above N belongs to vram.toml
 pub const MAX_ACT_SECTIONS  = 48        // flat id = sec_y*grid_w + sec_x; build asserts grid_w*grid_h <= this
 

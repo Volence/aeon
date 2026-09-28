@@ -22,8 +22,11 @@ authority = "engine-endtiles:POOL_TILE_CEILING"  # reason: no RAM moves, no fixt
                                  # constant fails the build by name.
                                  # The FLOOR is 640 tiles / 10 frames until C4-3
                                  # (the famine capacity fix) lands: below that an act
-                                 # runs with granted near floor and tight-cache mode
-                                 # has an open defect (the STRESS_EVICT famine).
+                                 # runs with granted near floor. Its other stated
+                                 # reason, the STRESS_EVICT famine, was a fixture
+                                 # pinning for 12 frames at 9, not a tight-cache
+                                 # defect, and is CLOSED (P1-FAMINE-PINNED-CAPACITY,
+                                 # 2026-09-28). The floor value is the owner's call.
 
 [[region]]
 name = "spare_nametable"

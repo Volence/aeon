@@ -41722,8 +41722,10 @@ restored by writing the committed file back over it (`git show HEAD:<path> > <pa
   both clean.
 Restored and rebuilt: exit 0 (numbers in the merge evidence).
 
-**`P1-FAMINE-PINNED-CAPACITY` (OPEN for the STRESS_EVICT fixture only: real content does not reach it, measured 2026-09-28, see "Reach" below; measured 2026-09-28 on
-`7e677683`, no engine edit).** This is the "known P-1 famine" (the 2026-08-09 lens adjudication:
+**`P1-FAMINE-PINNED-CAPACITY`: CLOSED 2026-09-28 (`fix/stress-evict-pins-at-clamp`, base
+`b2b5db52`; see "Closure" at the end of this entry). Real content never reached it; the
+STRESS_EVICT fixture now pins at its own clamp and its build refuses a famine. (Opened and
+measured 2026-09-28 on `7e677683`, no engine edit.)** This is the "known P-1 famine" (the 2026-08-09 lens adjudication:
 "STRESS_EVICT reference famine on reversal", all dynamic frames referenced at once), and it is
 now characterised as a pure CAPACITY bound, predicted exactly from the baked data. The OJZ act 1
 bake pins pages {0, 1, 7, 8, 9} (`PIN_SECTION_FRACTION` 0.75 in `ojz_strip_gen.py`; `pm_flags`
@@ -41749,6 +41751,7 @@ and whether C4-3 ("the famine capacity fix", the floor of 640 tiles / 10 frames 
 is this bound. `tools/fg_working_set.py`'s `peak_including_pinned` is the same quantity (window
 pages ∪ every pinned page), taken over the whole act. The witness's BACK leg stops short of this window by derivation,
 so the leg stays green while this entry is open; `--famine-probe` reproduces the famine.
+(Both superseded by the closure below: the probe is retired and the route is the HOME leg.)
 
 *Reach, measured 2026-09-28 (`research/p1-famine-reach`, base `2f3e7992`; record
 `docs/research/2026-09-28-p1-famine-reach.md`).* **It does not reach real content. Only the
@@ -41764,6 +41767,42 @@ gives 0 windows over, and the stress ROM with page 9 unpinned (crc `49750c7f`, t
 to x 0 with no halt. Recommended in the record: re-pin the fixture at `PAGE_FRAMES_CLAMP`
 (0 canonical bytes) and add a refusal at the clamp. The `vram.toml` C4-3 floor is NOT this
 bound: its stated "open defect" is this fixture. The owner decides the fixture options.
+
+*Closure, 2026-09-28 (`fix/stress-evict-pins-at-clamp`, base `b2b5db52`): the record's O2b + O3,
+tools and generated data only, no engine code.*
+* **O2b, the fixture pins at its own clamp.** `ojz_strip_gen` Pass 4 also runs
+  `fg_page_order.frame_aware_pins` at `PAGE_FRAMES_CLAMP` (`stress_evict_pins`; the clamp is
+  evaluated from `constants.emp` with the `STRESS_EVICT` define at 1, via the new
+  `ConstantSource.define`), and the sidecar records the set as `pinned_stress_evict`.
+  `elect_pool_pages` (the one `pm_flags` emitter and, through `pm_flags_value`, the one reader)
+  writes a page the two sets disagree on as a comptime expression of the define: OJZ page 9
+  is now `pm_flags: 1 - STRESS_EVICT`. Pins: canonical [0, 1, 7, 8, 9] (unchanged), STRESS_EVICT
+  [0, 1, 7, 8] (was [0, 1, 7, 8, 9]). `verify_level_bin` checks the pin bit folded at both
+  define values against both sidecar columns. O2a (a STRESS_ART-style re-bake shape) was not
+  taken: it would dirty and restore the committed tree on every stress build and need the
+  donors on the nightly, for the same pins.
+* **O3, the refusal.** `fg_page_order.py check --stress-evict` folds `pm_flags` at 1 and
+  counts every pin plus each window's pages against `PAGE_FRAMES_CLAMP`; `build.sh` runs it
+  in the `STRESS_EVICT=1` shape (in place of the canonical count). Committed tree: worst 9 of
+  9, 0 windows over (canonical view unchanged, worst 10 of 12, 0 over). Red-first: page 9
+  put back to `pm_flags: 1` with its sidecar `pinned_stress_evict: true` (consistent, so
+  `verify_level_bin` passes), `NO_LINT=1 STRESS_EVICT=1 ./build.sh` exit 1: `FG page budget
+  REFUSED ... stress-evict shape; 10 pages, pins [0, 1, 7, 8, 9] ... budget 9 frames
+  (PAGE_FRAMES_CLAMP) ... worst window needs 10 (... camera x=744 y=0 px; 3366 window(s) at
+  that count); 3366 window(s) over budget`. Without `NO_LINT` the same mutation is refused
+  earlier by the pytest lane (`test_stress_evict_check_counts_its_own_pins_against_its_own_clamp`).
+  Restored with `git show HEAD:<path> > <path>`, the check exits 0 again.
+* **Bytes.** `s4.bin` `193507d9` and `s4.debug.bin` `ce326232` before and after, `cmp`
+  identical. `s4.stress.bin` `5863cf9d` -> `49750c7f` (two bytes: page 9's flags and the
+  header checksum; the same crc the research throwaway measured).
+* **The witness.** `--famine-probe` is RETIRED: a tree the build accepts has no famine to fly
+  into, and a tree with one cannot be built in the shape. Its route is now a graded HOME leg
+  (after BACK, fly left to camera x 0; FAIL on a halt, or on any window over the clamp
+  predicted on the route). On the old ROM `5863cf9d` it exits 1, HALT at the predicted x 1376
+  (`PageCache_AllocFrame: no free/evictable frame`); on `49750c7f` it exits 0 in 3 of 3 runs,
+  flying home to x 0 with page 9 evicted from frame 2 at +479 (the frame the old ROM halted
+  on) and every resident page's art clean. So yes, the BACK side now flies further: all the
+  way to the act's left edge.
 
 **`PARALLAX-ANCHOR-COEFFS-REPUBLISH`: `effects_budget_model.toml` has no record for today's
 fit.** Its own standing rule is that a parcel touching a `Parallax_*` routine re-measures; this

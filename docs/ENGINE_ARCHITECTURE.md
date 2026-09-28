@@ -5827,7 +5827,7 @@ invariants rather than trusted:
 cache window references only a fraction of the pool at once, so the resident set churns as
 the camera moves. Below that threshold the cache **correctly degenerates to fully
 resident**: on a small deduped act (OJZ, 10 pages) the 80×60 cache window references ~every
-page, so the working set == the pool — 5 of the 10 pages ([0,1,7,8,9], read off the committed manifest by `fg_page_order.py check`) are build-pinned (`pm_flags`
+page, so the working set == the pool — 5 of the 10 pages ([0,1,7,8,9], read off the committed manifest by `fg_page_order.py check`; the STRESS_EVICT fixture, at 9 frames, pins [0,1,7,8], see the window page budget below) are build-pinned (`pm_flags`
 `ART_PAGE_FLAG_PINNED`), and the rest are held resident because the cache window names them. This is not a limitation to fix —
 `AllocFrame` correctly refuses to evict displayed art (a demand that finds no frame is a loud thrash
 assert, a prefetch is dropped; zero silent corruption either way), and the design simply reduces to Phase 1's fully-resident pool for acts that
@@ -5871,6 +5871,18 @@ change; `tools/test_fg_page_order.py` runs both):
   the count on the committed tree (`sec*_blocks.bin` through the local maps, pins from
   `pm_flags`) on every canonical sonic4 build, so a constant change meets the tree it would
   strand. OJZ act 1 today: worst 10 of 12 over 257,367 windows, first-occurrence rung.
+- **The STRESS_EVICT fixture is held to its own clamp** (P1-FAMINE-PINNED-CAPACITY,
+  2026-09-28). That shape builds the committed act with `PAGE_FRAMES_CLAMP` (9) frames, so
+  the bake also runs the frame-aware pin pass at the clamp (`stress_evict_pins`, the clamp
+  evaluated from `constants.emp` with `STRESS_EVICT=1`) and the sidecar records it
+  (`pinned_stress_evict`). A page the two sets disagree on is emitted as a comptime
+  expression of the define (`elect_pool_pages.PM_FLAGS_SPELLINGS`; OJZ page 9 is
+  `pm_flags: 1 - STRESS_EVICT`), so every shipped shape folds to its old byte (0 canonical
+  bytes) and the fixture ships [0,1,7,8]. `check --stress-evict`, run by the STRESS_EVICT
+  build, counts that shape's pins against the clamp and refuses a window over it. Before
+  this the fixture shipped the 12-frame pins [0,1,7,8,9] into 9 frames, and a window at
+  camera x 1376 needed 10: the "P-1 famine", a fixture breaking the bake's contract, never
+  reachable by real content (`docs/research/2026-09-28-p1-famine-reach.md`).
 The count is static: in-flight decodes, stalled columns and prefetch are transient demand it
 does not model, so fitting is necessary for no hold, not sufficient (M-E, a runtime
 confirmation, is still owed).
