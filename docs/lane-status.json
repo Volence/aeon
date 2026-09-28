@@ -2,19 +2,14 @@
   "focus": "Owner asleep. Seven fixes landed tonight; now the second song bank, one step at a time.",
   "inFlight": [
     {
-      "what": "Song bank 2 with Metropolis's song: assembler rebuilt, finishing and checking it on every Sonic 2 test level",
+      "what": "Song bank 2 with Metropolis's song: finishing and checking it on every Sonic 2 test level",
       "where": "branch parcel/song-bank-2-step3",
       "agent": true
     },
     {
-      "what": "Landing the re-aimed overnight eviction test drive",
-      "where": "branch fix/evict-witness-phase1",
-      "agent": false
-    },
-    {
-      "what": "Parallax round 2: three more small savings (about 1.3k cycles a tick), same picture",
+      "what": "Landing parallax round 2 (5% to 10% fewer cycles, same picture)",
       "where": "branch perf/parallax-perband-2",
-      "agent": true
+      "agent": false
     }
   ],
   "blockedOnOwner": [
@@ -41,13 +36,6 @@
   ],
   "nextBoundary": "When song-bank step 2 lands; step 1 then waits on one small assembler change (taken by that lane).",
   "queue": [
-    {
-      "id": "EVICT-WITNESS-SITE",
-      "title": "Overnight eviction test drive: locator fixed (landed); re-aiming its first phase, which a 09-25 change made obsolete",
-      "state": "doing",
-      "size": "S",
-      "blockedBy": null
-    },
     {
       "id": "PERF-PARALLAX-PERBAND-2",
       "title": "Parallax round 2: three more small savings (about 1.3k cycles a tick in Emerald Hill), same picture",
@@ -166,5 +154,5 @@
   ],
   "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-09-28T11:52:19Z"
+  "updatedAt": "2026-09-28T12:06:14Z"
 }
