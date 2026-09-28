@@ -1,11 +1,6 @@
 {
-  "focus": "Owner asleep. Woven act and object memory wait on his calls, so tonight is code optimizations plus check fixes.",
+  "focus": "Owner asleep. Tall-area background guard landed; tonight is code optimizations plus check fixes.",
   "inFlight": [
-    {
-      "what": "Landing the tall-area background guard: full pre-merge build and tests",
-      "where": "branch fix/bg-band-plane-anchor",
-      "agent": false
-    },
     {
       "what": "Collision check reads the tables the cartridge actually carries, not only the files",
       "where": "branch fix/gpp-collision-rom-tables",
@@ -44,7 +39,7 @@
       "since": "2026-09-28"
     }
   ],
-  "nextBoundary": "When the tall-area guard lands and the three agents return and land (tonight).",
+  "nextBoundary": "When the three agents (collision check, insta-shield check, bounce lag) return and land.",
   "queue": [
     {
       "id": "PERF-OSCILLATION-THRASH",
@@ -72,14 +67,6 @@
       "title": "Read the next nightly's first runs of the woven act and Hidden Palace test drives (05:00 local)",
       "state": "open",
       "size": "S",
-      "blockedBy": null,
-      "project": "REGIONS"
-    },
-    {
-      "id": "BG-BAND-PLANE-ANCHOR",
-      "title": "Background layers in very tall areas: mechanism still there but no reachable frame shows it; a test now guards it (landing)",
-      "state": "doing",
-      "size": "M",
       "blockedBy": null,
       "project": "REGIONS"
     },
@@ -180,5 +167,5 @@
   ],
   "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-09-28T06:32:38Z"
+  "updatedAt": "2026-09-28T06:39:39Z"
 }
