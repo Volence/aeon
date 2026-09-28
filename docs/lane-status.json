@@ -1,12 +1,6 @@
 {
-  "focus": "Metropolis's song plays (listening ROM ready). 16 fixes landed since last night; sizing your woven-act touch-ups now.",
-  "inFlight": [
-    {
-      "what": "Sizing your woven-act wishes: reaching the cut-off pieces, and swapping part of a tunnel for more real level",
-      "where": "branch research/woven-touchups",
-      "agent": true
-    }
-  ],
+  "focus": "16 fixes landed since last night; Metropolis's song plays. Your woven-act wishes are sized and need no freeze.",
+  "inFlight": [],
   "blockedOnOwner": [
     {
       "id": "SP6-MODULATION-DIVERGENCE",
@@ -24,19 +18,19 @@
       "since": "2026-09-27"
     },
     {
-      "id": "WOVEN-EDITABLE",
-      "what": "Make the woven act editable in aurora (commits about 9 MB of Sonic 2-derived data), or keep it generated?",
+      "id": "WOVEN-TOUCHUPS",
+      "what": "Your woven-act wishes need no freeze: fix the main route now (recommended), or point at the pieces first?",
       "since": "2026-09-28"
     }
   ],
-  "nextBoundary": "When the woven-act sizing returns and goes on your card. NOTE: the assembler lane is advancing its reference to 1ee78b88; tell them before landing anything that moves sound or RAM layout until they confirm.",
+  "nextBoundary": "Now: nothing in flight. NOTE: the assembler lane is advancing its reference to 1ee78b88; tell them before landing anything that moves sound or RAM layout.",
   "queue": [
     {
-      "id": "WOVEN-EDITABLE-IN-AURORA",
-      "title": "Woven act touch-ups you described (cut-off pieces, a shorter tunnel): being sized now; likely no freeze needed",
+      "id": "WOVEN-TOUCHUPS",
+      "title": "Woven act: you can't reach most of it from the start; a clip-list route fix is measured and ready (no freeze needed), your pick",
       "state": "blocked",
       "size": "M",
-      "blockedBy": "decision card WOVEN-EDITABLE"
+      "blockedBy": "decision card WOVEN-TOUCHUPS"
     },
     {
       "id": "S2CLIP-MTZ-SONG-BANK",
@@ -140,7 +134,7 @@
       "blockedBy": null
     }
   ],
-  "awaiting": "your listen to Metropolis's song (s4.s2_mtz_cpz.bin, crc ffcfd9c8) when you have a minute",
+  "awaiting": "your pick on the woven-act route fix (card WOVEN-TOUCHUPS), and a listen to Metropolis's song when you can",
   "atBoundary": false,
-  "updatedAt": "2026-09-28T14:55:11Z"
+  "updatedAt": "2026-09-28T15:09:16Z"
 }
