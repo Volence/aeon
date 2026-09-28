@@ -242,7 +242,15 @@ remap as bits in the selection byte. Round 2 said it is worth doing only togethe
 
 ## Landing evidence
 
-In `docs/DEFERRED_WORK.md` PERF-PARALLAX-PPB4.
+The full record is in `docs/DEFERRED_WORK.md` PERF-PARALLAX-PPB4. Every run below used full
+builds at `e028714d` (the branch plus a tools/docs-only merge of `origin/master` `8c6bb74c`):
+
+- `tools/landing_build.sh` exit 0, `finished=0`.
+- Both S2CLIP builds rc 0.
+- The effects-gates ritual rc 0: 23 gates, 42 rows, 0 FAIL.
+- The extended witness is GREEN on the landing `s4.debug.bin`.
+- The landing ROMs are byte-identical to the FAST final builds measured above: `s4.bin`
+  `20d741cc`, `s4.debug.bin` `63b70f76`, clip `48a5ab6e` / `af7ba248`.
 
 ## Open
 

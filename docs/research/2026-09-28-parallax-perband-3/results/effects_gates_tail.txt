@@ -1,0 +1,40 @@
+          wrote /home/volence/sonic_hacks/aeon/.claude/worktrees/agent-a0dca5666d176ac8f/waterline_stamp_witness.json
+  PASS  cost_model vs hardware (F0 588, F1 2508, F3 3818, F4 4584, F5 3172, F8 4632 — all computed from the shipped constants; F1/F5 carry the register write, the one op dispatched by the zero pre-test rather than by the chain, F4 is the region op at dispatch depth 1, F8 is the restore)
+        measured F0=588 F1=2508 F3=3818 F4=4584 F5=3172 F8=4632
+  PASS  dense cost row (RASTER_DENSE_LINE_GRAD_CYC = 316; the slope (FD2 - FD1) / 32 lines, with both fires counts derived as lines + 4)
+        measured FD1=3808/12 fires, FD2=13920/44 fires -> 316.0 cyc/line
+  PASS  ramp cost row (RASTER_DENSE_LINE_RAMP_CYC = 304; the slope (FR2 - FR1) / 32 lines, with both fires counts derived as lines + 4)
+        measured FR1=3732/12 fires, FR2=13460/44 fires -> 304.0 cyc/line
+  PASS  scanline_spans sonic4 boundary pairing
+        every emitted span carries both _begin and _end
+  PASS  scanline_spans demo boundary pairing
+        every emitted span carries both _begin and _end
+  PASS  scanline_spans CAP_ANCHORS (sonic4 raised, demo clear) — differential ['anchors_band', 'anchors_overlay', 'anchors_split_rebuild']
+        sonic4 ['anchors_band', 'anchors_overlay', 'anchors_split_rebuild'] vs expected ['anchors_band', 'anchors_overlay', 'anchors_split_rebuild']; demo [] vs expected []
+  PASS  scanline_spans CAP_ANCHOR_MOTION (sonic4 raised, demo clear) — differential ['anchor_motion_latch', 'anchor_motion_target']
+        sonic4 ['anchor_motion_latch', 'anchor_motion_target'] vs expected ['anchor_motion_latch', 'anchor_motion_target']; demo [] vs expected []
+  PASS  scanline_spans CAP_BAND_DRIFT (sonic4 raised, demo clear) — differential ['band_drift_accum', 'band_drift_reset', 'band_drift_setup', 'band_drift_step']
+        sonic4 ['band_drift_accum', 'band_drift_reset', 'band_drift_setup', 'band_drift_step'] vs expected ['band_drift_accum', 'band_drift_reset', 'band_drift_setup', 'band_drift_step']; demo [] vs expected []
+  PASS  scanline_spans CAP_DEFORM (sonic4 raised, demo clear) — differential ['deform_band_sel', 'deform_fill_sel', 'deform_sample', 'deform_sel_rebuild', 'deform_sel_split', 'deform_tables']
+        sonic4 ['deform_band_sel', 'deform_fill_sel', 'deform_sample', 'deform_sel_rebuild', 'deform_sel_split', 'deform_tables'] vs expected ['deform_band_sel', 'deform_fill_sel', 'deform_sample', 'deform_sel_rebuild', 'deform_sel_split', 'deform_tables']; demo [] vs expected []
+  PASS  scanline_spans CAP_DENSE_TIER (sonic4 raised, demo clear) — differential ['dense_tier_enter']
+        sonic4 ['dense_tier_enter'] vs expected ['dense_tier_enter']; demo [] vs expected []
+  PASS  scanline_spans CAP_FACTOR_CURVE (sonic4 raised, demo clear) — differential ['factor_curve_band', 'factor_curve_hoist', 'factor_curve_sel', 'factor_curve_split', 'factor_curve_split_keep', 'factor_curve_walk']
+        sonic4 ['factor_curve_band', 'factor_curve_hoist', 'factor_curve_sel', 'factor_curve_split', 'factor_curve_split_keep', 'factor_curve_walk'] vs expected ['factor_curve_band', 'factor_curve_hoist', 'factor_curve_sel', 'factor_curve_split', 'factor_curve_split_keep', 'factor_curve_walk']; demo [] vs expected []
+  PASS  scanline_spans CAP_MULTI_DEFORM_TABLE — GATED IN SOURCE, RAISED BY NEITHER FIXTURE (2 span(s) elided from both: ['multi_deform_table_band', 'multi_deform_table_sel'])
+        adoption pending (PARK-1); the differential has no subject until a game raises the bit
+  PASS  scanline_spans CAP_PER_COL_VSRAM (sonic4 raised, demo clear) — differential ['per_col_vsram_emit', 'per_col_vsram_fill', 'per_col_vsram_mode']
+        sonic4 ['per_col_vsram_emit', 'per_col_vsram_fill', 'per_col_vsram_mode'] vs expected ['per_col_vsram_emit', 'per_col_vsram_fill', 'per_col_vsram_mode']; demo [] vs expected []
+  PASS  scanline_spans CAP_ROLE_SWAP (sonic4 raised, demo clear) — differential ['role_swap_init', 'role_swap_pack', 'role_swap_reassert', 'role_swap_set', 'role_swap_vpack']
+        sonic4 ['role_swap_init', 'role_swap_pack', 'role_swap_reassert', 'role_swap_set', 'role_swap_vpack'] vs expected ['role_swap_init', 'role_swap_pack', 'role_swap_reassert', 'role_swap_set', 'role_swap_vpack']; demo [] vs expected []
+  PASS  scanline_spans CAP_ROW_REMAP (sonic4 raised, demo clear) — differential ['row_remap_art', 'row_remap_clear', 'row_remap_mark', 'row_remap_pass', 'row_remap_sel']
+        sonic4 ['row_remap_art', 'row_remap_clear', 'row_remap_mark', 'row_remap_pass', 'row_remap_sel'] vs expected ['row_remap_art', 'row_remap_clear', 'row_remap_mark', 'row_remap_pass', 'row_remap_sel']; demo [] vs expected []
+  PASS  scanline_spans CAP_TRANSITIONS (sonic4 raised, demo clear) — differential ['transitions_lerp', 'transitions_select', 'transitions_stage']
+        sonic4 ['transitions_lerp', 'transitions_select', 'transitions_stage'] vs expected ['transitions_lerp', 'transitions_select', 'transitions_stage']; demo [] vs expected []
+  PASS  scanline_spans capability coverage — 11 of 11 `pub const CAP_*` bits declared in scene_dsl.emp produced a row
+        every declared capability was asked about
+  PASS  demo_witness (span absence + image pin)
+        demo_specialization_witness: OK — span absence + image differential
+
+effects_gates: OK — all 23 scheduled gate(s) produced a complete row set: ['bg_switch', 'bg_vscroll_rate', 'bg_window', 'bg_wipe', 'boot_override', 'cost_model', 'demo_witness', 'oscillation_thrash', 'palette_variant', 'parallax_crossing', 'raster_off', 'raster_source', 'region_fade', 'scanline_spans', 'scene:above_screen', 'scene:dense', 'scene:mid_band', 'scene:suppressed', 'snapshot_poison', 'tile_cache_fill', 'vsplit_landing', 'warp_mailbox', 'waterline_stamp']
+  (42 result rows — a COUNT, and NOT the witness: a gate's row count varies with its own outcome and with source-declared populations. The witness is the gate set above.)

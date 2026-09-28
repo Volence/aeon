@@ -43606,9 +43606,39 @@ so `Game_RAM_End` did not move.
 - The `Parallax_Update @ Decode_Factor_A/B` call sites that sigil's contract baseline pins are
   untouched.
 - Unchanged: `engine/structs.emp`, `engine/effects/*`, the record and config formats. Demo
-  (`SCANLINE_CAPS` 0) emits none of the new code.
+  (`SCANLINE_CAPS` 0) emits none of the new instructions: every one of them is behind a
+  capability gate, and `demo_witness` is OK. The one ungated addition is the `.step4a` label,
+  which is zero bytes.
 
-**Landing evidence.** LANDING_EVIDENCE_PLACEHOLDER
+**Landing evidence.** These are full (non-FAST) builds at `e028714d`, which is the code commits
+plus a merge of `origin/master` `8c6bb74c`. That merge brought in tools and docs only (the DPLC
+pairing landing), so no ROM byte moved. The assembler was sigil `50ebc574`, md5(SIGIL_BUILD)
+`958da708`.
+- `tools/landing_build.sh`: **exit 0, `finished=0`**, on the first run.
+  - pre-build pytest: 3836 passed, 3 skipped, 36 deselected;
+  - needs_build: 35 passed, 1 EXEMPTED (`test_deb2_appendix[demo.bin]`).
+  - `test_citation_form` had been red on the branch before landing, on five
+    `parallax.emp:LINE` citations that sat on bare delimiters (`scene_dsl.emp`'s `brm_plane_y`
+    note and `poison_extern_span.emp`'s pin list). Those, and the pin list's other four stale
+    numbers, now cite by symbol.
+- `S2CLIP=s2_ehz_cpz ./build.sh` rc 0 and `DEBUG=1 S2CLIP=s2_ehz_cpz ./build.sh` rc 0.
+- **Effects-gates ritual** (`tools/effects_gates.py`, run on the landing `s4.debug.bin` / `.lst`):
+  rc 0. All 23 scheduled gates produced a complete row set over 22 segments, with 42 result rows
+  and 0 FAIL. `scanline_spans` sees the two new spans (`anchors_split_rebuild` and
+  `factor_curve_split_keep`) in sonic4 and neither in demo, and `demo_witness` is OK.
+- `tools/parallax_shadow_key_witness.py` (extended) on the landing `s4.debug.bin`: GREEN, 581
+  samples, kept 460, resplit 3, 0 differ.
+
+| ROM | CRC32 | bytes |
+|---|---|---|
+| `s4.bin` | `20d741cc` | 831,279 |
+| `s4.debug.bin` | `63b70f76` | 858,352 |
+| `demo.debug.bin` | `64717bac` | 106,981 |
+| `s4.s2clip.bin` | `48a5ab6e` | 930,881 |
+| `s4.s2clip.debug.bin` | `af7ba248` | 957,746 |
+
+These are the same builds every measurement used (the final row of the research note's referent
+table).
 
 **Open riders.**
 - **PPB-10b (priced, not built): the selection byte's reason bits.**
