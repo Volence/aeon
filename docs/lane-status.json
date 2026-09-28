@@ -1,5 +1,5 @@
 {
-  "focus": "Rebooted and up to date. Next up is a small collision fix at the Chemical Plant crossing; editing the woven act is your call.",
+  "focus": "Rebooted, nothing running. Next is a small collision fix where Metropolis meets Chemical Plant; waiting on your go.",
   "inFlight": [],
   "blockedOnOwner": [
     {
@@ -226,7 +226,7 @@
       "project": "REGIONS"
     }
   ],
-  "awaiting": "Your go to start the Chemical Plant crossing fix (and your pick on card WOVEN-EDITABLE when you have a moment).",
+  "awaiting": "Your go to start the Metropolis-to-Chemical-Plant crossing fix (and card WOVEN-EDITABLE when you have a moment).",
   "atBoundary": true,
-  "updatedAt": "2026-09-28T01:56:40Z"
+  "updatedAt": "2026-09-28T02:56:40Z"
 }
