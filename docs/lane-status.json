@@ -1,10 +1,10 @@
 {
-  "focus": "Four background fixes and checks landed today. Now: tall areas whose background layers may repeat every 512 pixels.",
+  "focus": "Owner asleep; working the list overnight. Now: landing the tall-area background check (a guard, not a fix).",
   "inFlight": [
     {
-      "what": "Re-check and fix background layers repeating in very tall areas",
+      "what": "Landing the tall-area background guard: full pre-merge build and tests",
       "where": "branch fix/bg-band-plane-anchor",
-      "agent": true
+      "agent": false
     }
   ],
   "blockedOnOwner": [
@@ -29,7 +29,7 @@
       "since": "2026-09-28"
     }
   ],
-  "nextBoundary": "When the tall-area layer check returns and is landed (or re-scoped if it is bigger than expected).",
+  "nextBoundary": "When the tall-area guard is landed; then the next item not waiting on you (checks audit, then the nightly read after 09:00Z).",
   "queue": [
     {
       "id": "WOVEN-EDITABLE-IN-AURORA",
@@ -151,5 +151,5 @@
   ],
   "awaiting": null,
   "atBoundary": false,
-  "updatedAt": "2026-09-28T06:10:45Z"
+  "updatedAt": "2026-09-28T06:30:04Z"
 }
