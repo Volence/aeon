@@ -1,0 +1,8 @@
+# The ONE emulator every harness number comes from (v2 step 0, B1).
+# Built from a clean detached clone of oracle `main` at `commit` (vcs-stamped, dirty=false),
+# release profile, archived outside every repo tree. A result from any other binary is refused
+# by tools/leg_provenance.py (verify_binary: sha256; verify_pin: handshake serverBuild).
+# Archive provenance: .oracle-bin-archive/dd09acb9/BUILD_INFO.json
+commit = "dd09acb96ad5d0c2b1ee603f919942dd819f80c6"
+binary = ".oracle-bin-archive/dd09acb9/oracle-aether"   # suite-root relative
+sha256 = "162a0e976364aecaab5e14c969a03b26bdda62cd943308e56a512b36acec1ae8"
