@@ -323,6 +323,8 @@ def test_real_drive_is_tick_keyed():
     last (the breakpoint loop misses no tick), the input log is one byte per row, and the
     lag identity holds over the rows."""
     import leg_provenance as lp
+    from suite_paths import add_client_path
+    add_client_path()
     from aether import BusClient
     rom, lst = AEON / "s4.bin", AEON / "s4.lst"
     syms = ld.resolve_syms(lst, aeon=AEON)
