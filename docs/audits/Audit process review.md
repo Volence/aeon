@@ -118,7 +118,7 @@ Nobody reviews the lead. The controller's verification is the only check, and it
 > Those gates read `Frame_Counter`, as do the page-cache age stamps (`page_cache.emp:529`, `:709`, `:758`, `:1334`). DEBUG and release lag differently (6 against 2, MEASURED). So what is cached, and when, differs by build. Whether that can reach game logic (collision reads the cache) is unexamined. Finding 5's lint covers only `games/*/player` and `games/*/objects`.
 
 > [!finding] 4. The overrun finding and the sound verdict contradict each other
-> The DAC ring holds a lead of 128 to 200 samples, about 7 to 11 ms at 18,356 Hz (`sound_constants.emp:206-212`, constants; the comment says it "outlasts any real 68k DMA stall"). Reviewer B's overrun case freezes the 68000 for about 84,000 cycles, which is about 11 ms (ESTIMATED from B's figure). The flag stays raised for all of it. If finding 2 is right, sound does not "keep playing through video transfers" on that frame. No stage read `z80_sound_driver.emp`. The "best known" rating for sound rests on the 68000 side only.
+> The DAC ring holds a lead of 128 to 200 samples, about 7 to 11 ms at 18,356 Hz (`engine/sound/sound_constants.emp:207-214`, constants; the comment says it "outlasts any real 68k DMA stall"). Reviewer B's overrun case freezes the 68000 for about 84,000 cycles, which is about 11 ms (ESTIMATED from B's figure). The flag stays raised for all of it. If finding 2 is right, sound does not "keep playing through video transfers" on that frame. No stage read `z80_sound_driver.emp`. The "best known" rating for sound rests on the 68000 side only.
 
 > [!note] Smaller gaps
 > - Level load, the first frame after boot, and state changes (`VInt_Ptr` swaps) were not walked.
@@ -175,7 +175,7 @@ I read about a dozen files, not the engine. Within them: **the guards are idioma
 |---|---|
 | **Idiomatic** | `with z80_stopped`, `with ints_off`, `requires(vblank)` / `grants(vblank)`, `ints_off_until_rte` in `Raster_HInt`, `irq_frame.pc` and `ZX0R_Decompress.__end` for the bookmark (`vblank.emp:70-76`), `ensure(cycles(.loop, .exhaust) == 195)` in the Z80 driver, `invoke Game.debug_tick`. These are real uses of the language, and they catch real bugs |
 | **Ported structure** | The VBlank step order is a hand-written call sequence, and three docs restate it by hand, all stale. A native design would declare the stages once as data and generate the handler, the doc and the budget from it |
-| | The budget is a literal with its derivation in a comment (`constants.emp:759-771`), not a `comptime fn` over lines, rate and measured fixed cost |
+| | The budget is a literal with its derivation in a comment (`engine/system/constants.emp:759-771`), not a `comptime fn` over lines, rate and measured fixed cost |
 | | `VInt_Level` walks the Critical queue at run time to sum bytes (`vblank.emp:183-196`) though the entries are static |
 | | Raw structure offsets where the conventions demand a `struct`: `6(a2)`, `8(a2)`, `10(a2)` (`buffers.emp:420`, `:454`, `:456`) |
 | | Hand-kept flag protocols (`VBlank_Ready`, `VBlank_Flag`, `Sprite_Table_Dirty`, `Sprite_Emit_Active`) whose rules live in comments |
