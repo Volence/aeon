@@ -651,6 +651,12 @@ expect = 0
 timeout = 600
 note = "one of efx4b/c1b3/c3b2/c3b2s7; `all` is a longer sweep than a keepalive needs"
 
+[wired."leg_run.py"]
+args = ["--rom", "{rom}", "--lst", "{lst}", "--leg", "idle", "--phase", "0", "--out", "{outdir}"]
+expect = 0
+timeout = 600
+note = "v2 B2 measurement-harness leg runner. The idle leg is the cheapest one that exercises the whole path (pinned spawn, Input_Tick breakpoint loop, provenance gate, JSON write); its coverage is 600 driven ticks, so exit 0 means it covered"
+
 # ---- tools with no argparse -----------------------------------------------------------
 
 [wired."pcc_lab_probe.py"]
@@ -694,6 +700,7 @@ it is not a verdict about pagecache_audit_poison."""
 "aether_bytes.py" = "not an instrument: the bus byte-decoding helper every instrument imports"
 "aether_instance.py" = "not an instrument: the harness that spawns the headless emulator"
 "leg_provenance.py" = "not an instrument: the pinned-oracle spawn plus provenance library for the measurement harness (v2 B1). It has no __main__; harness legs import spawn_pinned, and its own emulator-backed check is the needs_build test in test_leg_provenance.py"
+"leg_drive.py" = "not an instrument: the tick-keyed closed-loop leg driver library for the measurement harness (v2 B2). No __main__; leg_run.py (wired) drives it, and its own emulator-backed check is the needs_build test in test_leg_drive.py"
 "cart_identity.py" = "not an instrument: the cart-identity helper (no __main__). It reads the cart back over a client it is handed; aether_instance calls it on every AetherInstance spawn, and five tools import it directly. Counted since 2026-09-25 because it speaks emulator/read_memory."
 
 # -- need a SECOND ROM from a different build (A/B differentials) ----------------------
