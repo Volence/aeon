@@ -85,6 +85,21 @@ def test_spindash_sequence_shape():
     assert p.held(st(30, gspeed=0x800)) == R
 
 
+def test_spindash_release_tick_is_never_skipped():
+    """MEASURED defect (fix round 1 real legs, s4.bin spindash/diagfall p0 STUCK at px 256):
+    while charging, the engine reads gspeed 0, so a trigger re-checked on the tick the sequence
+    ends restarted it and DOWN was never released -- 0 spindash releases. The release tick
+    (right, no down) is part of the sequence and is emitted whatever the state says."""
+    for name in ("spindash", "diagfall"):
+        p = ld.POLICIES[name](B, EQ)
+        got = [p.held(st(t, gspeed=0)) for t in range(31)]
+        assert got[:30] == spin_seq() and got[30] == R, name
+        assert p.held(st(31, gspeed=0)) == D, f"{name}: a NEW sequence may start after it"
+    p = ld.POLICIES["topspeed"](B, EQ)
+    hs = [p.held(st(t, xvel=0x300, gspeed=0x50)) for t in range(30 + 31)]
+    assert hs[29:59] == spin_seq() and hs[59] == R, "topspeed: release tick emitted"
+
+
 def test_spindash_triggers_only_below_the_engine_gate_on_ground():
     """The engine spindashes only below PHYS_ROLL_START_MIN (player_ground.emp:271-279); at or
     above it down rolls. So the family triggers below the gate -- not the plan's TOP/2."""

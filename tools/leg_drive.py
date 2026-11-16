@@ -163,7 +163,7 @@ class Run:
 
 class _SpinSeq:
     """The spindash sequence: release right, hold down, tap C 4 times (2 on, 4 off), release
-    down. `step()` returns the held byte for the next tick of the sequence, None when done."""
+    down, hold right. `step()` returns the held byte for the next tick of the sequence."""
 
     def __init__(self, b: Buttons):
         self.b, self.k = b, None
@@ -176,11 +176,19 @@ class _SpinSeq:
         self.k = 0
 
     def step(self):
+        """SPIN_LEN ticks of down (with the taps), then ONE forced release tick (right, no
+        down). The release is part of the sequence, not a fall-through to the trigger: while
+        charging the engine holds gspeed at 0, so a trigger re-checked on that tick restarted
+        the sequence and down was never released (MEASURED, fix round 1: s4.bin spindash and
+        diagfall p0 STUCK at px 256 with 0 releases)."""
         k, D, C = self.k, self.b.down, self.b.c
+        if k == SPIN_LEN:
+            self.k = None
+            return self.b.right
         h = D
         if SPIN_PRE <= k < SPIN_PRE + SPIN_TAPS * (SPIN_ON + SPIN_OFF):
             h = D | C if (k - SPIN_PRE) % (SPIN_ON + SPIN_OFF) < SPIN_ON else D
-        self.k = k + 1 if k + 1 < SPIN_LEN else None
+        self.k = k + 1
         return h
 
 
