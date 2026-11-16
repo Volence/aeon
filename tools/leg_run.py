@@ -33,8 +33,27 @@ import leg_drive as ld  # noqa: E402
 import leg_provenance as lp  # noqa: E402
 from suite_paths import add_client_path  # noqa: E402
 
+add_client_path()
+from aether import BusError  # noqa: E402
+
+#: A drive that dies on any of these produced no measurement: COULD NOT RUN (exit 2), and no
+#: result file. DriveError = the driver refused (missed tick, no Input_Tick hit, ...); the rest
+#: are the bus: a server error reply, or the connection dropping/timing out.
+DRIVE_FAILURES = (ld.DriveError, BusError, ConnectionError, EOFError,
+                  asyncio.IncompleteReadError, TimeoutError, OSError)
+
 DEFAULT_CAP = {"idle": ld.IDLE_NEED_TICKS, "run": 3000, "topspeed": 3000, "diagfall": 3000,
                "spindash": 3000}
+
+
+def _lfc_note(syms, tr) -> str:
+    """DEBUG's second lag witness, LOUD when it disagrees with sum(dFC) - sum(dTick)."""
+    if not syms.debug:
+        return ""
+    d = tr.lag_frame_count_delta
+    if d == tr.lag_frames:
+        return f"; LFC delta {d} (agrees)"
+    return f"; LAG WITNESSES DISAGREE: Lag_Frame_Count delta {d} != {tr.lag_frames}"
 
 
 def _did_not_run(reason: str) -> dict:
@@ -57,7 +76,6 @@ async def _profile_read(c, ticks: int, top: int = 512) -> dict:
 
 
 async def run_leg(a, inst, syms) -> dict:
-    add_client_path()
     from aether import BusClient
     c = BusClient(socket_path=inst.socket_path, client_id=f"leg-run-{os.getpid()}",
                   client_name="leg_run")
@@ -68,7 +86,7 @@ async def run_leg(a, inst, syms) -> dict:
     try:
         await c.call("emulator/reset", {})
         t0 = ld.T0 + ld.PHASE_OFFSETS[a.phase]
-        policy = ld.POLICIES[a.leg](syms.buttons, syms.equ["PHYS_TOP_SPEED"])
+        policy = ld.POLICIES[a.leg](syms.buttons, syms.equ)
         armed = {"at": None}
 
         async def on_tick(s, row):
@@ -122,7 +140,12 @@ def main(argv=None) -> int:
             return 2
         prov["harness"]["leg_drive_sha256"] = lp.sha256_file(TOOLS / "leg_drive.py")
         prov["harness"]["leg_run_sha256"] = lp.sha256_file(Path(__file__).resolve())
-        got = asyncio.run(run_leg(a, inst, syms))
+        try:
+            got = asyncio.run(run_leg(a, inst, syms))
+        except DRIVE_FAILURES as e:
+            print(f"leg_run: COULD NOT RUN {type(e).__name__}: {e} (nothing written)",
+                  file=sys.stderr)
+            return 2
     finally:
         inst.reap()
     wall = time.monotonic() - wall0
@@ -154,7 +177,7 @@ def main(argv=None) -> int:
           f"{'MET' if cov['met'] else 'NOT MET'} got={cov['got']} need={cov['need']}; "
           f"end cx={last.get('cx')} cx_max={last.get('cxm')} (px,py)=({last.get('px')},"
           f"{last.get('py')}); lag {tr.lag_frames} frames / {tr.lag_ticks} ticks "
-          f"({lagpct:.2f}%){'' if not syms.debug else f'; LFC delta {tr.lag_frame_count_delta}'}"
+          f"({lagpct:.2f}%){_lfc_note(syms, tr)}"
           f"; wall {wall:.1f}s -> {path}")
     for n in tr.notes:
         print(f"  note: {n}")

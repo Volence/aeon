@@ -160,6 +160,27 @@ def test_records_dirty_tree(tmp_path):
     assert a["dirty"] is True and len(a["commit"]) == 40 and a["branch"] == "main"
 
 
+def test_dirty_paths_are_recorded_and_capped(tmp_path, monkeypatch):
+    """The porcelain lines behind `dirty` are in the provenance (auditable), capped at
+    DIRTY_PATHS_MAX with the full count beside them. Untracked files still count."""
+    def g(*a):
+        subprocess.run(["git", "-C", str(tmp_path), *a], check=True, capture_output=True)
+    g("init", "-q", "-b", "main")
+    (tmp_path / "f").write_text("1")
+    g("add", "f")
+    g("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "c")
+    a = lp.aeon_provenance(tmp_path)
+    assert a["dirty_paths"] == [] and a["dirty_count"] == 0
+    (tmp_path / "f").write_text("2")
+    (tmp_path / "new.emp").write_text("x")
+    a = lp.aeon_provenance(tmp_path)
+    assert a["dirty"] is True and a["dirty_count"] == 2
+    assert sorted(a["dirty_paths"]) == [" M f", "?? new.emp"]
+    monkeypatch.setattr(lp, "DIRTY_PATHS_MAX", 1)
+    a = lp.aeon_provenance(tmp_path)
+    assert len(a["dirty_paths"]) == 1 and a["dirty_count"] == 2
+
+
 def _full():
     return {"oracle": {"commit": C, "server_build_id": C + "+profile=release", "source": "vcs",
                        "dirty": False, "sha256": "0" * 64},

@@ -128,9 +128,19 @@ def _git(root: Path, *args: str) -> str:
                           text=True).stdout
 
 
+#: How many `git status --porcelain` lines `aeon.dirty_paths` keeps; `dirty_count` is the total.
+DIRTY_PATHS_MAX = 50
+
+
 def aeon_provenance(root: Path = AEON_ROOT) -> dict:
+    """`dirty` counts UNTRACKED files too (an untracked .emp can change a build). The porcelain
+    lines behind it are recorded (`dirty_paths`, first DIRTY_PATHS_MAX, plus `dirty_count`) so
+    a dirty flag can always be audited, never just believed."""
+    lines = [ln for ln in _git(root, "status", "--porcelain").splitlines() if ln.strip()]
     return {"commit": _git(root, "rev-parse", "HEAD").strip(),
-            "dirty": bool(_git(root, "status", "--porcelain").strip()),
+            "dirty": bool(lines),
+            "dirty_count": len(lines),
+            "dirty_paths": lines[:DIRTY_PATHS_MAX],
             "branch": _git(root, "branch", "--show-current").strip()}
 
 

@@ -46,6 +46,21 @@ against the AS-era tree and cite `.asm` paths and line numbers into files that *
 
 ---
 
+## V2-B2-SPINDASH-GATE: the v2 step-0 plan's spindash trigger sits above the engine's spindash gate (BRIEF WORDING OPEN, booked 2026-11-16, `feat/v2-step0-harness`)
+
+`docs/superpowers/plans/2026-11-16-measurement-harness-and-stress.md:102` says the `spindash`
+leg triggers "when on ground and `|gspeed| < PHYS_TOP_SPEED/2`" ($300), and the `topspeed`
+rule spindashes at `|gspeed| < $200`. The engine spindashes only with down held, a fresh
+jump-buffer press AND `|gsp| < PHYS_ROLL_START_MIN` ($100; `engine/system/constants.emp:222`,
+gate at `games/sonic4/player/player_ground.emp:271-279`). Between $100 and the plan's
+thresholds, down starts a ROLL and C is a roll-jump, so the leg would not spindash.
+Controller ruling (B2 fix round 1): a brief defect; the intent (a leg that really spindashes)
+wins. `tools/leg_drive.py` now triggers all three spindash-family policies (`spindash`,
+`topspeed`, `diagfall`) below `equ["PHYS_ROLL_START_MIN"]` read from the listing; topspeed's
+"slow for 30 ticks" condition is kept and fires only below the gate. **Open:** reword plan
+line 102 and line 103 (`topspeed`) to name `PHYS_ROLL_START_MIN`, and line 91's `POLICIES` type to
+`Callable[[Buttons, dict], Policy]` (the factories now take the listing equates).
+
 ## LOOP-STEP-OVER-LANDING: the loop witness's landing wait counted emulator frames, and a perf change moved the lag frames under it (FIXED 2026-09-28, `fix/loop-step-over-landing`)
 
 **Symptom.** The 2026-09-28 keepalive nightly (origin/master `d4f8c479`): `loop_step_over_witness.py`

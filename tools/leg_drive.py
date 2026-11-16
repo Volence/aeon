@@ -134,7 +134,7 @@ def press_edges(held: list[int], prev: int = 0) -> list[int]:
 class Idle:
     progress = False
 
-    def __init__(self, b: Buttons, top_speed: int):
+    def __init__(self, b: Buttons, equ: dict):
         pass
 
     def held(self, s):
@@ -146,7 +146,7 @@ class Run:
     consecutive ticks (blocked). Never on a period."""
     progress = True
 
-    def __init__(self, b: Buttons, top_speed: int):
+    def __init__(self, b: Buttons, equ: dict):
         self.b, self.blocked, self.jump_left = b, 0, 0
 
     def held(self, s):
@@ -184,15 +184,25 @@ class _SpinSeq:
         return h
 
 
+def spindash_gate(equ: dict) -> int:
+    """The engine's own spindash gate: PState_Ground (games/sonic4/player/player_ground.emp:
+    271-279) spindashes only with down held, a fresh jump-buffer press and |gsp| <
+    PHYS_ROLL_START_MIN; at or above it down starts a ROLL and C is a roll-jump. The plan's
+    `PHYS_TOP_SPEED/2` ($300) and topspeed's `$200` sit above the gate (fix round 1 ruling:
+    a brief defect, booked in docs/DEFERRED_WORK.md, V2-B2-SPINDASH-GATE)."""
+    return equ["PHYS_ROLL_START_MIN"]
+
+
 class Spindash:
-    """When on ground and |gspeed| < PHYS_TOP_SPEED/2: the spindash sequence; else hold right."""
+    """When on ground and |gspeed| < PHYS_ROLL_START_MIN (the engine's spindash gate): the
+    spindash sequence; else hold right."""
     progress = True
 
-    def __init__(self, b: Buttons, top_speed: int):
-        self.b, self.half, self.seq = b, top_speed // 2, _SpinSeq(b)
+    def __init__(self, b: Buttons, equ: dict):
+        self.b, self.gate, self.seq = b, spindash_gate(equ), _SpinSeq(b)
 
     def trigger(self, s):
-        return not s.airborne and abs(s.gspeed) < self.half
+        return not s.airborne and abs(s.gspeed) < self.gate
 
     def held(self, s):
         if not self.seq.active and self.trigger(s):
@@ -201,11 +211,13 @@ class Spindash:
 
 
 class TopSpeed:
-    """The run rule, plus a spindash when on ground and |gspeed| < SLOW_GSPEED for SLOW_TICKS."""
+    """The run rule, plus a spindash once on ground and |gspeed| < SLOW_GSPEED for SLOW_TICKS
+    -- fired only on a tick below the engine's spindash gate (PHYS_ROLL_START_MIN)."""
     progress = True
 
-    def __init__(self, b: Buttons, top_speed: int):
-        self.run, self.seq, self.slow = Run(b, top_speed), _SpinSeq(b), 0
+    def __init__(self, b: Buttons, equ: dict):
+        self.run, self.seq, self.slow = Run(b, equ), _SpinSeq(b), 0
+        self.gate = spindash_gate(equ)
 
     def held(self, s):
         if self.seq.active:
@@ -213,7 +225,7 @@ class TopSpeed:
         if self.run.jump_left:
             return self.run.held(s)
         self.slow = self.slow + 1 if (not s.airborne and abs(s.gspeed) < SLOW_GSPEED) else 0
-        if self.slow >= SLOW_TICKS:
+        if self.slow >= SLOW_TICKS and abs(s.gspeed) < self.gate:
             self.slow = 0
             self.seq.start()
             return self.seq.step()
@@ -230,10 +242,10 @@ class DiagFall(Spindash):
         return h
 
 
-#: name -> factory(buttons, PHYS_TOP_SPEED from the listing). NOTE: the brief's interface is
-#: Callable[[Buttons], Policy]; the second argument exists because the spindash family's
-#: threshold (PHYS_TOP_SPEED/2) must come from the listing, not be typed here.
-POLICIES: dict[str, Callable[[Buttons, int], Policy]] = {
+#: name -> factory(buttons, equ), `equ` being the listing's equates (`Syms.equ`). The brief's
+#: interface was Callable[[Buttons], Policy]; the equates are passed because the spindash
+#: family's gate (PHYS_ROLL_START_MIN) must come from the listing, not be typed here.
+POLICIES: dict[str, Callable[[Buttons, dict], Policy]] = {
     "idle": Idle, "run": Run, "topspeed": TopSpeed, "diagfall": DiagFall, "spindash": Spindash,
 }
 
@@ -276,7 +288,6 @@ class LegCore:
         self.status: str | None = None
         self.reason = ""
         self.prev: TickState | None = None
-        self.prev_held = 0
         self.policy_from: int | None = None if debug else t0
         self._dbg_py0 = self._dbg_py1 = None
         self.notes: list[str] = []
@@ -342,14 +353,17 @@ class LegCore:
                 self.policy_from = s.tick
         dfc = 0 if prev is None else (s.frame_counter - prev.frame_counter) & 0xFFFF
         dlt = 0 if prev is None else s.tick - prev.tick
+        # The press written with this held byte: the edge against the previous ROW's held
+        # (0 before the first row -- nothing was written before t0).
+        press = press_edges([held], prev=self.held_log[-1] if self.held_log else 0)[0]
+        self.last_press = press
         row = dict(t=s.tick, fc=s.frame_counter, dfc=dfc, dlt=dlt, px=s.px, py=s.py, xvel=s.xvel, yvel=s.yvel,
                    gs=s.gspeed, air=int(s.airborne), cx=s.cx, cy=s.cy, cxm=s.cx_max, ps=pstate,
-                   held=held)
+                   held=held, press=press)
         if lag_count is not None:
             row["lfc"] = lag_count
         self.rows.append(row)
         self.held_log.append(held)
-        self.prev_held = held
         if self.status:                      # FAILED inside the debug exit
             return held
         if s.cx_max > 0 and s.cx >= s.cx_max:
@@ -455,7 +469,7 @@ _SHAPE = re.compile(r"^DIGEST-SHAPE\b.*\bdebug=(\d)")
 
 ADDR_SYMS = ("Frame_Counter", "Logic_Tick", "Ctrl_1_Held", "Ctrl_1_Press", "Camera_X",
              "Camera_Y", "Camera_X_Max", "Camera_Target", "Input_Tick")
-EQU_NEEDED = ("PHYS_TOP_SPEED", "ST_IN_AIR", "PSTATE_SPINDASH")
+EQU_NEEDED = ("PHYS_TOP_SPEED", "PHYS_ROLL_START_MIN", "ST_IN_AIR", "PSTATE_SPINDASH")
 SST_FIELDS = ("x_pos", "y_pos", "x_vel", "y_vel", "status", "sst_custom")
 
 
@@ -621,8 +635,7 @@ async def drive_leg(client, syms: Syms, policy, t0: int, cap_ticks: int, on_tick
             held = core.step(s, ps, lag)
             if held is None:
                 continue
-            press = held & ~core_prev(core) & 0xFF
-            await _write_pad(client, syms, held, press)
+            await _write_pad(client, syms, held, core.last_press)
             if on_tick is not None:
                 res = on_tick(s, core.rows[-1])
                 if inspect.isawaitable(res):
@@ -637,8 +650,3 @@ async def drive_leg(client, syms: Syms, policy, t0: int, cap_ticks: int, on_tick
                     notes=core.notes, lag_frame_count_delta=lfc, policy_from=core.policy_from,
                     hits=hits, misses=misses)
 
-
-def core_prev(core: LegCore) -> int:
-    """The held byte of the tick BEFORE the one just stepped (0 before the first row)."""
-    log = core.held_log
-    return log[-2] if len(log) >= 2 else 0

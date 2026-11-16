@@ -16,6 +16,8 @@ AEON = Path(__file__).resolve().parent.parent
 B = ld.Buttons(right=0x08, left=0x04, down=0x02, up=0x01, a=0x40, b=0x10, c=0x20)
 R, L, D, C, BB = B.right, B.left, B.down, B.c, B.b
 TOP = 0x600
+GATE = 0x100      # PHYS_ROLL_START_MIN, the engine's spindash gate
+EQ = {"PHYS_TOP_SPEED": TOP, "PHYS_ROLL_START_MIN": GATE, "PSTATE_SPINDASH": 4}
 
 
 def st(tick, px=100, py=200, xvel=0, yvel=0, gspeed=0, airborne=False, cx=0, cy=0,
@@ -50,7 +52,7 @@ def test_steady_progress_is_not_stuck():
 # ---- policies -----------------------------------------------------------------------------
 
 def test_run_policy_jumps_only_when_blocked():
-    p = ld.POLICIES["run"](B, TOP)
+    p = ld.POLICIES["run"](B, EQ)
     for t in range(100):
         h = p.held(st(t, xvel=0x300, gspeed=0x300))
         assert h == R, f"tick {t}: C at xvel=$300 (not blocked) -> {h:#x}"
@@ -60,7 +62,7 @@ def test_run_policy_jumps_only_when_blocked():
 
 
 def test_run_policy_never_jumps_on_a_period_or_in_the_air():
-    p = ld.POLICIES["run"](B, TOP)
+    p = ld.POLICIES["run"](B, EQ)
     hs = [p.held(st(t, xvel=0, airborne=True)) for t in range(200)]
     assert all(h == R for h in hs), "blocked counter must only count ON-GROUND ticks"
 
@@ -76,48 +78,87 @@ def spin_seq():
 def test_spindash_sequence_shape():
     want = spin_seq()
     assert len(want) == 30
-    p = ld.POLICIES["spindash"](B, TOP)
+    p = ld.POLICIES["spindash"](B, EQ)
     got = [p.held(st(t, gspeed=0)) for t in range(30)]
     assert got == want
     # sequence over: release down, hold right (a fast roll does not re-trigger)
     assert p.held(st(30, gspeed=0x800)) == R
 
 
-def test_spindash_triggers_only_below_half_top_speed_on_ground():
-    p = ld.POLICIES["spindash"](B, TOP)
-    assert p.held(st(0, gspeed=TOP // 2)) == R
-    assert p.held(st(1, gspeed=0, airborne=True)) == R
-    assert p.held(st(2, gspeed=TOP // 2 - 1)) == D
+def test_spindash_triggers_only_below_the_engine_gate_on_ground():
+    """The engine spindashes only below PHYS_ROLL_START_MIN (player_ground.emp:271-279); at or
+    above it down rolls. So the family triggers below the gate -- not the plan's TOP/2."""
+    for name in ("spindash", "diagfall"):
+        p = ld.POLICIES[name](B, EQ)
+        assert p.held(st(0, gspeed=TOP // 2 - 1)) == R, f"{name}: $2FF would roll, not dash"
+        assert p.held(st(1, gspeed=GATE)) == R
+        assert p.held(st(2, gspeed=0, airborne=True)) & D == D or name == "spindash"
+        assert p.held(st(3, gspeed=-(GATE - 1))) == D, f"{name}: below the gate -> sequence"
 
 
-def test_topspeed_spindashes_after_30_slow_ground_ticks():
-    p = ld.POLICIES["topspeed"](B, TOP)
-    hs = [p.held(st(t, xvel=0x100, gspeed=0x100)) for t in range(30)]
+def test_spindash_gate_comes_from_the_listing_equate():
+    p = ld.POLICIES["spindash"](B, dict(EQ, PHYS_ROLL_START_MIN=0x40))
+    assert p.held(st(0, gspeed=0x40)) == R
+    assert p.held(st(1, gspeed=0x3F)) == D
+    with pytest.raises(KeyError):
+        ld.POLICIES["spindash"](B, {"PHYS_TOP_SPEED": TOP})
+
+
+def test_topspeed_spindashes_after_30_slow_ground_ticks_below_the_gate():
+    p = ld.POLICIES["topspeed"](B, EQ)
+    hs = [p.held(st(t, xvel=0x100, gspeed=0x80)) for t in range(30)]
     assert hs[:29] == [R] * 29
-    assert hs[29] == D, "30th slow tick starts the spindash sequence"
+    assert hs[29] == D, "30th slow tick (below the gate) starts the spindash sequence"
+
+
+def test_topspeed_slow_but_above_the_gate_waits():
+    """Slow for 30+ ticks at $180 (below $200, above the $100 gate): no dash yet -- it would
+    roll. It fires on the first slow tick below the gate."""
+    p = ld.POLICIES["topspeed"](B, EQ)
+    hs = [p.held(st(t, xvel=0x180, gspeed=0x180)) for t in range(40)]
+    assert all(h & D == 0 for h in hs)
+    assert p.held(st(40, xvel=0xF0, gspeed=0xF0)) == D
 
 
 def test_diagfall_holds_down_in_the_air():
-    p = ld.POLICIES["diagfall"](B, TOP)
+    p = ld.POLICIES["diagfall"](B, EQ)
     assert p.held(st(0, gspeed=0x800, airborne=True)) == R | D
     assert p.held(st(1, gspeed=0x800)) == R
 
 
 def test_idle_is_zero():
-    p = ld.POLICIES["idle"](B, TOP)
+    p = ld.POLICIES["idle"](B, EQ)
     assert {p.held(st(t)) for t in range(50)} == {0}
     assert set(ld.POLICIES) == {"idle", "run", "topspeed", "diagfall", "spindash"}
+
+
+class _Script:
+    progress = False
+
+    def __init__(self, seq):
+        self.seq = list(seq)
+
+    def held(self, s):
+        return self.seq.pop(0)
 
 
 def test_press_is_edge_of_held():
     held = [R, R | C, R | C, R]
     assert ld.press_edges(held, prev=0) == [R, C, 0, 0]
+    # ... and the press the DRIVE writes is that same edge (LegCore is the real path)
+    c = ld.LegCore(_Script(held), t0=1, cap_ticks=4, debug=False, buttons=B)
+    c.step(st(0), pstate=0)
+    got = []
+    for t in range(1, 5):
+        c.step(st(t), pstate=0)
+        got.append(c.last_press)
+    assert got == [R, C, 0, 0] and [r["press"] for r in c.rows] == [R, C, 0, 0]
 
 
 # ---- the decision core --------------------------------------------------------------------
 
 def core(policy="run", t0=10, cap=1000, debug=False):
-    return ld.LegCore(ld.POLICIES[policy](B, TOP), t0=t0, cap_ticks=cap, debug=debug, buttons=B)
+    return ld.LegCore(ld.POLICIES[policy](B, EQ), t0=t0, cap_ticks=cap, debug=debug, buttons=B)
 
 
 def test_lag_counted_from_frame_counter_delta():
@@ -230,7 +271,7 @@ def rows_of(**over):
 
 
 def test_coverage_rules():
-    eq = {"PHYS_TOP_SPEED": TOP, "PSTATE_SPINDASH": 4}
+    eq = EQ
     cov = ld.coverage("idle", "CAP", [rows_of()] * 600, eq)
     assert cov["met"] and cov["need"] == 600
     assert not ld.coverage("idle", "CAP", [rows_of()] * 599, eq)["met"]
@@ -283,6 +324,7 @@ EQU BUTTON_LEFT = $00000004
 EQU BUTTON_RIGHT = $00000008
 EQU BUTTON_UP = $00000001
 EQU PHYS_TOP_SPEED = $00000600
+EQU PHYS_ROLL_START_MIN = $00000100
 EQU ST_IN_AIR = $00000003
 EQU PSTATE_SPINDASH = $00000004
 EQU _pl_state = $00000032
@@ -297,7 +339,7 @@ def test_resolve_syms_from_listing(tmp_path):
     assert s.addr["Frame_Counter"] == 0xFF8002 and s.addr["Input_Tick"] == 0x2674
     assert s.addr["Lag_Frame_Count"] == 0xFFF000 and s.debug
     assert s.buttons == B
-    assert s.equ["PHYS_TOP_SPEED"] == 0x600
+    assert s.equ["PHYS_TOP_SPEED"] == 0x600 and s.equ["PHYS_ROLL_START_MIN"] == 0x100
     assert s.off["ground_speed"] == 0x30 and s.off["player_state"] == 0x32
 
 
@@ -313,6 +355,43 @@ def test_resolve_syms_refuses_source_listing_offset_drift(tmp_path):
     p.write_text(LST.replace("EQU _pl_state = $00000032", "EQU _pl_state = $00000034"))
     with pytest.raises(ld.DriveError, match="player_state"):
         ld.resolve_syms(p, aeon=AEON)
+
+
+# ---- leg_run: a failed drive is COULD NOT RUN ----------------------------------------------
+
+@pytest.mark.parametrize("exc", ["drive", "bus", "conn"])
+def test_failed_drive_is_could_not_run_and_writes_nothing(tmp_path, monkeypatch, capsys, exc):
+    """Exit contract: 1 = written but not met, 2 = could not run. A drive that dies (driver
+    refusal, a bus error reply, a dropped connection) is 2 with NO result file."""
+    import leg_run
+    import leg_provenance as lp
+    lst = tmp_path / "x.lst"
+    lst.write_text(LST)
+
+    class Inst:
+        handshake = {}
+        socket_path = "/nonexistent"
+
+        def reap(self):
+            Inst.reaped = True
+
+    errs = {"drive": ld.DriveError("no Input_Tick hit in 1204 frames"),
+            "bus": leg_run.BusError(-32004, "bad address"),
+            "conn": ConnectionResetError("bus connection closed")}
+
+    async def boom(a, inst, syms):
+        raise errs[exc]
+    monkeypatch.setattr(lp, "spawn_pinned", lambda rom, l: Inst())
+    monkeypatch.setattr(lp, "provenance", lambda *a: {"harness": {}})
+    monkeypatch.setattr(lp, "sha256_file", lambda p: "0" * 64)
+    monkeypatch.setattr(leg_run, "run_leg", boom)
+    out = tmp_path / "out"
+    rc = leg_run.main(["--rom", str(tmp_path / "x.bin"), "--lst", str(lst), "--leg", "run",
+                       "--phase", "0", "--out", str(out)])
+    assert rc == 2
+    assert "COULD NOT RUN" in capsys.readouterr().err
+    assert not out.exists() or not any(out.iterdir())
+    assert Inst.reaped
 
 
 # ---- emulator-backed (post-sigil lane) ----------------------------------------------------
@@ -336,7 +415,7 @@ def test_real_drive_is_tick_keyed():
             await c.connect()
             try:
                 await c.call("emulator/reset", {})
-                pol = ld.POLICIES["run"](syms.buttons, syms.equ["PHYS_TOP_SPEED"])
+                pol = ld.POLICIES["run"](syms.buttons, syms.equ)
                 return await ld.drive_leg(c, syms, pol, t0=300, cap_ticks=120)
             finally:
                 await c.close()
