@@ -36,7 +36,6 @@ from artifact_provenance import check_pair, read_digest  # noqa: E402
 
 PIN_FILE = TOOLS / "oracle_pin.toml"
 AEON_ROOT = TOOLS.parent
-TOP_KEYS = ("oracle", "aeon", "rom", "harness")
 
 
 class PinMismatch(RuntimeError):
@@ -147,19 +146,31 @@ def provenance(pin: OraclePin, handshake: dict, rom: Path, lst: Path) -> dict:
     }
 
 
+#: Required leaves per block (the plan's global constraint: aeon commit + dirty flag; oracle
+#: serverBuild id/source/dirty; ROM name/crc32/size; DIGEST-SHAPE and DIGEST-ASSEMBLER
+#: revision). `False`, `0` and "none" are VALID values; only absent/None/"" is missing.
+REQUIRED = {
+    "oracle": ("commit", "server_build_id", "source", "dirty", "sha256"),
+    "aeon": ("commit", "dirty", "branch"),
+    "rom": ("rom", "crc32", "size", "game", "debug", "target", "sigil_revision"),
+    "harness": ("tool_sha256",),
+}
+TOP_KEYS = tuple(REQUIRED)
+
+
 def _empty(v) -> bool:
     return v is None or v == "" or v == {}
 
 
 def require_provenance(result: dict) -> None:
-    """The writer's gate. Missing top-level key, or an empty/None leaf anywhere, refuses."""
-    for k in TOP_KEYS:
-        if k not in result or _empty(result[k]):
+    """The writer's gate. Every required leaf of every block must be present and non-empty."""
+    for k, leaves in REQUIRED.items():
+        blk = result.get(k)
+        if not isinstance(blk, dict):
             raise MissingProvenance(f"result has no `{k}` provenance block")
-        if isinstance(result[k], dict):
-            for kk, vv in result[k].items():
-                if _empty(vv):
-                    raise MissingProvenance(f"provenance `{k}.{kk}` is empty")
+        for leaf in leaves:
+            if leaf not in blk or _empty(blk[leaf]):
+                raise MissingProvenance(f"provenance `{k}.{leaf}` is missing or empty")
 
 
 def spawn_pinned(rom, lst):

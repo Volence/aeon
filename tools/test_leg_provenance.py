@@ -70,10 +70,37 @@ def test_spawn_pinned_checks_sha_before_spawn(tmp_path, monkeypatch):
         lp.spawn_pinned(tmp_path / "r.bin", tmp_path / "r.lst")
 
 
-def test_committed_pin_loads_and_names_an_existing_binary_with_that_sha():
+def test_committed_pin_shape_and_self_consistency():
+    """PURE (no archive): the toml's shape, and a handshake built from ITS commit verifies
+    while one digit off is refused. Commit/binary truth is the needs_build test below."""
+    import re
+    import tomllib
+    raw = tomllib.loads(lp.PIN_FILE.read_text())
+    assert re.fullmatch(r"[0-9a-f]{40}", raw["commit"])
+    assert re.fullmatch(r"[0-9a-f]{64}", raw["sha256"])
+    assert raw["binary"].startswith(".oracle-bin-archive/")
     pin = lp.load_pin()
-    assert len(pin.commit) == 40
-    assert lp.verify_binary(pin) == pin.sha256
+    good = hs(id=pin.commit + "+profile=release+target=t+features=")
+    lp.verify_pin(pin, good)
+    d = pin.commit[0]
+    bad = ("0" if d != "0" else "1") + pin.commit[1:]
+    with pytest.raises(lp.PinMismatch, match="serverBuild.id"):
+        lp.verify_pin(pin, hs(id=bad + "+profile=release+target=t+features="))
+
+
+@pytest.mark.needs_build("s4.bin", "s4.lst")
+def test_committed_pin_is_the_archived_binary_and_the_live_handshake():
+    """ARCHIVE-BACKED (post-sigil needs_build lane, tools/needs_build_lane.py): the pinned
+    binary exists (a missing one FAILS naming the path, never skips), has the pinned sha256,
+    its BUILD_INFO.json names the toml's commit, and a real spawn handshakes as that commit."""
+    pin = lp.load_pin()
+    lp.verify_binary(pin)  # PinMismatch naming the path when absent or the sha differs
+    info = json.loads((pin.binary.parent / "BUILD_INFO.json").read_text())
+    assert info["commit"] == pin.commit, "oracle_pin.toml commit != archived BUILD_INFO.json"
+    assert info["sha256"] == pin.sha256
+    aeon = Path(__file__).resolve().parent.parent
+    inst = lp.spawn_pinned(aeon / "s4.bin", aeon / "s4.lst")  # verify_pin on the live handshake
+    inst.reap()
 
 
 def _synthetic(tmp_path, rom_bytes=b"ROMDATA", digest_crc=None, debug=1):
@@ -134,22 +161,37 @@ def test_records_dirty_tree(tmp_path):
 
 
 def _full():
-    return {"oracle": {"commit": C}, "aeon": {"commit": C, "dirty": False, "branch": "b"},
-            "rom": {"rom": "s4.bin"}, "harness": {"tool_sha256": "f" * 64}}
+    return {"oracle": {"commit": C, "server_build_id": C + "+profile=release", "source": "vcs",
+                       "dirty": False, "sha256": "0" * 64},
+            "aeon": {"commit": C, "dirty": False, "branch": "b"},
+            "rom": {"rom": "s4.bin", "crc32": "00000000", "size": 0, "game": "sonic4",
+                    "debug": 0, "target": "sonic4", "sigil_revision": "r",
+                    "extra_entries": "none"},
+            "harness": {"tool_sha256": "f" * 64}}
 
 
-def test_require_provenance_accepts_full():
-    lp.require_provenance(_full())
+def test_require_provenance_accepts_full_with_false_zero_none_values():
+    lp.require_provenance(_full())  # dirty False, debug 0, size 0, extra_entries "none"
 
 
-@pytest.mark.parametrize("key", ["oracle", "aeon", "rom", "harness"])
+@pytest.mark.parametrize("key", list(lp.REQUIRED))
 def test_require_provenance_refuses_each_missing_key(key):
     r = _full(); del r[key]
     with pytest.raises(lp.MissingProvenance, match=key):
         lp.require_provenance(r)
 
 
-def test_require_provenance_refuses_empty_leaf():
-    r = _full(); r["rom"]["rom"] = ""
-    with pytest.raises(lp.MissingProvenance, match="rom.rom"):
+@pytest.mark.parametrize("blk,leaf", [(b, l) for b, ls in lp.REQUIRED.items() for l in ls])
+def test_require_provenance_refuses_each_missing_leaf_by_name(blk, leaf):
+    r = _full(); del r[blk][leaf]
+    with pytest.raises(lp.MissingProvenance, match=f"{blk}.{leaf}"):
+        lp.require_provenance(r)
+    r = _full(); r[blk][leaf] = None
+    with pytest.raises(lp.MissingProvenance, match=f"{blk}.{leaf}"):
+        lp.require_provenance(r)
+
+
+def test_require_provenance_partial_block_is_refused():
+    r = _full(); r["oracle"] = {"commit": C}
+    with pytest.raises(lp.MissingProvenance, match="oracle.server_build_id"):
         lp.require_provenance(r)
