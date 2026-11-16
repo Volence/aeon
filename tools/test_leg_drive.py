@@ -85,6 +85,30 @@ def test_spindash_sequence_shape():
     assert p.held(st(30, gspeed=0x800)) == R
 
 
+@pytest.mark.parametrize("name", ["spindash", "diagfall", "topspeed"])
+def test_blocked_spindash_family_jumps_on_the_8th_blocked_tick(name):
+    """Controller ruling (B2 round 1, finding 1): every moving policy inherits the run rule's
+    blocked jump. MEASURED reason: spindash/diagfall p0 were STUCK at px 1143 (the obstacle the
+    run leg clears with its blocked jump). Blocked = on ground, |xvel| < $80, 8 ticks running;
+    gspeed $200 is above the spindash gate, so no dash competes here."""
+    p = ld.POLICIES[name](B, EQ)
+    hs = [p.held(st(t, xvel=0, gspeed=0x200)) for t in range(8)]
+    assert [h & C for h in hs[:7]] == [0] * 7, f"{name}: C before the 8th blocked tick"
+    assert hs[7] & C and hs[7] & R, f"{name}: no blocked jump on the 8th tick"
+
+
+def test_blocked_at_a_wall_after_a_dash_jumps_not_dashes_again():
+    """The px-1143 shape itself: gspeed 0 against a wall. The dash fires first (below the
+    gate), its charge ticks are stationary and count as blocked, and on the first tick after
+    the release, still blocked, the policy jumps instead of dashing into the wall again. C is
+    never pressed as a jump while the sequence runs (its taps are the sequence's own)."""
+    for name in ("spindash", "diagfall"):
+        p = ld.POLICIES[name](B, EQ)
+        got = [p.held(st(t, xvel=0, gspeed=0)) for t in range(31)]
+        assert got[:30] == spin_seq() and got[30] == R, name
+        assert p.held(st(31, xvel=0, gspeed=0)) == R | C, f"{name}: still blocked -> jump"
+
+
 def test_spindash_release_tick_is_never_skipped():
     """MEASURED defect (fix round 1 real legs, s4.bin spindash/diagfall p0 STUCK at px 256):
     while charging, the engine reads gspeed 0, so a trigger re-checked on the tick the sequence
@@ -94,7 +118,8 @@ def test_spindash_release_tick_is_never_skipped():
         p = ld.POLICIES[name](B, EQ)
         got = [p.held(st(t, gspeed=0)) for t in range(31)]
         assert got[:30] == spin_seq() and got[30] == R, name
-        assert p.held(st(31, gspeed=0)) == D, f"{name}: a NEW sequence may start after it"
+        # not blocked (moving) and below the gate: a NEW sequence may start after it
+        assert p.held(st(31, xvel=0x300, gspeed=0)) == D, name
     p = ld.POLICIES["topspeed"](B, EQ)
     hs = [p.held(st(t, xvel=0x300, gspeed=0x50)) for t in range(30 + 31)]
     assert hs[29:59] == spin_seq() and hs[59] == R, "topspeed: release tick emitted"

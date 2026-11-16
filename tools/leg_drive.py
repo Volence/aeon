@@ -149,16 +149,25 @@ class Run:
     def __init__(self, b: Buttons, equ: dict):
         self.b, self.blocked, self.jump_left = b, 0, 0
 
-    def held(self, s):
-        R, C = self.b.right, self.b.c
+    def observe(self, s):
+        """Count consecutive blocked ticks (not while a jump is being held)."""
+        if not self.jump_left:
+            self.blocked = self.blocked + 1 if (not s.airborne and abs(s.xvel) < BLOCK_XVEL) else 0
+
+    @property
+    def jumping(self):
+        return bool(self.jump_left) or self.blocked >= BLOCK_TICKS
+
+    def jump(self):
         if self.jump_left:
             self.jump_left -= 1
-            return R | C
-        self.blocked = self.blocked + 1 if (not s.airborne and abs(s.xvel) < BLOCK_XVEL) else 0
-        if self.blocked >= BLOCK_TICKS:
+        else:
             self.blocked, self.jump_left = 0, JUMP_HOLD - 1
-            return R | C
-        return R
+        return self.b.right | self.b.c
+
+    def held(self, s):
+        self.observe(s)
+        return self.jump() if self.jumping else self.b.right
 
 
 class _SpinSeq:
@@ -201,47 +210,62 @@ def spindash_gate(equ: dict) -> int:
     return equ["PHYS_ROLL_START_MIN"]
 
 
-class Spindash:
-    """When on ground and |gspeed| < PHYS_ROLL_START_MIN (the engine's spindash gate): the
-    spindash sequence; else hold right."""
+class _Moving:
+    """The shared shape of every MOVING policy that can spindash (controller ruling, B2 round
+    1): the run rule's blocked jump, a spindash sequence, and right otherwise.
+
+    Order each tick: the blocked counter is updated (a charging tick is stationary on ground,
+    so it counts -- that is what lets a dash that ends against a wall be followed by a jump
+    rather than another dash into it; MEASURED: spindash/diagfall p0 STUCK at px 1143); a
+    sequence in progress runs to its forced release, and no jump is pressed inside it; then a
+    due blocked jump; then the policy's own dash trigger (always below the engine gate)."""
     progress = True
 
     def __init__(self, b: Buttons, equ: dict):
-        self.b, self.gate, self.seq = b, spindash_gate(equ), _SpinSeq(b)
+        self.b, self.gate = b, spindash_gate(equ)
+        self.run, self.seq = Run(b, equ), _SpinSeq(b)
 
-    def trigger(self, s):
-        return not s.airborne and abs(s.gspeed) < self.gate
-
-    def held(self, s):
-        if not self.seq.active and self.trigger(s):
-            self.seq.start()
-        return self.seq.step() if self.seq.active else self.b.right
-
-
-class TopSpeed:
-    """The run rule, plus a spindash once on ground and |gspeed| < SLOW_GSPEED for SLOW_TICKS
-    -- fired only on a tick below the engine's spindash gate (PHYS_ROLL_START_MIN)."""
-    progress = True
-
-    def __init__(self, b: Buttons, equ: dict):
-        self.run, self.seq, self.slow = Run(b, equ), _SpinSeq(b), 0
-        self.gate = spindash_gate(equ)
+    def want_dash(self, s) -> bool:
+        raise NotImplementedError
 
     def held(self, s):
+        self.run.observe(s)
         if self.seq.active:
             return self.seq.step()
-        if self.run.jump_left:
-            return self.run.held(s)
+        if self.run.jumping:
+            return self.run.jump()
+        if self.want_dash(s):
+            self.seq.start()
+            return self.seq.step()
+        return self.b.right
+
+
+class Spindash(_Moving):
+    """When on ground and |gspeed| < PHYS_ROLL_START_MIN (the engine's spindash gate): the
+    spindash sequence; plus the run rule's blocked jump; else hold right."""
+
+    def want_dash(self, s):
+        return not s.airborne and abs(s.gspeed) < self.gate
+
+
+class TopSpeed(_Moving):
+    """The run rule, plus a spindash once on ground and |gspeed| < SLOW_GSPEED for SLOW_TICKS
+    -- fired only on a tick below the engine's spindash gate (PHYS_ROLL_START_MIN)."""
+
+    def __init__(self, b: Buttons, equ: dict):
+        super().__init__(b, equ)
+        self.slow = 0
+
+    def want_dash(self, s):
         self.slow = self.slow + 1 if (not s.airborne and abs(s.gspeed) < SLOW_GSPEED) else 0
         if self.slow >= SLOW_TICKS and abs(s.gspeed) < self.gate:
             self.slow = 0
-            self.seq.start()
-            return self.seq.step()
-        return self.run.held(s)
+            return True
+        return False
 
 
 class DiagFall(Spindash):
-    """The spindash rule, plus hold down while airborne."""
+    """The spindash rule (with the blocked jump), plus hold down while airborne."""
 
     def held(self, s):
         h = super().held(s)
