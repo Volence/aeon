@@ -34,12 +34,20 @@ from __future__ import annotations
 
 import inspect
 import re
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Protocol
 
 TOOLS = Path(__file__).resolve().parent
-AEON_ROOT = TOOLS.parent
+sys.path.insert(0, str(TOOLS))
+# The driver only ever runs on a client from `leg_provenance.spawn_pinned` (the pinned Rust
+# oracle-aether); importing it here also makes this module's seam explicit to
+# tools/test_legacy_seam_keys.py (which otherwise reads a library handed a client as
+# "ambient", i.e. legacy-server vocabulary). The aeon root is the provenance module's.
+import leg_provenance as lp  # noqa: E402
+
+AEON_ROOT = lp.AEON_ROOT
 
 #: Ticks added to T0 for the three phases of a leg (the phase spreads where in the 60 Hz
 #: cadence the leg starts relative to whatever periodic work the engine has).
