@@ -21,10 +21,10 @@ EQ = {"PHYS_TOP_SPEED": TOP, "PHYS_ROLL_START_MIN": GATE, "PSTATE_SPINDASH": 4}
 
 
 def st(tick, px=100, py=200, xvel=0, yvel=0, gspeed=0, airborne=False, cx=0, cy=0,
-       cx_max=5824, fc=None):
+       cx_max=5824, fc=None, rolling=False):
     return ld.TickState(tick=tick, frame_counter=tick if fc is None else fc, px=px, py=py,
                         xvel=xvel, yvel=yvel, gspeed=gspeed, airborne=airborne, cx=cx, cy=cy,
-                        cx_max=cx_max)
+                        cx_max=cx_max, rolling=rolling)
 
 
 # ---- stuck detector -----------------------------------------------------------------------
@@ -95,6 +95,34 @@ def test_blocked_spindash_family_jumps_on_the_8th_blocked_tick(name):
     hs = [p.held(st(t, xvel=0, gspeed=0x200)) for t in range(8)]
     assert [h & C for h in hs[:7]] == [0] * 7, f"{name}: C before the 8th blocked tick"
     assert hs[7] & C and hs[7] & R, f"{name}: no blocked jump on the 8th tick"
+
+
+@pytest.mark.parametrize("name", ["spindash", "diagfall", "topspeed"])
+def test_no_blocked_jump_while_rolling_then_jump_from_standing(name):
+    """Fix round 2 ruling: the blocked jump fires only on ground, blocked AND not rolling
+    (ST_ROLLING clear). MEASURED reason: after a dash at px 1142 the blocked jump fired from
+    PSTATE_ROLL, became a roll-jump with no air control (xvel 0 all airtime) and landed back.
+    Rolling and blocked: hold right and wait. Standing: C on the 8th blocked tick. gspeed $200
+    sits above the dash gate so no dash competes."""
+    p = ld.POLICIES[name](B, EQ)
+    rolling = [p.held(st(t, xvel=0, gspeed=0x200, rolling=True)) for t in range(40)]
+    assert all(h == R for h in rolling), f"{name}: C (or a dash) while rolling and blocked"
+    standing = [p.held(st(40 + t, xvel=0, gspeed=0x200)) for t in range(8)]
+    assert [h & C for h in standing[:7]] == [0] * 7
+    assert standing[7] == R | C, f"{name}: no standing blocked jump on the 8th tick"
+
+
+def test_run_unaffected_by_the_rolling_rule():
+    p = ld.POLICIES["run"](B, EQ)
+    hs = [p.held(st(t, xvel=0, gspeed=0, rolling=True)) for t in range(8)]
+    assert hs[7] == R | C
+
+
+def test_rolling_flag_read_from_the_listing_status_bit(tmp_path):
+    p = tmp_path / "x.lst"
+    p.write_text(LST)
+    s = ld.resolve_syms(p, aeon=AEON)
+    assert s.equ["ST_ROLLING"] == 4
 
 
 def test_blocked_at_a_wall_after_a_dash_jumps_not_dashes_again():
@@ -366,6 +394,7 @@ EQU BUTTON_UP = $00000001
 EQU PHYS_TOP_SPEED = $00000600
 EQU PHYS_ROLL_START_MIN = $00000100
 EQU ST_IN_AIR = $00000003
+EQU ST_ROLLING = $00000004
 EQU PSTATE_SPINDASH = $00000004
 EQU _pl_state = $00000032
 EQU SST_x_pos = $00000002

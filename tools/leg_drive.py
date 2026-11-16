@@ -91,6 +91,9 @@ class TickState:
     cx: int
     cy: int
     cx_max: int
+    #: ST_ROLLING (the engine's "in ball form" status bit, listing equate). Trailing with a
+    #: default so the B2 interface fields and their order are unchanged (fix round 2).
+    rolling: bool = False
 
 
 @dataclass(frozen=True)
@@ -149,10 +152,16 @@ class Run:
     def __init__(self, b: Buttons, equ: dict):
         self.b, self.blocked, self.jump_left = b, 0, 0
 
-    def observe(self, s):
-        """Count consecutive blocked ticks (not while a jump is being held)."""
+    def observe(self, s, standing_only: bool = False):
+        """Count consecutive blocked ticks (not while a jump is being held). With
+        `standing_only` (the moving family, fix round 2 ruling) a ROLLING tick is not blocked:
+        a jump from a roll is a roll-jump with no air control, so it waits for the roll to end
+        and the count restarts from standing."""
         if not self.jump_left:
-            self.blocked = self.blocked + 1 if (not s.airborne and abs(s.xvel) < BLOCK_XVEL) else 0
+            blocked = not s.airborne and abs(s.xvel) < BLOCK_XVEL
+            if standing_only and s.rolling:
+                blocked = False
+            self.blocked = self.blocked + 1 if blocked else 0
 
     @property
     def jumping(self):
@@ -214,9 +223,9 @@ class _Moving:
     """The shared shape of every MOVING policy that can spindash (controller ruling, B2 round
     1): the run rule's blocked jump, a spindash sequence, and right otherwise.
 
-    Order each tick: the blocked counter is updated (a charging tick is stationary on ground,
-    so it counts -- that is what lets a dash that ends against a wall be followed by a jump
-    rather than another dash into it; MEASURED: spindash/diagfall p0 STUCK at px 1143); a
+    Order each tick: the blocked counter is updated, STANDING ticks only (fix round 2: a
+    ROLLING tick -- ST_ROLLING set, which the engine also sets while charging -- is not
+    blocked, because a jump from a roll is a roll-jump with no air control); a
     sequence in progress runs to its forced release, and no jump is pressed inside it; then a
     due blocked jump; then the policy's own dash trigger (always below the engine gate)."""
     progress = True
@@ -229,7 +238,7 @@ class _Moving:
         raise NotImplementedError
 
     def held(self, s):
-        self.run.observe(s)
+        self.run.observe(s, standing_only=True)
         if self.seq.active:
             return self.seq.step()
         if self.run.jumping:
@@ -391,7 +400,7 @@ class LegCore:
         self.last_press = press
         row = dict(t=s.tick, fc=s.frame_counter, dfc=dfc, dlt=dlt, px=s.px, py=s.py, xvel=s.xvel, yvel=s.yvel,
                    gs=s.gspeed, air=int(s.airborne), cx=s.cx, cy=s.cy, cxm=s.cx_max, ps=pstate,
-                   held=held, press=press)
+                   roll=int(s.rolling), held=held, press=press)
         if lag_count is not None:
             row["lfc"] = lag_count
         self.rows.append(row)
@@ -501,7 +510,8 @@ _SHAPE = re.compile(r"^DIGEST-SHAPE\b.*\bdebug=(\d)")
 
 ADDR_SYMS = ("Frame_Counter", "Logic_Tick", "Ctrl_1_Held", "Ctrl_1_Press", "Camera_X",
              "Camera_Y", "Camera_X_Max", "Camera_Target", "Input_Tick")
-EQU_NEEDED = ("PHYS_TOP_SPEED", "PHYS_ROLL_START_MIN", "ST_IN_AIR", "PSTATE_SPINDASH")
+EQU_NEEDED = ("PHYS_TOP_SPEED", "PHYS_ROLL_START_MIN", "ST_IN_AIR", "ST_ROLLING",
+              "PSTATE_SPINDASH")
 SST_FIELDS = ("x_pos", "y_pos", "x_vel", "y_vel", "status", "sst_custom")
 
 
@@ -611,13 +621,14 @@ async def read_tick_state(c, syms: Syms) -> tuple[TickState, int, int | None]:
         xv, yv = _s16(_be(p, o["x_vel"], 2)), _s16(_be(p, o["y_vel"], 2))
         gs = _s16(_be(p, o["ground_speed"], 2))
         air = bool(p[o["status"]] >> syms.equ["ST_IN_AIR"] & 1)
+        rolling = bool(p[o["status"]] >> syms.equ["ST_ROLLING"] & 1)
         ps = p[o["player_state"]]
     else:
         px = py = xv = yv = gs = 0
-        air, ps = False, -1
+        air, ps, rolling = False, -1, False
     lag = _be(await _rd(c, a["Lag_Frame_Count"], 4), 0, 4) if syms.debug else None
     s = TickState(tick=_be(lt, 0, 4), frame_counter=_be(fl, 0, 2), px=px, py=py, xvel=xv,
-                  yvel=yv, gspeed=gs, airborne=air, cx=_be(cam, 0, 2), cy=_be(camy, 0, 2),
+                  yvel=yv, gspeed=gs, airborne=air, rolling=rolling, cx=_be(cam, 0, 2), cy=_be(camy, 0, 2),
                   cx_max=_be(cxm, 0, 2))
     return s, ps, lag
 
