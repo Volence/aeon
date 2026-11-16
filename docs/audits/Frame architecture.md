@@ -85,7 +85,7 @@ Most severe first. "A" is reviewer A (Fable), "B" is reviewer B (Opus). They did
 > [!finding] 2. The VBlank budget does not actually stop an overrun
 > **What is wrong.** The budget is 6,144 bytes per VBlank. It assumes every byte costs 2.7 cycles and leaves about 2,000 cycles spare for everything else. Measured, the handler's fixed work costs 5,000 to 7,900 cycles and tile rows cost about 8.75 cycles a byte.
 > **Why it matters.** The worst measured VBlank used 97% of the available time while only 58% of the byte budget was spent. A frame that really used the budget would run into the picture. There the copy is eleven times slower with the CPU frozen, so one bad frame becomes several lag frames and the raster effects slip. Nothing has triggered it yet because demand is low: no sidekick, no boss, no streaming act.
-> **Evidence.** `constants.emp:757-771` (the derivation); `vblank.emp:169-175` (plane charged by byte count). Stage 2: worst VBlank 18,052 of about 18,566 cycles; peak 3,592 B. A's split of the worst call: 6,578 stall + 4,866 plane + 6,184 fixed.
+> **Evidence.** `engine/system/constants.emp:758-771` (the derivation); `vblank.emp:169-175` (plane charged by byte count). Stage 2: worst VBlank 18,052 of about 18,566 cycles; peak 3,592 B. A's split of the worst call: 6,578 stall + 4,866 plane + 6,184 fixed.
 > **Found by** both, with matching arithmetic (a safe budget on a peak frame is about 2.8 to 2.9 KB). **Confidence** high on the mechanism; the overrun itself is ESTIMATED and unobserved. First item on the live-run list.
 
 > [!finding] 3. Every lag frame is one tile-cache spike, with idle time unused
@@ -147,7 +147,7 @@ Most severe first. "A" is reviewer A (Fable), "B" is reviewer B (Opus). They did
 
 > [!finding] 11. The engine cannot report its own lag or VBlank use
 > - Release has no lag counter. Stage 2 had to count with a profiler.
-> - `DMA_Bytes_ThisFrame`, `DMA_Peak_Critical` and `DMA_Peak_Deferrable` are declared and never written (`ram.emp:954-957`).
+> - `DMA_Bytes_ThisFrame`, `DMA_Peak_Critical` and `DMA_Peak_Deferrable` are declared and never written (`engine/ram.emp:954-957`).
 > - The only cycle gate in the tree covers `Process_DMA_Critical` and counts instructions, not the transfer stall, which is three to four times larger.
 > - No test checks that a lag frame is consistent or that VBlank ends before the picture starts.
 >
@@ -210,7 +210,7 @@ Changes 1, 2, 3 and 6 are small and independent. They could land as one parcel. 
 |---|---|---|---|
 | Overall verdict | S3K level | S3K level | **Agree** |
 | Lag frame ships a mixed picture | yes | yes | **Confirmed.** `vblank.emp:362`, `:456`; `buffers.emp:464-473`, `:505-507` |
-| Budget does not bound VBlank | yes | yes | **Confirmed in code; overrun ESTIMATED.** `constants.emp:757-771`, `vblank.emp:169-175` |
+| Budget does not bound VBlank | yes | yes | **Confirmed in code; overrun ESTIMATED.** `engine/system/constants.emp:758-771`, `vblank.emp:169-175` |
 | Best fix for the lag frame | hold the picture; double buffering dropped unless features need it | all-or-nothing publish is "best" | **A for now.** Holding is 20 lines and reaches S3K. B's version becomes change 12 behind decision 2 |
 | Scroll table "ships every VBlank" | yes | only when a parallax config is active | **B is right.** `buffers.emp:505-506` |
 | `Set_VDP_Reg` | unused | used | **B is right.** Called at `parallax.emp:1914-1924`; the proc's own header is stale |
@@ -223,7 +223,7 @@ Changes 1, 2, 3 and 6 are small and independent. They could land as one parcel. 
 | Full redraw | fine today | first VBlank after it lands mid-picture | **Unsettled.** B's mechanism is plausible on hardware. Low impact. Live check |
 | Fix for the tile-cache spike | resumable job in the idle slot | beam deadline in the main loop | **Complementary; both in change 8.** Neither showed the spike is postponable work. Tile-cache audit |
 | Gain from tile rows by DMA | about 3,000 cycles | about 4,800 cycles | **Unsettled, both ESTIMATED.** Change 2's instrument will measure it |
-| `DMA_Peak_Critical` / `_Deferrable` never written | not raised | found | **B is right.** Only declared, `ram.emp:955`, `:957` |
+| `DMA_Peak_Critical` / `_Deferrable` never written | not raised | found | **B is right.** Only declared, `engine/ram.emp:955`, `:957` |
 | Thunder Force IV HBlank is ROM-based (doc) | not raised | flags a conflict | **The doc is wrong** by our own notes (`thunderforce4_disasm/ANALYSIS.md:190`) |
 | Frame RAM total | 4,243 B | about 4,112 B | **Not settled; immaterial.** They counted slightly different sets |
 

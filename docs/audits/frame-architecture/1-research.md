@@ -287,8 +287,8 @@ That leaves about 5,780 B ≈ 180 tiles for character DPLCs, plane rows and colu
 | Item | Aeon value | Ceiling | % of ceiling | Label |
 |---|---|---|---|---|
 | NTSC VBlank DMA budget | 6,144 B (`engine/system/constants.emp:771`) | 7,524 B published / 7,790 line-bound | **81.7%** / 78.9% | MEASURED (constant) vs PUBLISHED |
-| PAL VBlank DMA budget | 11,648 B (`constants.emp:772`, derived from "72 blank lines") | 17,622 B (V28; aeon runs V28) | **66.1%** | MEASURED (constant) vs PUBLISHED. The V28/V30 mismatch was already found in `05-online-and-tech-demos.md:20,133`; still present at `constants.emp:760` |
-| Cycles per DMA byte assumed | 2.7 (`constants.emp:761`) | 2.35–2.38 | 12–13% pessimistic | MEASURED (constant) vs PUBLISHED/ESTIMATED |
+| PAL VBlank DMA budget | 11,648 B (`engine/system/constants.emp:772`, derived from "72 blank lines") | 17,622 B (V28; aeon runs V28) | **66.1%** | MEASURED (constant) vs PUBLISHED. The V28/V30 mismatch was already found in `05-online-and-tech-demos.md:20,133`; still present at `engine/system/constants.emp:760` |
+| Cycles per DMA byte assumed | 2.7 (`engine/system/constants.emp:761`) | 2.35–2.38 | 12–13% pessimistic | MEASURED (constant) vs PUBLISHED/ESTIMATED |
 | Tile streaming, diagonal OJZ | ~48K cycles per tick | 128,006 per frame | ~37.5% of a frame | MEASURED (`docs/research/2026-09-27-ojz-feel.md`, cited at `2026-11-13-engine-systems-review.md:29`) |
 | Lag frames, run legs (EHZ) | 1 (release) to 6 (DEBUG) | — | — | MEASURED (`docs/research/2026-09-27-ehz-run-lag.md:311`) |
 | Letterbox / display-off DMA extension | absent (no display-off write found in `engine/effects/raster.emp` or `engine/system/hblank.emp`) | +205 B/line | 0% used | MEASURED by grep, this stage |
