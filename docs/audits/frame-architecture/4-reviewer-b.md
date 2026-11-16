@@ -105,9 +105,9 @@ flowchart TD
 | ZX0R VBlank bookmark | SHIPPED, but no OJZ caller exercises it (stage 2: 0 decode calls) | `vblank.emp:68-79` |
 | Idle slot: PageIn_Process, LiveSweep | SHIPPED | `vblank.emp:526`, `:542` |
 | Idle slot: PageCache_Audit | DEBUG-ONLY | `vblank.emp:532-535` |
-| Three-tier DMA queue (8/12/12 slots), Ultra-style Critical jump table | SHIPPED | `dma_queue.emp:359-411`, `constants.emp:387-389` |
+| Three-tier DMA queue (8/12/12 slots), Ultra-style Critical jump table | SHIPPED | `dma_queue.emp:359-411`, `engine/system/constants.emp:387-389` |
 | Window byte budget (`DMA_Budget_*`) for Important/Deferrable | SHIPPED | `vblank.emp:142-204`, `dma_queue.emp:461-500` |
-| Enqueue byte cap 12,288 | SHIPPED (never binds in practice; it sits above the window) | `dma_queue.emp:136-145`, `constants.emp:786` |
+| Enqueue byte cap 12,288 | SHIPPED (never binds in practice; it sits above the window) | `dma_queue.emp:136-145`, `engine/system/constants.emp:786` |
 | Lag-history feedback budget | ABSENT (doc says so honestly) | ARCH:1203 |
 | Plane buffer CPU drain in VBlank | SHIPPED | `plane_buffer.emp:705-762` |
 | VDP register shadow, all 19 regs flushed every VBlank | SHIPPED | `vdp_init.emp:20-30` |
@@ -118,7 +118,7 @@ flowchart TD
 | SFX ring, one post per tick | SHIPPED | `sound_api.emp:344-431` |
 | `Music_Service` after state | SHIPPED | `game_loop.emp:44` |
 | PAL budget selection | SHIPPED (budget only; no timing compensation) | `boot.emp:320-331` |
-| `DMA_Bytes_ThisFrame`, `DMA_Peak_Critical`, `DMA_Peak_Deferrable` | INERT: declared, never accumulated (the first is only zeroed, `vblank.emp:550`) | `ram.emp:954-957` |
+| `DMA_Bytes_ThisFrame`, `DMA_Peak_Critical`, `DMA_Peak_Deferrable` | INERT: declared, never accumulated (the first is only zeroed, `vblank.emp:550`) | `engine/ram.emp:954-957` |
 | `Set_VDP_Reg` | SHIPPED, used for the base-register reassert | `vdp_init.emp:33` |
 | Lagometer (window-plane / raster bars) | ABSENT in code (ARCH §8 lists a "frame profiler") | ARCH:23 |
 
@@ -129,11 +129,11 @@ flowchart TD
 | `VBlank_Handler` / `VInt_Level` / `VInt_Lag` / `VSync_Wait` code | 72 / 262 / 104 / 98 | symbol deltas `$2328/$2370/$2476/$24DE/$2540` |
 | DMA queue RAM (32 × 14) | 448 | `DMA_Queue $FF804A … $FF820A` |
 | `Sprite_Table_Buffer` | 640 | `ram.emp` |
-| `Hscroll_Buffer` (single) | 896 | `ram.emp:443` |
-| `Plane_Buffer` | 1,536 | `ram.emp:1078` |
+| `Hscroll_Buffer` (single) | 896 | `engine/ram.emp:443` |
+| `Plane_Buffer` | 1,536 | `engine/ram.emp:1078` |
 | `Palette_Buffer` + `Palette_Ship_Snap` | 256 | |
-| `Parallax_Vscroll_Column_Buf` | 80 | `ram.emp:528` |
-| Raster A/B working buffers | 256 | `ram.emp:747-748` |
+| `Parallax_Vscroll_Column_Buf` | 80 | `engine/ram.emp:528` |
+| Raster A/B working buffers | 256 | `engine/ram.emp:747-748` |
 | **Total frame-commit RAM** | **≈ 4,112** | sum |
 
 ### Build shapes that change behaviour
@@ -160,7 +160,7 @@ flowchart TD
 | C8 | VBlank "process sound" | ARCH §0.1 design decisions (`ENGINE_ARCHITECTURE.md:346`) |
 | C9 | VSRAM: "4 bytes (FG + BG)" | ARCH §1.4 step 7 |
 | C10 | Debug counters `DMA_Bytes_ThisFrame` (total bytes enqueued) and per-queue peaks | ARCH:1221 |
-| C11 | Budget derivation "hardware-verified": 2.7 cyc/B, PAL 72 lines, 0.89 margin absorbs the uncharged tail and the plane CPU rate | `constants.emp:752-770` |
+| C11 | Budget derivation "hardware-verified": 2.7 cyc/B, PAL 72 lines, 0.89 margin absorbs the uncharged tail and the plane CPU rate | `engine/system/constants.emp:752-770` |
 | C12 | Reg `$0B` direct write: "must be live for the frame it becomes active" | `parallax.emp:2025-2032` |
 | C13 | "Thunder Force IV is the only holdout (ROM-based)" HBlank | ARCH §0.1 |
 
@@ -200,7 +200,7 @@ I take [[1-research]] §4: NTSC 128,006 cycles a frame, 38 blank lines ≈ 18,56
 | Same, measured | 7,004 cycles at ≤ 800 B (DEBUG), 3,506 at ≤ 400 B (release) ≈ **8.8 cyc/B** | MEASURED ([[2-measurements]] §b) |
 | Same bytes by DMA | 2.38 cyc/B + about 60 cycles per entry setup | PUBLISHED rate + ESTIMATED setup |
 | **CPU drain vs DMA** | **≈ 3.4–3.7×** | ratio |
-| Budget's assumed rate | 2.7 cyc/B (`constants.emp:761`) | constant |
+| Budget's assumed rate | 2.7 cyc/B (`engine/system/constants.emp:761`) | constant |
 | DMA that spills past line 0 | 18 B/line with the 68k frozen, so **1 KB of spill ≈ 57 lines ≈ 27.8k cycles** | ESTIMATED: 1024/18 × 488.6 |
 | HInt blocked during VBlank | the whole handler runs at IPL 6 with no `move #$2300,sr` | `vblank.emp` (no SR lowering); S3K lowers before `Do_Updates` (PUBLISHED, [[1-research]] §3.1) |
 
@@ -236,7 +236,7 @@ I did not re-run the harness. Stage 2's report is complete, its legs and lag rul
 
 My reading of the numbers:
 - **Lag is spike-driven** (`Tile_Cache_Fill` up to 109.6k in one call), not average-driven. Average logic is 30–56%. That is a frame-architecture fact: **nothing in the main loop is admission-controlled by scanline.** Only the idle slot is (`PageCache_Audit`/`LiveSweep` gate on the scanline). `Cache_Fill_Budget` counts blocks, not cycles.
-- **10 of 18 lag VBlanks landed inside `Parallax_Update`, and 4 inside `Render_Sprites`.** With HScroll single-buffered (`ram.emp:443`; the only writers are `parallax.emp:4062`, `:4887`), the 10 cases ship a **torn HScroll** together with the new-camera SAT. This settles stage 2's open question in code (§6 F1).
+- **10 of 18 lag VBlanks landed inside `Parallax_Update`, and 4 inside `Render_Sprites`.** With HScroll single-buffered (`engine/ram.emp:443`; the only writers are `parallax.emp:4062`, `:4887`), the 10 cases ship a **torn HScroll** together with the new-camera SAT. This settles stage 2's open question in code (§6 F1).
 - **`VInt_DrawLevel` is the single largest VBlank item** (7.0k worst), larger than every DMA drain.
 - **The release VBlank average is 9.2–10k cycles**, about 52% of the blank, before any art streaming. Page decode made 0 calls because OJZ is fully resident. Every streaming act will add Important traffic on top.
 
@@ -268,7 +268,7 @@ Growth with objects or layers: not measurable with the shipped content (stage 2)
 > - **The plane drain is CPU-written at about 8.8 cyc/B**, not 2.7 (§4). At the designed 800-B peak (`bg.emp:554-557`), that is about 7.0k cycles charged as about 2.2k: **≈ 4.8k cycles uncharged**.
 > - **Fixed non-DMA work runs before and after the drains:** `Raster_VBlank` ≤ 1.9k, `Flush` 0.7k, `Enqueue` ≤ 2.1k, charge loop about 0.2k, sound flag pokes about 0.3k, `Read_Controllers` 1.05k, IRQ and `movem` about 0.3k. That is **≈ 6.5k uncharged** (MEASURED components).
 >
-> The 0.89 margin covers about 732 B ≈ 2.0k cycles (`constants.emp:765`). Net, the budget is optimistic by about **9k cycles ≈ 3.3 KB** on a peak frame.
+> The 0.89 margin covers about 732 B ≈ 2.0k cycles (`engine/system/constants.emp:765`). Net, the budget is optimistic by about **9k cycles ≈ 3.3 KB** on a peak frame.
 >
 > **Peak frame, ESTIMATED:**
 >
@@ -314,9 +314,9 @@ A lag VBlank that lands inside `Palette_Compose` (worst 10.2k, peak 27.3k cycles
 | F6c | HScroll commit is coupled to `Parallax_Active_Config`. A game with no parallax config never ships HScroll. | `buffers.emp:505-507` | reusability |
 | F6d | `Section_RedrawPlanes` masks IRQs for about 3 frames. The VDP keeps one VInt pending, so on unmask a VBlank handler runs **mid-display** (Ready = 0, so `VInt_Lag`). It ships palette/SAT/HScroll at an arbitrary line, and 2 of the 3 frames go uncounted in `Frame_Counter`. | `section.emp:320-330` | teleport/warp hitch only |
 | F6e | SFX latency: requests made during the state are posted at the *next* tick's `Sound_DrainSfxRing`, one per tick, so a second same-frame SFX lands two frames late | `game_loop.emp:33`, `sound_api.emp:408-431` | low; 1 frame |
-| F6f | A DPLC that enqueues successfully but is held back by the **drain** budget commits `prev_frame`, so the SAT shows the new mapping frame over the old art for a frame. Documented as acceptable for Deferrable (`dplc.emp:380`). It also applies to the player's Important DPLC once F2's budget actually binds. | `dplc.emp:345-353` | low today |
-| F6g | A mid-DPLC enqueue drop leaves earlier entries queued: partial new art under the new mapping frame for one frame | `dplc.emp:345-348` | low |
-| F6h | PAL: the budget assumes 72 blank lines, while PAL V28 has 87–89 (PUBLISHED). That only costs throughput. The game runs at 50 Hz, about 17% slower. | `constants.emp:760` | owner ruling: NTSC-only |
+| F6f | A DPLC that enqueues successfully but is held back by the **drain** budget commits `prev_frame`, so the SAT shows the new mapping frame over the old art for a frame. Documented as acceptable for Deferrable (`dplc.emp:380`). It also applies to the player's Important DPLC once F2's budget actually binds. | `engine/objects/dplc.emp:346-353` | low today |
+| F6g | A mid-DPLC enqueue drop leaves earlier entries queued: partial new art under the new mapping frame for one frame | `engine/objects/dplc.emp:346-348` | low |
+| F6h | PAL: the budget assumes 72 blank lines, while PAL V28 has 87–89 (PUBLISHED). That only costs throughput. The game runs at 50 Hz, about 17% slower. | `engine/system/constants.emp:760` | owner ruling: NTSC-only |
 
 ### What is correct and well done (checked, no finding)
 

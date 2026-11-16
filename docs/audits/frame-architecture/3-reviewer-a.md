@@ -127,7 +127,7 @@ The order inside one normal frame is: VBlank commits tick T's output and reads t
 | Idle slot: `PageIn_Process`, `PageCache_LiveSweep` | SHIPPED | `vblank.emp:526`, `:542` |
 | Idle slot: `PageCache_Audit` | DEBUG-ONLY | `vblank.emp:532-535` |
 | Scanline gate on idle work (reads the V counter) | SHIPPED for the sweep, DEBUG for the audit | `engine/level/page_cache.emp:1275-1280`, `:2031` |
-| DMA queue: Critical (8), Important (12), Deferrable (12) | SHIPPED | `engine/system/dma_queue.emp`, `constants.emp:387-389` |
+| DMA queue: Critical (8), Important (12), Deferrable (12) | SHIPPED | `engine/system/dma_queue.emp`, `engine/system/constants.emp:387-389` |
 | Byte budget per VBlank, enqueue byte cap | SHIPPED | `vblank.emp:142`, `dma_queue.emp:140-145` |
 | `DMA_Bytes_ThisFrame` | dead: cleared, never written or read | `vblank.emp:550` |
 | Peak instruments (`DMA_Peak_Important`, straddle counters, `Plane_Buffer_Peak`) | DEBUG-ONLY | `vblank.emp:251-268`, `plane_buffer.emp:765` |
@@ -172,7 +172,7 @@ The order inside one normal frame is: VBlank commits tick T's output and reads t
 8. §9.13: the `GameLoop` listing and the eleven-state table.
 9. `vblank.emp:370-372`: the palette and sprite enqueues on the lag path "ARE safe".
 10. `vblank.emp:519-523`: a mid-decode VBlank "always dispatches VInt_Level (never VInt_Lag)".
-11. `constants.emp:762-764`: the 0.89 margin covers the uncharged VBlank tail and the plane drain's rate.
+11. `engine/system/constants.emp:762-764`: the 0.89 margin covers the uncharged VBlank tail and the plane drain's rate.
 12. `tile_cache.emp:1575-1577`: "a beam-position read cannot gauge frame load".
 13. §9.4 / `ENGINE_ARCHITECTURE.md:5611`: logic is deterministic on `Logic_Tick`.
 
@@ -222,7 +222,7 @@ So: **VBlank cycles ≈ fixed (about 5k to 6k, up to 7.9k) + 2.3 × DMA bytes + 
 
 The fixed part is `Raster_VBlank` (up to 1,856), `Enqueue_Dirty_Buffers` (up to 2,104), `Read_Controllers` (1,048), `Flush_VDP_Shadow` (698), the queue drain's own instructions, three Z80 bus brackets and the budget walk (all MEASURED, stage 2 table).
 
-**What the budget assumes** (`constants.emp:757-765`): 18,565 cycles ÷ 2.7 = 6,876 B, times 0.89 "for the uncharged non-DMA tail and the plane drain's rate" = 6,144 B. That margin is 11% of blank, about 2.0k cycles. The measured fixed cost is 5k to 7.9k, and plane bytes cost 8.75 where they are charged as 2.7.
+**What the budget assumes** (`engine/system/constants.emp:758-765`): 18,565 cycles ÷ 2.7 = 6,876 B, times 0.89 "for the uncharged non-DMA tail and the plane drain's rate" = 6,144 B. That margin is 11% of blank, about 2.0k cycles. The measured fixed cost is 5k to 7.9k, and plane bytes cost 8.75 where they are charged as 2.7.
 
 > [!finding] The byte budget admits frames that do not fit in blank (ESTIMATED)
 > `Read_Controllers` runs after the last DMA, so the DMA must finish by about cycle 18.5k with about 1.1k less fixed work in front of it.
@@ -340,7 +340,7 @@ Severity: low (one frame of slightly wrong colours, only on a lag frame, only mi
 | 8 | §9.13 `GameLoop` listing and state table | **Stale and aspirational.** The real loop has six more steps (`game_loop.emp:28-56`). None of the eleven states exists; the only state constants are `GS_BOOT` and `GS_IDLE` |
 | 9 | Lag-path palette enqueue is safe (`vblank.emp:370-372`) | **False** when a raster program is armed. F4 |
 | 10 | A mid-decode VBlank always takes `VInt_Level` (`vblank.emp:519-523`) | **Contradicted 460 lines up** by the handler's own header (`vblank.emp:55-64`), which is the correct one |
-| 11 | The 0.89 margin covers the tail and the plane rate (`constants.emp:762-764`) | **False against measurement.** Section 4 |
+| 11 | The 0.89 margin covers the tail and the plane rate (`engine/system/constants.emp:762-764`) | **False against measurement.** Section 4 |
 | 12 | A beam read cannot gauge frame load in `Tile_Cache_Fill` (`tile_cache.emp:1575-1577`) | **Doubtful.** The fill runs in the main loop after VBlank returns. The V counter there says how many lines remain before the next VBlank, which is exactly the deadline. The idle sweep already gates on it |
 | 13 | Logic is deterministic on `Logic_Tick` | **Mostly.** F3 is the exception |
 
@@ -348,7 +348,7 @@ Severity: low (one frame of slightly wrong colours, only on a lag frame, only mi
 
 - **Comment weight.** `vblank.emp` is 553 lines of which 169 are code. Much of the rest is the history of past mistakes (dated corrections, deleted lines explained at length). The reasoning is valuable, but the current rule is hard to find under it. `vblank.emp:384-455` spends 70 lines explaining why one deleted instruction is not needed. That belongs in a decision record with a two-line pointer.
 - **The shipped game's frame order lives in a test file.** `games/sonic4/test/ojz_scroll_test.emp` is 4,570 lines and holds the real per-frame order plus debug hotkeys and readouts. The order of the fifteen calls is what creates F1, and nothing states it as a contract.
-- **The engine has no notion of frame phases.** Each state must call `InitSpriteSystem`, `RunObjects`, `Render_Sprites` and the rest itself, in the right order. The demo does (`games/demo/demo_state.emp:38-43`). A new game's developer can follow the demo, but nothing tells them which orders are safe.
+- **The engine has no notion of frame phases.** Each state must call `InitSpriteSystem`, `RunObjects`, `Render_Sprites` and the rest itself, in the right order. The demo does (`games/demo/demo_state.emp:68-71`). A new game's developer can follow the demo, but nothing tells them which orders are safe.
 - **Level code inside the system VBlank.** `VInt_Level` calls `VInt_DrawLevel`, `Vscroll_Write` and reads `PageIn_Staging_Busy` unconditionally. A game with no level pays for them and cannot remove them except by writing its own handler. `VInt_Lag` cannot be replaced at all (`vblank.emp:87`).
 - **Dead or inert:** `DMA_Bytes_ThisFrame`, `GameState_Idle`, `Game_State_ID`, `Region_Flags`, `Hardware_Region`, `PlaneMapToVRAM`, `Set_VDP_Reg`.
 - **Gates.** The only cycle budget in the tree is `@budget(cycles: 670)` on `Process_DMA_Critical` (`dma_queue.emp:358`). It counts instructions and not the DMA stall, which is three to four times larger. Nothing gates the whole VBlank, the lag commit, or lag counts on the fixed legs. The Z80 bus-hold census and the palette census are good, real gates.
