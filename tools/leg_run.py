@@ -109,9 +109,17 @@ def main(argv=None) -> int:
         return 2
     wall0 = time.monotonic()
     load0 = open("/proc/loadavg").read().split()[:3]
-    inst = lp.spawn_pinned(rom, lst)
     try:
-        prov = lp.provenance(lp.load_pin(), inst.handshake, rom, lst)
+        inst = lp.spawn_pinned(rom, lst)
+    except lp.PinMismatch as e:
+        print(f"leg_run: COULD NOT RUN — {e}", file=sys.stderr)
+        return 2
+    try:
+        try:
+            prov = lp.provenance(lp.load_pin(), inst.handshake, rom, lst)
+        except (lp.StalePair, lp.PinMismatch) as e:
+            print(f"leg_run: COULD NOT RUN — {e}", file=sys.stderr)
+            return 2
         prov["harness"]["leg_drive_sha256"] = lp.sha256_file(TOOLS / "leg_drive.py")
         prov["harness"]["leg_run_sha256"] = lp.sha256_file(Path(__file__).resolve())
         got = asyncio.run(run_leg(a, inst, syms))
