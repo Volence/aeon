@@ -727,3 +727,108 @@ def test_the_exemption_pin_accepts_the_good_nightly():
 ])
 def test_the_exemption_pin_refuses(name, text, arts):
     assert nightly_exemption_problems(text, arts), name
+
+
+# --------------------------------------------------------------- every STRESS_* shape has a nightly leg
+
+#: EVERY STRESS_* SHAPE build.sh ACCEPTS HAS AN UNATTENDED RUNNER (v2 step-0 final review I2,
+#: 2026-11-17). A STRESS_* shape carries build-time gates of its own (STRESS_OBJECTS' overlay
+#: SELF-CHECK and re-bake refusals, STRESS_SIDEKICK's must-run test_sidekick_slot_live, ...),
+#: and a gate nobody runs is not a gate (invariant 8d). STRESS_OBJECTS shipped (v2 C2) with
+#: its gates reachable only by a hand build for a survey, which nothing caught. So: the set
+#: of shapes is DERIVED from build.sh (every `${STRESS_<NAME>:-0}` flag it reads), it must be
+#: exactly this table's keys, and each row's legs must be in the nightly as one literal build
+#: line, followed by `<rc>=$?`, with <rc> in the worst-wins fold. A new STRESS_* shape is
+#: red here until it gets a leg (or a reviewed ruling that removes it from build.sh's flags).
+NIGHTLY_STRESS_LEGS = {
+    "STRESS_EVICT": [(r"^STRESS_EVICT=1 \./build\.sh\b", "rc_se")],
+    "STRESS_ART": [(r"^STRESS_ART=1 \./build\.sh\b", "rc_sa")],
+    "STRESS_SIDEKICK": [(r"^STRESS_SIDEKICK=1 \./build\.sh\b", "rc_sk"),
+                        (r"^STRESS_SIDEKICK=1 DEBUG=1 \./build\.sh\b", "rc_skd")],
+    "STRESS_OBJECTS": [(r"^STRESS_OBJECTS=1 \./build\.sh\b", "rc_so"),
+                       (r"^STRESS_OBJECTS=1 DEBUG=1 \./build\.sh\b", "rc_sod")],
+}
+
+_STRESS_FLAG = re.compile(r"\$\{(STRESS_[A-Z_]+):-0\}")
+
+
+def build_sh_stress_shapes(build_sh_text):
+    """The STRESS_* shape flags build.sh reads (`${STRESS_X:-0}`); STRESS_ART_N is a knob."""
+    return set(_STRESS_FLAG.findall(build_sh_text))
+
+
+def nightly_stress_leg_problems(script_text, build_sh_text, legs=None):
+    """What is wrong with the nightly's STRESS_* legs: [] means every shape has its runner."""
+    legs = NIGHTLY_STRESS_LEGS if legs is None else legs
+    shapes = build_sh_stress_shapes(build_sh_text)
+    out = []
+    if not shapes:
+        return ["build.sh reads no ${STRESS_*:-0} flag at all: the shape set is unmeasurable"]
+    for s in sorted(shapes - set(legs)):
+        out.append("build.sh accepts %s=1 but NIGHTLY_STRESS_LEGS has no row for it: its "
+                   "build-time gates have no unattended runner" % s)
+    for s in sorted(set(legs) - shapes):
+        out.append("NIGHTLY_STRESS_LEGS lists %s, which build.sh no longer reads: drop the row" % s)
+    body = [l.strip() for l in script_text.splitlines()
+            if l.strip() and not l.strip().startswith("#")]
+    fold = [l for l in body if l.startswith("for r in ") and '"$rc_tree"' in l]
+    for s in sorted(shapes & set(legs)):
+        for pat, rc in legs[s]:
+            builds = [i for i, l in enumerate(body) if re.search(pat, l)]
+            if len(builds) != 1:
+                out.append("%s: expected exactly one nightly line matching %r, found %d"
+                           % (s, pat, len(builds)))
+                continue
+            if not any(re.match(r"^%s=\$\?" % rc, l) for l in body[builds[0] + 1:builds[0] + 4]):
+                out.append("%s: the build line %r is not followed by `%s=$?`" % (s, pat, rc))
+            if not fold or ('"$%s"' % rc) not in fold[0]:
+                out.append("%s: %s is not in the worst-wins fold" % (s, rc))
+    return out
+
+
+def test_every_stress_shape_has_a_nightly_leg():
+    with open(os.path.join(TOOLS, "nightly_effects_gates.sh"), encoding="utf-8") as fh:
+        script = fh.read()
+    with open(os.path.join(AEON, "build.sh"), encoding="utf-8") as fh:
+        build_sh = fh.read()
+    problems = nightly_stress_leg_problems(script, build_sh)
+    assert not problems, "the nightly's STRESS_* legs:\n  - " + "\n  - ".join(problems)
+
+
+_BUILD_SH_GOOD = ('if [[ "${STRESS_EVICT:-0}" == "1" ]]; then\n'
+                  'if [[ "${STRESS_OBJECTS:-0}" == "1" ]]; then\n'
+                  'STRESS_UNIQUIFY="${STRESS_ART_N:-2600}"\n')
+_LEGS_GOOD = {"STRESS_EVICT": NIGHTLY_STRESS_LEGS["STRESS_EVICT"],
+              "STRESS_OBJECTS": NIGHTLY_STRESS_LEGS["STRESS_OBJECTS"]}
+_STRESS_NIGHTLY_GOOD = (
+    'STRESS_EVICT=1 ./build.sh >> "$STATE/e.log" 2>&1\n'
+    'rc_se=$?\n'
+    'STRESS_OBJECTS=1 ./build.sh >> "$STATE/o.log" 2>&1\n'
+    'rc_so=$?\n'
+    'STRESS_OBJECTS=1 DEBUG=1 ./build.sh >> "$STATE/od.log" 2>&1\n'
+    'rc_sod=$?\n'
+    'for r in "$rc" "$rc_se" "$rc_so" "$rc_sod" "$rc_tree"; do\n')
+
+
+def test_the_stress_leg_pin_accepts_the_good_nightly():
+    assert build_sh_stress_shapes(_BUILD_SH_GOOD) == {"STRESS_EVICT", "STRESS_OBJECTS"}
+    assert nightly_stress_leg_problems(_STRESS_NIGHTLY_GOOD, _BUILD_SH_GOOD, _LEGS_GOOD) == []
+
+
+@pytest.mark.parametrize("name,text,build_sh", [
+    ("a build.sh shape with no row", _STRESS_NIGHTLY_GOOD,
+     _BUILD_SH_GOOD + 'if [[ "${STRESS_NEW:-0}" == "1" ]]; then\n'),
+    ("a row build.sh no longer reads", _STRESS_NIGHTLY_GOOD,
+     _BUILD_SH_GOOD.replace("STRESS_OBJECTS:-0", "X:-0")),
+    ("the DEBUG objects leg dropped",
+     _STRESS_NIGHTLY_GOOD.replace('STRESS_OBJECTS=1 DEBUG=1 ./build.sh >> "$STATE/od.log" 2>&1\n', ""),
+     _BUILD_SH_GOOD),
+    ("a commented-out leg",
+     _STRESS_NIGHTLY_GOOD.replace("STRESS_OBJECTS=1 ./build.sh", "# STRESS_OBJECTS=1 ./build.sh"),
+     _BUILD_SH_GOOD),
+    ("a leg's rc not captured", _STRESS_NIGHTLY_GOOD.replace("rc_so=$?\n", ""), _BUILD_SH_GOOD),
+    ("a leg's rc not folded", _STRESS_NIGHTLY_GOOD.replace(' "$rc_sod"', ""), _BUILD_SH_GOOD),
+    ("no flags in build.sh at all", _STRESS_NIGHTLY_GOOD, "echo nothing\n"),
+])
+def test_the_stress_leg_pin_refuses(name, text, build_sh):
+    assert nightly_stress_leg_problems(text, build_sh, _LEGS_GOOD), name

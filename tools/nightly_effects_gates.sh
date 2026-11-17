@@ -45,7 +45,8 @@
 # builds one game, and that is the contract every other gate in it depends on.
 #
 # AND IT BUILDS THE STRESS_* FIXTURE SHAPES (STRESS-SHAPES-NIGHTLY, 2026-09-17; the two
-# STRESS_SIDEKICK legs since v2 C3 fix 1, 2026-11-17), LAST,
+# STRESS_SIDEKICK legs since v2 C3 fix 1, 2026-11-17; the two STRESS_OBJECTS legs since the
+# v2 step-0 final review, I2, 2026-11-17), LAST,
 # after every lane above has graded the canonical artifacts: see the block above the
 # worst-wins combination for why last, and why a failure there is FAILED, not COULD NOT RUN.
 # The STRESS_EVICT artifact is then graded by tools/evict_witness.py (2026-09-25), and the
@@ -464,6 +465,44 @@ STRESS_SIDEKICK=1 DEBUG=1 ./build.sh >> "$STATE/stress_sidekick_debug.log" 2>&1
 rc_skd=$?
 stress_stamp "STRESS_SIDEKICK=1 DEBUG" "$STATE/stress_sidekick_debug.log" end "$rc_skd" "$t_skd"
 rc_skd=$(sidekick_leg "STRESS_SIDEKICK DEBUG" "$STATE/stress_sidekick_debug.log" "$rc_skd")
+# THE STRESS_OBJECTS LEGS (v2 final review I2, 2026-11-17): the only unattended runner of
+# the shape's build-time gates, which before this ran only when someone built the shape by
+# hand for a survey: the overlay re-bake's refusals (`ojz_entity_gen.py generate --overlay`)
+# and the SELF-CHECK (`stress_objects_overlay.py check`: the committed overlay re-modelled
+# against THIS build's NUM_DYNAMIC, cull distances and entity-buffer equates). The pure-lane
+# overlay tests run on synthetic equates, so engine-constant drift under the overlay was
+# found at the next survey, not the next night. Both shapes, as for the sidekick: each is
+# its own ROM and listing. The objheavy path-fixture witness is NOT here: it is a leg_run
+# (emulator) check, booked in DEFERRED_WORK V2-C2 (1)/(4). VERDICT MAPPING, as the sidekick
+# legs': one of the shape's own refusal lines in the build's log is FAILED (1); the
+# self-check's `strict` exit 2 (it could not measure) and any other non-zero exit are
+# COULD NOT RUN (2): its gates were never graded. Neither leg is ever skipped. Spelled out
+# literally, like the legs above; tools/test_landing_lane_shapes.py (NIGHTLY_STRESS_LEGS)
+# pins one build line, one `=$?` and one worst-wins entry per leg for every STRESS_* shape
+# build.sh accepts.
+stressobj_leg() {  # stressobj_leg <shape label> <logfile> <rc>: prints the mapped rc
+    if [ "$3" = 0 ]; then
+        echo "$(date -Is) OK at $AT ($1 build + overlay self-check)" >> "$LOG"; echo 0
+    elif grep -q "^ERROR: stress_objects_overlay.py exited 2" "$2"; then
+        note "COULD NOT RUN: $1 overlay self-check could not measure at $AT — see $2" >/dev/null; echo 2
+    elif grep -qE "^STRESS_OBJECTS: (the baked overlay fails its own model|the overlay re-bake refused)" "$2"; then
+        note "$1 OVERLAY GATE FAILED at $AT — see $2" >/dev/null; echo 1
+    else
+        note "COULD NOT RUN: $1 build (exit $3) never graded the overlay self-check at $AT — see $2" >/dev/null; echo 2
+    fi
+}
+t_so=$(date +%s)
+stress_stamp STRESS_OBJECTS "$STATE/stress_objects.log" begin
+STRESS_OBJECTS=1 ./build.sh >> "$STATE/stress_objects.log" 2>&1
+rc_so=$?
+stress_stamp STRESS_OBJECTS "$STATE/stress_objects.log" end "$rc_so" "$t_so"
+rc_so=$(stressobj_leg STRESS_OBJECTS "$STATE/stress_objects.log" "$rc_so")
+t_sod=$(date +%s)
+stress_stamp "STRESS_OBJECTS=1 DEBUG" "$STATE/stress_objects_debug.log" begin
+STRESS_OBJECTS=1 DEBUG=1 ./build.sh >> "$STATE/stress_objects_debug.log" 2>&1
+rc_sod=$?
+stress_stamp "STRESS_OBJECTS=1 DEBUG" "$STATE/stress_objects_debug.log" end "$rc_sod" "$t_sod"
+rc_sod=$(stressobj_leg "STRESS_OBJECTS DEBUG" "$STATE/stress_objects_debug.log" "$rc_sod")
 tree_after=$(git -C "$NIGHTLY" status --porcelain 2>&1)
 rc_git=$?
 { echo "before the stress legs:"; echo "$tree_before"; echo "after the stress legs (git status exit $rc_git):"; echo "$tree_after"; } \
@@ -475,7 +514,7 @@ elif [ -n "$tree_after" ]; then
     if [ -n "$tree_before" ]; then
         note "STRESS TREE CHECK FAILED: $NIGHTLY is dirty after the stress legs at $AT, and was ALREADY dirty before them — see $STATE/stress_tree.log"
     else
-        note "STRESS TREE CHECK FAILED: the stress legs left $NIGHTLY dirty at $AT (STRESS_ART's or STRESS_SIDEKICK's EXIT-trap restore did not restore) — see $STATE/stress_tree.log"
+        note "STRESS TREE CHECK FAILED: the stress legs left $NIGHTLY dirty at $AT (STRESS_ART's, STRESS_SIDEKICK's or STRESS_OBJECTS' EXIT-trap restore did not restore) — see $STATE/stress_tree.log"
     fi
     rc_tree=1
 else
@@ -485,7 +524,7 @@ fi
 
 # worst-wins: 2 (could not run) beats 1 (failed) beats 0
 worst=0
-for r in "$rc" "$rc_lab" "$rc_nb" "$rc_se" "$rc_ew" "$rc_sa" "$rc_sw" "$rc_sk" "$rc_skd" "$rc_tree"; do
+for r in "$rc" "$rc_lab" "$rc_nb" "$rc_se" "$rc_ew" "$rc_sa" "$rc_sw" "$rc_sk" "$rc_skd" "$rc_so" "$rc_sod" "$rc_tree"; do
     if [ "$r" = 2 ] || { [ "$r" != 0 ] && [ "$worst" != 2 ]; }; then
         [ "$r" = 2 ] && worst=2 || worst=1
     fi
