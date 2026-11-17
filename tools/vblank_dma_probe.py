@@ -39,6 +39,11 @@ import re
 from dataclasses import asdict, dataclass
 
 import leg_correction as lc
+# The probe only ever runs on a client from `leg_provenance.spawn_pinned` (the pinned Rust
+# oracle-aether); importing it declares that seam to tools/test_legacy_seam_keys.py, which
+# otherwise reads a library handed a client as "ambient" (legacy-server vocabulary) -- the
+# same declaration leg_drive.py makes.
+import leg_provenance as _lp  # noqa: F401,E402
 
 LINES_PER_FRAME = 262                       # NTSC (PAL is out of scope: fitness finding 8)
 FRAME_MCLK = LINES_PER_FRAME * lc.MCLK_PER_LINE     # 896,040

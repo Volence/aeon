@@ -700,6 +700,7 @@ it is not a verdict about pagecache_audit_poison."""
 "aether_bytes.py" = "not an instrument: the bus byte-decoding helper every instrument imports"
 "aether_instance.py" = "not an instrument: the harness that spawns the headless emulator"
 "leg_provenance.py" = "not an instrument: the pinned-oracle spawn plus provenance library for the measurement harness (v2 B1). It has no __main__; harness legs import spawn_pinned, and its own emulator-backed check is the needs_build test in test_leg_provenance.py"
+"vblank_dma_probe.py" = "not an instrument: the per-DMA VBlank-end probe library for the measurement harness (v2 B3). No __main__; leg_run.py (wired) arms it with --dma-probe, and its own emulator-backed checks are the needs_build tests in test_vblank_dma_probe.py and test_leg_harness_smoke.py"
 "leg_drive.py" = "not an instrument: the tick-keyed closed-loop leg driver library for the measurement harness (v2 B2). No __main__; leg_run.py (wired) drives it, and its own emulator-backed check is the needs_build test in test_leg_drive.py"
 "cart_identity.py" = "not an instrument: the cart-identity helper (no __main__). It reads the cart back over a client it is handed; aether_instance calls it on every AetherInstance spawn, and five tools import it directly. Counted since 2026-09-25 because it speaks emulator/read_memory."
 

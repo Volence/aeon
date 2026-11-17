@@ -448,7 +448,7 @@ def test_failed_drive_is_could_not_run_and_writes_nothing(tmp_path, monkeypatch,
             "bus": leg_run.BusError(-32004, "bad address"),
             "conn": ConnectionResetError("bus connection closed")}
 
-    async def boom(a, inst, syms):
+    async def boom(a, inst, syms, probe=None):
         raise errs[exc]
     monkeypatch.setattr(lp, "spawn_pinned", lambda rom, l: Inst())
     monkeypatch.setattr(lp, "provenance", lambda *a: {"harness": {}})
