@@ -46,6 +46,21 @@ against the AS-era tree and cite `.asm` paths and line numbers into files that *
 
 ---
 
+## V2-E1-REFERENCE: what the v1 behaviour reference does NOT yet carry (booked 2026-11-16, `feat/v2-step0-harness`)
+
+`docs/benchmarks/v1-reference/` (tool `tools/v1_reference.py`, v2 E1) holds 10 recordings:
+`s4.bin` and `s4.debug.bin` x idle/run/topspeed/diagfall/spindash, phase 0, each replayed 10/10
+identical (MANIFEST `determinism`). **Open:** (1) diagfall and spindash are recorded STUCK at
+px 1143 (release) / px 503 (DEBUG) -- a deterministic behaviour reference, not coverage; if the
+owner rules on the at-a-wall question (jump or dash at gspeed 0), those four recordings are
+re-recorded with `v1_reference.py record` and re-diffed. (2) `topspeed` is byte-identical to
+`run` on both shapes (its slow-for-30-ticks dash never fires on this act), so it adds no
+behaviour today. (3) oracle's `replay_runner` on `s4.debug.bin` (crc32 ce326232) is DESYNC at
+Logic_Tick 1090; `--restamp` dry run: 10 of 27 embedded checkpoints stale (idx 17-26). That is
+the embedded `ojz_fixture` net (history: THE RESTAMP A/B RETURNED, below), recorded in the
+MANIFEST, not repaired here. (4) The reference is FNV/raw for same-layout regression plus nine
+plain semantic fields; a v2 engine diffs on `--semantic`.
+
 ## V2-B2-SPINDASH-GATE: the v2 step-0 plan's spindash trigger sits above the engine's spindash gate (BRIEF WORDING OPEN, booked 2026-11-16, `feat/v2-step0-harness`)
 
 `docs/superpowers/plans/2026-11-16-measurement-harness-and-stress.md:102` says the `spindash`
