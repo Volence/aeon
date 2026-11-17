@@ -188,3 +188,13 @@ def test_sidekick_slot_live(rom, lst):
     assert len(tr.rows) >= SK_TICKS - 1, (tr.status, tr.reason, len(tr.rows))
     assert p2["p2c"] != 0, f"Player_2's code word is 0 after {len(tr.rows)} ticks: no sidekick"
     assert abs(ld._d16(p2["p2x"], s.px)) <= SK_NEAR_PX, (p2, s.px, s.py)
+
+
+def test_an_unreadable_guarded_file_is_unmeasurable_not_ok(tmp_path, capsys):
+    """Final review M6: a guarded file the guard cannot read is exit 2, never OK."""
+    _copy_tree(tmp_path)
+    (tmp_path / sk.GUARDED[0]).unlink()
+    assert any(sk.UNREADABLE in h for h in sk.leftovers(tmp_path))
+    assert sk.guard(tmp_path) == 2
+    out = capsys.readouterr().out
+    assert "could not read" in out and sk.GUARDED[0] in out and "guard: OK" not in out

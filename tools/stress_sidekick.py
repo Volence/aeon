@@ -76,14 +76,20 @@ def _run(argv, cwd) -> subprocess.CompletedProcess:
     return subprocess.run(argv, cwd=cwd, capture_output=True, text=True)
 
 
+UNREADABLE = "UNREADABLE"
+
+
 def leftovers(root: Path = AEON_ROOT) -> list[str]:
-    """Every RESTORE_PATHS file that carries a MARKER (`path: marker`)."""
+    """Every RESTORE_PATHS file that carries a MARKER (`path: marker`), and every one that could
+    not be read (`path: UNREADABLE (...)`): a file the guard never read is not a clean file
+    (final review M6; it used to be skipped, so the guard could print OK over it)."""
     out = []
     for rel in GUARDED:
         p = Path(root) / rel
         try:
             text = p.read_text(errors="replace")
-        except OSError:
+        except OSError as e:
+            out.append(f"{rel}: {UNREADABLE} ({type(e).__name__}: {e})")
             continue
         out += [f"{rel}: {m}" for m in MARKERS if m in text]
     return out
@@ -91,6 +97,13 @@ def leftovers(root: Path = AEON_ROOT) -> list[str]:
 
 def guard(root: Path = AEON_ROOT) -> int:
     hits = leftovers(root)
+    unread = [h for h in hits if f": {UNREADABLE} (" in h]
+    if unread:
+        print("ERROR: stress_sidekick guard could not read a guarded file, so it cannot say the")
+        print("  tree is free of the STRESS_SIDEKICK patch (unmeasurable, never OK):")
+        for h in unread:
+            print(f"    {h}")
+        return 2
     if not hits:
         print("stress_sidekick guard: OK (no applied sidekick patch in the tree)")
         return 0
