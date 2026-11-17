@@ -46,6 +46,52 @@ against the AS-era tree and cite `.asm` paths and line numbers into files that *
 
 ---
 
+## V2-E1-REFERENCE: what the v1 behaviour reference does NOT yet carry (booked 2026-11-16, `feat/v2-step0-harness`)
+
+`docs/benchmarks/v1-reference/` (tool `tools/v1_reference.py`, v2 E1) holds 10 recordings:
+`s4.bin` and `s4.debug.bin` x idle/run/topspeed/diagfall/spindash, phase 0, each replayed 10/10
+identical (MANIFEST `determinism`). **Open:** (1) release diagfall and both spindash recordings are DID NOT COVER (diagfall STUCK at px 1143 on
+release; DEBUG diagfall is COVERED, 35/30, though it also sticks at px 503) -- deterministic
+behaviour references, not coverage; if the owner rules on the at-a-wall question (jump or dash at
+gspeed 0), those three recordings are re-recorded with `v1_reference.py record` and re-diffed. (2) `topspeed` is byte-identical to
+`run` on both shapes (its slow-for-30-ticks dash never fires on this act), so it adds no
+behaviour today; the MANIFEST marks it `identical_to: "<shape>/run"`, computed from both
+sha256s. (3) oracle's `replay_runner` on `s4.debug.bin` (crc32 ce326232) is DESYNC at
+Logic_Tick 1090; `--restamp` dry run: 10 of 27 embedded checkpoints stale (idx 17-26). That is
+the embedded `ojz_fixture` net (history: THE RESTAMP A/B RETURNED, below), recorded in the
+MANIFEST, not repaired here. **Owner: the oracle lane** (the fixture is oracle's net, and
+`replay_runner --restamp` is its repair tool). Cross-reference: the stale checkpoints live in the
+embedded fixture `games/sonic4/data/replays/ojz_fixture.bin` (the ROM's `Replay_OJZ_Fixture`),
+not in `docs/benchmarks/v1-reference/`. (4) The reference is FNV/raw for same-layout regression plus nine
+plain semantic fields; a v2 engine diffs on `--semantic`.
+
+## V2-B2-SPINDASH-GATE: the v2 step-0 plan's spindash trigger sits above the engine's spindash gate (BRIEF WORDING OPEN, booked 2026-11-16, `feat/v2-step0-harness`)
+
+`docs/superpowers/plans/2026-11-16-measurement-harness-and-stress.md:102` says the `spindash`
+leg triggers "when on ground and `|gspeed| < PHYS_TOP_SPEED/2`" ($300), and the `topspeed`
+rule spindashes at `|gspeed| < $200`. The engine spindashes only with down held, a fresh
+jump-buffer press AND `|gsp| < PHYS_ROLL_START_MIN` ($100; `engine/system/constants.emp:222`,
+gate at `games/sonic4/player/player_ground.emp:271-279`). Between $100 and the plan's
+thresholds, down starts a ROLL and C is a roll-jump, so the leg would not spindash.
+Controller ruling (B2 fix round 1): a brief defect; the intent (a leg that really spindashes)
+wins. `tools/leg_drive.py` now triggers all three spindash-family policies (`spindash`,
+`topspeed`, `diagfall`) below `equ["PHYS_ROLL_START_MIN"]` read from the listing; topspeed's
+"slow for 30 ticks" condition is kept and fires only below the gate. **Open:** reword plan
+line 102 and line 103 (`topspeed`) to name `PHYS_ROLL_START_MIN`, and line 91's `POLICIES` type to
+`Callable[[Buttons, dict], Policy]` (the factories now take the listing equates).
+
+## V2-B3-MUTATION-LIMIT: the plan's B3 invariant-8 mutation (limit 260 -> 250) cannot redden the idle smoke (BRIEF WORDING OPEN, booked 2026-11-16, `feat/v2-step0-harness`)
+
+The B3 brief's Step 6 says mutating `DMA_END_LIMIT_LINE` to 250 reddens
+`tools/test_leg_harness_smoke.py` "because the first DMA starts at line 243". That figure is the
+audit's DEBUG diagonal leg (Oracle fitness finding 3). On the smoke's own leg (idle, cap 120,
+phase 0) the first DMA starts at line 232 and the worst last-DMA end is line 247 + 2,359
+(`s4.debug.bin`) / 242 + 1,225 (`s4.bin`) (MEASURED, pinned oracle `dd09acb9`), so 250 stays
+GREEN. Controller ruling (B3 review): the gate's red proof used 236, below every measured
+VBlank end (min 237 DEBUG / 238 release), and was accepted. **Open:** reword the plan's B3
+Step 6 so the mutation limit is DERIVED from the smoke leg's measured idle worst end (any line
+below it), not the fixed 250.
+
 ## LOOP-STEP-OVER-LANDING: the loop witness's landing wait counted emulator frames, and a perf change moved the lag frames under it (FIXED 2026-09-28, `fix/loop-step-over-landing`)
 
 **Symptom.** The 2026-09-28 keepalive nightly (origin/master `d4f8c479`): `loop_step_over_witness.py`

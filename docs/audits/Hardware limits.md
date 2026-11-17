@@ -131,6 +131,63 @@ Genesis Plus GX (GPGX, Eke-Eke), BlastEm (Mask of Destiny, who measured with a l
 | Practical DAC ceiling | about 26 kHz before writes go missing | PUBLISHED (forum-grade): TmEE, same thread |
 | PSG | SN76489-compatible, 3 square + 1 noise; clock = Z80 clock, output at clock / 16 | PUBLISHED: BlastEm `genesis.c:32` |
 
+## 9. Correcting Oracle's numbers
+
+Oracle is the pinned measuring emulator, but it is not a cycle-exact console. The [[Oracle fitness]] audit
+(`oracle/docs/audits/Oracle fitness.md`, findings 3, 4 and 5, decision 2) found what it leaves out and how far
+that moves a figure. This section is the rule every audit applies to an Oracle figure before it calls
+something "fits". The rule is also code: `tools/leg_correction.py` holds the constants and `classify()`, and
+`tools/test_leg_correction.py::test_constants_match_hardware_limits_doc` reads the table and the rule below,
+so the doc and the code cannot drift. Change one and the test fails until the other matches.
+
+**The rule** (values from Oracle fitness):
+
+1. Judge VBlank work by the **last DMA's end**, not by `rte`.
+2. The blank-rate window is **37 lines**, not 38; on hardware it ends at about line 261 + 0, give or take a line. Use the threshold "no DMA ends after line 260 + 0". That leaves one line of safety and needs no disputed GPL-only constant (fitness decision 2).
+3. Oracle omits the 68000 refresh (2 cycles in 128, 1.56%) and Z80 bank stalls (up to about 2.6% with sound). Correct by **2-4%** of the cycles elapsed since VInt: the low end for a silent leg, the high end with sound.
+4. Frame budgets on Oracle are about **2% optimistic** (band 1.5-2.5%, ESTIMATED from one BlastEm lag frame).
+5. **A "fits" call with a corrected margin under 3% of its budget (about 3.8k cycles of a frame) is not a verdict on Oracle alone.** It needs BlastEm agreement on lag and path for the same tick-keyed inputs, or it is reported NEEDS-WITNESS.
+6. A DMA past the blank is **not measurable** on Oracle (flat cost, finding 4). Report the flag, not a cost.
+
+**What the code subtracts (fix round 1).** The "2-4%" in rule 3 is a rounding. The code takes off
+**1.5625%** of elapsed (2/128, the refresh alone) for a silent leg, which is below the stated 2% low end, and
+**4.1625%** (1.5625% + 2.6%) with sound, which is above the stated 4% high end. Changing the rule's wording to
+match is the owner's call; until then the rule is quoted as the audit wrote it and the code follows the constants.
+
+**Rule 4 is not a second correction.** The "about 2% optimistic" of rule 4 is the empirical gap between Oracle
+and BlastEm over whole frames (one BlastEm lag frame where Oracle had 1.46% to spare; Oracle fitness finding 5,
+whose likely cause is the same refresh rule 3 corrects for). It is evidence that rule 3's correction is the
+right size, not an amount to add to it. Apply rule 3 once (`corrected_margin`) and never subtract rule 4 on top.
+
+| Constant | Value | Meaning | Label / source |
+|---|---|---|---|
+| `FRAME_CYCLES` | 128,006 | 68000 cycles per NTSC frame | ESTIMATED: 262 × 3,420 / 7 (section 2) |
+| `MCLK_PER_LINE` | 3,420 | master clocks per line | PUBLISHED: section 2 |
+| `LINES_PER_FRAME` | 262 | NTSC lines per frame | PUBLISHED: section 2 |
+| `BLANK_DMA_LINES` | 37 | lines at the blank DMA rate, NTSC V28 | ESTIMATED: section 2, Vertical blank |
+| `DMA_END_LIMIT_LINE` | 260 | no VBlank DMA may end after this line + 0 | rule 2; fitness decision 2 |
+| `REFRESH_FRACTION` | 2/128 | 68000 cycles lost to DRAM refresh | PUBLISHED: section 2 (Kabuto) |
+| `Z80_STALL_MAX_FRACTION` | 2.6% | upper bound of Z80 bank stalls with sound | ESTIMATED: Oracle fitness finding 5 |
+| `WITNESS_MARGIN_FRACTION` | 3% | a corrected margin under this share of its budget needs a witness | rule 5 |
+
+**How to apply it.** `corrected_margin(margin, elapsed, sound)` takes off `floor(elapsed × 2/128)` for the
+refresh and, when sound plays, `ceil(elapsed × 2.6%)` for the Z80 (an upper bound, so rounded up). `elapsed`
+is the cycles since VInt that the margin was measured over. The code takes these exact terms, never rule 3's rounded band (see "What the code subtracts" above). `classify(margin, budget, elapsed, sound, witness)` answers:
+
+- **OVER**: the corrected margin is negative. A witness cannot rescue it, because Oracle errs optimistic.
+- **FITS**: the corrected margin is at least 3% of the budget, or under it with a BlastEm witness that agrees.
+- **NEEDS-WITNESS**: under 3% and no witness was run. This is a result, not a failure: report it as such.
+- **WITNESS-DISAGREES**: under 3% and BlastEm differs on lag or path, or did not cover the whole leg.
+
+**The witness.** `tools/blastem_witness.py --rom R --lst L --result <leg_run json>` replays that result's
+`input_log` open-loop on BlastEm 0.6.2, keyed to `Logic_Tick` at the `Input_Tick` seam, over the GDB-RSP stub
+(`oracle/tools/blastem-differential/rsp.py`; BlastEm's source is never opened). It writes
+`<result>.blastem.json` with `path_agree_ticks`, `first_divergent_tick`, both lag counts and the ticks whose
+lag differs. **BlastEm is a second model, not hardware.** Agreement means two independent models give the
+same answer; it does not prove the cart fits on a console. The stub has no cycle counter, so the witness is
+lag-level and path-level only: it can confirm or refuse a close call, but it cannot supply a cycle figure.
+PAL (`blastem -r E`) is not built.
+
 ## Source notes
 
 - **Kabuto's hardware notes** transcribe Nemesis's logic-analyser measurements of slot positions. The source for the refresh, Z80 delay and line structure figures is the [plutiedev mirror](https://plutiedev.com/mirror/kabuto-hardware-notes).
