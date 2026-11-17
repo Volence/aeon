@@ -17,92 +17,28 @@
   "status": "MEASURED"
  },
  "determinism": {
-  "date_utc": "2026-11-16",
-  "method": "each recording replayed open-loop from its own <shape>/<leg>.inputs.json (leg_drive.Replay) into a second directory, then `v1_reference.py diff --ref <ref> --run <replay>`",
-  "note": "replays of STUCK legs end by CAP at the recorded length (a replay never judges stuck); status differs by design, frames do not",
-  "per_leg": {
-   "s4.debug/diagfall": "identical",
-   "s4.debug/idle": "identical",
-   "s4.debug/run": "identical",
-   "s4.debug/spindash": "identical",
-   "s4.debug/topspeed": "identical",
-   "s4/diagfall": "identical",
-   "s4/idle": "identical",
-   "s4/run": "identical",
-   "s4/spindash": "identical",
-   "s4/topspeed": "identical"
-  },
-  "re_verified": {
-   "at": "aeon 2627868f (fix round 1 tool; framebufferSource=raster enforced)",
-   "result": "re-driven closed-loop: all 20 data files byte-identical to the committed 807fca39 reference; replayed again: diff 10/10 identical over 13 fields, 10/10 frames byte-identical"
-  },
-  "result": "10/10 identical over all 13 fields (diff exit 0); every replay frames file byte-identical to its reference (cmp)",
-  "status": "MEASURED"
+  "note": "re-measured after the policy-v2 re-record; see the next commit",
+  "status": "PENDING"
+ },
+ "policy_versions": {
+  "backfill": "idle and run entries were recorded before versions existed; they carry policy_version 1 because their policies (Idle, Run) are v1 and unchanged: re-driven closed-loop on 2026-11-17 (aeon 2c446c22, the policy-v2 commit; scratch out under .aeon-v2-harness-out/tF/scratch-v2) their inputs and frames sha256 equal these entries' (MEASURED)",
+  "rule": "every entry names the policy_version of the closed-loop policy that produced its InputLog (leg_drive.policy_version); v1_reference.diff refuses to compare entries whose versions differ",
+  "superseded": {
+   "policy-v1": {
+    "entries": [
+     "s4/spindash",
+     "s4/diagfall",
+     "s4/topspeed",
+     "s4.debug/spindash",
+     "s4.debug/diagfall",
+     "s4.debug/topspeed"
+    ],
+    "path": "archive/policy-v1/",
+    "why": "owner-proxy ruling Q1 (Fable, 2026-11-17): when blocked, a jump outranks the dash. Policy v2 (tools/leg_drive.py _Moving) starts a dash only on a tick that is not blocked; the moving family (spindash, diagfall, topspeed) is v2, so these v1 recordings are superseded. Kept, never overwritten or deleted."
+   }
+  }
  },
  "recordings": {
-  "s4.debug/diagfall": {
-   "coverage": {
-    "got": 35,
-    "met": true,
-    "need": 30,
-    "rule": "ticks with camera moving on both axes and yvel > 0 >= 30"
-   },
-   "covered": "COVERED",
-   "date_utc": "2026-11-17T01:57:41Z",
-   "first_tick": 300,
-   "framebuffer_source": "raster",
-   "frames_bytes": 21075,
-   "frames_sha256": "34b4efe067178d7169352415977ed057c4d8637104054e21b8bee415da8feed4",
-   "inputs_sha256": "148513d4563a096406631c50fcee0f322a5fff098669587e13a00276164a0989",
-   "lag_frames": 0,
-   "last_tick": 705,
-   "leg": "diagfall",
-   "mode": "closed-loop",
-   "notes": [
-    "DEBUG: py frozen at 256 for 8 ticks; B pressed at tick 308",
-    "DEBUG: free flight left (py 256->262); policy from tick 316"
-   ],
-   "phase": 0,
-   "provenance": {
-    "aeon": {
-     "branch": "feat/v2-step0-harness",
-     "commit": "2627868fd3be3b2a4995482320d7c9a8257bb41b",
-     "dirty": false,
-     "dirty_count": 0,
-     "dirty_paths": []
-    },
-    "harness": {
-     "leg_drive_sha256": "5217dbfde4d80237e1828d873f8c129b195c11b2bb5a8fa165ef2a86b58ad20e",
-     "tool_sha256": "984a3f5034b33352165713fc51f765ac465fed3757647a3dc418fbd38f43cf91",
-     "v1_reference_sha256": "70c486fbc94766e097d0d6e61bbf47908922a5f1c7657a273d394483d5491a8d"
-    },
-    "oracle": {
-     "commit": "dd09acb96ad5d0c2b1ee603f919942dd819f80c6",
-     "dirty": false,
-     "server_build_id": "dd09acb96ad5d0c2b1ee603f919942dd819f80c6+profile=release+target=x86_64-unknown-linux-gnu+features=",
-     "sha256": "162a0e976364aecaab5e14c969a03b26bdda62cd943308e56a512b36acec1ae8",
-     "source": "vcs"
-    },
-    "rom": {
-     "crc32": "ce326232",
-     "debug": 1,
-     "extra_entries": "none",
-     "game": "sonic4",
-     "rom": "s4.debug.bin",
-     "sigil_revision": "7630ba0d87cf003f8ab040678babadb2e13347bb",
-     "size": 870560,
-     "target": "sonic4",
-     "tree": "clean-sources"
-    }
-   },
-   "reason": "progress: max px 503 has not grown by 32 px in 300 ticks; at (px, py) = (503, 525), cam (345, 413)",
-   "reference_grade": true,
-   "shape": "s4.debug",
-   "status": "STUCK",
-   "t0": 300,
-   "ticks": 406,
-   "wall_s": 3.44
-  },
   "s4.debug/idle": {
    "coverage": {
     "got": 600,
@@ -126,6 +62,7 @@
     "DEBUG: free flight left (py 256->262); policy from tick 316"
    ],
    "phase": 0,
+   "policy_version": 1,
    "provenance": {
     "aeon": {
      "branch": "feat/v2-step0-harness",
@@ -189,6 +126,7 @@
     "DEBUG: free flight left (py 256->262); policy from tick 316"
    ],
    "phase": 0,
+   "policy_version": 1,
    "provenance": {
     "aeon": {
      "branch": "feat/v2-step0-harness",
@@ -229,199 +167,6 @@
    "ticks": 923,
    "wall_s": 7.3
   },
-  "s4.debug/spindash": {
-   "coverage": {
-    "got": {
-     "releases": 9,
-     "status": "STUCK"
-    },
-    "met": false,
-    "need": {
-     "releases": 1,
-     "status": "FINISHED"
-    },
-    "rule": "status == FINISHED and spindash releases (PSTATE_SPINDASH exits) >= 1"
-   },
-   "covered": "DID NOT COVER",
-   "date_utc": "2026-11-17T01:57:44Z",
-   "first_tick": 300,
-   "framebuffer_source": "raster",
-   "frames_bytes": 21056,
-   "frames_sha256": "22c06b33959764c269a96870ecb41c1914920f597dd3cb277d244ffce456a2cc",
-   "inputs_sha256": "cbdab63082aba3cf83cef73dc05b7f07e2bedde424428d17f1b2a2340f90b628",
-   "lag_frames": 0,
-   "last_tick": 705,
-   "leg": "spindash",
-   "mode": "closed-loop",
-   "notes": [
-    "DEBUG: py frozen at 256 for 8 ticks; B pressed at tick 308",
-    "DEBUG: free flight left (py 256->262); policy from tick 316"
-   ],
-   "phase": 0,
-   "provenance": {
-    "aeon": {
-     "branch": "feat/v2-step0-harness",
-     "commit": "2627868fd3be3b2a4995482320d7c9a8257bb41b",
-     "dirty": false,
-     "dirty_count": 0,
-     "dirty_paths": []
-    },
-    "harness": {
-     "leg_drive_sha256": "5217dbfde4d80237e1828d873f8c129b195c11b2bb5a8fa165ef2a86b58ad20e",
-     "tool_sha256": "984a3f5034b33352165713fc51f765ac465fed3757647a3dc418fbd38f43cf91",
-     "v1_reference_sha256": "70c486fbc94766e097d0d6e61bbf47908922a5f1c7657a273d394483d5491a8d"
-    },
-    "oracle": {
-     "commit": "dd09acb96ad5d0c2b1ee603f919942dd819f80c6",
-     "dirty": false,
-     "server_build_id": "dd09acb96ad5d0c2b1ee603f919942dd819f80c6+profile=release+target=x86_64-unknown-linux-gnu+features=",
-     "sha256": "162a0e976364aecaab5e14c969a03b26bdda62cd943308e56a512b36acec1ae8",
-     "source": "vcs"
-    },
-    "rom": {
-     "crc32": "ce326232",
-     "debug": 1,
-     "extra_entries": "none",
-     "game": "sonic4",
-     "rom": "s4.debug.bin",
-     "sigil_revision": "7630ba0d87cf003f8ab040678babadb2e13347bb",
-     "size": 870560,
-     "target": "sonic4",
-     "tree": "clean-sources"
-    }
-   },
-   "reason": "progress: max px 503 has not grown by 32 px in 300 ticks; at (px, py) = (503, 525), cam (345, 413)",
-   "reference_grade": true,
-   "shape": "s4.debug",
-   "status": "STUCK",
-   "t0": 300,
-   "ticks": 406,
-   "wall_s": 3.63
-  },
-  "s4.debug/topspeed": {
-   "coverage": {
-    "got": 699,
-    "met": true,
-    "need": 60,
-    "rule": "ticks with |gspeed| >= PHYS_TOP_SPEED ($600) >= 60"
-   },
-   "covered": "COVERED",
-   "date_utc": "2026-11-17T01:57:37Z",
-   "first_tick": 300,
-   "framebuffer_source": "raster",
-   "frames_bytes": 59564,
-   "frames_sha256": "50cfe0399aa64c4f1566737ca5d726f3bd73ffc3351ccb8945dd9e0f59fcafd8",
-   "identical_to": "s4.debug/run",
-   "inputs_sha256": "6b8bbd0d986b7b32118059f8ed0ce8b2f8f0abbaafa6ac251c0b302e33c71b3a",
-   "lag_frames": 16,
-   "last_tick": 1222,
-   "leg": "topspeed",
-   "mode": "closed-loop",
-   "notes": [
-    "DEBUG: py frozen at 256 for 8 ticks; B pressed at tick 308",
-    "DEBUG: free flight left (py 256->262); policy from tick 316"
-   ],
-   "phase": 0,
-   "provenance": {
-    "aeon": {
-     "branch": "feat/v2-step0-harness",
-     "commit": "2627868fd3be3b2a4995482320d7c9a8257bb41b",
-     "dirty": false,
-     "dirty_count": 0,
-     "dirty_paths": []
-    },
-    "harness": {
-     "leg_drive_sha256": "5217dbfde4d80237e1828d873f8c129b195c11b2bb5a8fa165ef2a86b58ad20e",
-     "tool_sha256": "984a3f5034b33352165713fc51f765ac465fed3757647a3dc418fbd38f43cf91",
-     "v1_reference_sha256": "70c486fbc94766e097d0d6e61bbf47908922a5f1c7657a273d394483d5491a8d"
-    },
-    "oracle": {
-     "commit": "dd09acb96ad5d0c2b1ee603f919942dd819f80c6",
-     "dirty": false,
-     "server_build_id": "dd09acb96ad5d0c2b1ee603f919942dd819f80c6+profile=release+target=x86_64-unknown-linux-gnu+features=",
-     "sha256": "162a0e976364aecaab5e14c969a03b26bdda62cd943308e56a512b36acec1ae8",
-     "source": "vcs"
-    },
-    "rom": {
-     "crc32": "ce326232",
-     "debug": 1,
-     "extra_entries": "none",
-     "game": "sonic4",
-     "rom": "s4.debug.bin",
-     "sigil_revision": "7630ba0d87cf003f8ab040678babadb2e13347bb",
-     "size": 870560,
-     "target": "sonic4",
-     "tree": "clean-sources"
-    }
-   },
-   "reason": "cx 5824 >= Camera_X_Max 5824",
-   "reference_grade": true,
-   "shape": "s4.debug",
-   "status": "FINISHED",
-   "t0": 300,
-   "ticks": 923,
-   "wall_s": 8.42
-  },
-  "s4/diagfall": {
-   "coverage": {
-    "got": 29,
-    "met": false,
-    "need": 30,
-    "rule": "ticks with camera moving on both axes and yvel > 0 >= 30"
-   },
-   "covered": "DID NOT COVER",
-   "date_utc": "2026-11-17T01:57:11Z",
-   "first_tick": 300,
-   "framebuffer_source": "raster",
-   "frames_bytes": 30891,
-   "frames_sha256": "ec5ced68b37432d5ba4a21825065541a91f08e2069c1b2f060eb01958f98a56a",
-   "inputs_sha256": "49bb7a1ac525961ae98568422b1e1f14d724348e2635ddfbfc0fa93559166456",
-   "lag_frames": 0,
-   "last_tick": 893,
-   "leg": "diagfall",
-   "mode": "closed-loop",
-   "notes": [],
-   "phase": 0,
-   "provenance": {
-    "aeon": {
-     "branch": "feat/v2-step0-harness",
-     "commit": "2627868fd3be3b2a4995482320d7c9a8257bb41b",
-     "dirty": false,
-     "dirty_count": 0,
-     "dirty_paths": []
-    },
-    "harness": {
-     "leg_drive_sha256": "5217dbfde4d80237e1828d873f8c129b195c11b2bb5a8fa165ef2a86b58ad20e",
-     "tool_sha256": "984a3f5034b33352165713fc51f765ac465fed3757647a3dc418fbd38f43cf91",
-     "v1_reference_sha256": "70c486fbc94766e097d0d6e61bbf47908922a5f1c7657a273d394483d5491a8d"
-    },
-    "oracle": {
-     "commit": "dd09acb96ad5d0c2b1ee603f919942dd819f80c6",
-     "dirty": false,
-     "server_build_id": "dd09acb96ad5d0c2b1ee603f919942dd819f80c6+profile=release+target=x86_64-unknown-linux-gnu+features=",
-     "sha256": "162a0e976364aecaab5e14c969a03b26bdda62cd943308e56a512b36acec1ae8",
-     "source": "vcs"
-    },
-    "rom": {
-     "crc32": "193507d9",
-     "debug": 0,
-     "extra_entries": "none",
-     "game": "sonic4",
-     "rom": "s4.bin",
-     "sigil_revision": "7630ba0d87cf003f8ab040678babadb2e13347bb",
-     "size": 850296,
-     "target": "sonic4",
-     "tree": "clean-sources"
-    }
-   },
-   "reason": "progress: max px 1143 has not grown by 32 px in 300 ticks; at (px, py) = (1143, 301), cam (983, 157)",
-   "reference_grade": true,
-   "shape": "s4",
-   "status": "STUCK",
-   "t0": 300,
-   "ticks": 594,
-   "wall_s": 3.98
-  },
   "s4/idle": {
    "coverage": {
     "got": 600,
@@ -442,6 +187,7 @@
    "mode": "closed-loop",
    "notes": [],
    "phase": 0,
+   "policy_version": 1,
    "provenance": {
     "aeon": {
      "branch": "feat/v2-step0-harness",
@@ -502,6 +248,7 @@
    "mode": "closed-loop",
    "notes": [],
    "phase": 0,
+   "policy_version": 1,
    "provenance": {
     "aeon": {
      "branch": "feat/v2-step0-harness",
@@ -541,133 +288,6 @@
    "t0": 300,
    "ticks": 1100,
    "wall_s": 7.41
-  },
-  "s4/spindash": {
-   "coverage": {
-    "got": {
-     "releases": 10,
-     "status": "STUCK"
-    },
-    "met": false,
-    "need": {
-     "releases": 1,
-     "status": "FINISHED"
-    },
-    "rule": "status == FINISHED and spindash releases (PSTATE_SPINDASH exits) >= 1"
-   },
-   "covered": "DID NOT COVER",
-   "date_utc": "2026-11-17T01:57:16Z",
-   "first_tick": 300,
-   "framebuffer_source": "raster",
-   "frames_bytes": 30872,
-   "frames_sha256": "da67d032f75783e38b37dfc99bac86a63bac3c9eca17a22edb700d46db84c7d2",
-   "inputs_sha256": "82572429bb6d8d96509e290d9fc304d4fabc27b841c36ede3e8ecf71fdb07326",
-   "lag_frames": 0,
-   "last_tick": 893,
-   "leg": "spindash",
-   "mode": "closed-loop",
-   "notes": [],
-   "phase": 0,
-   "provenance": {
-    "aeon": {
-     "branch": "feat/v2-step0-harness",
-     "commit": "2627868fd3be3b2a4995482320d7c9a8257bb41b",
-     "dirty": false,
-     "dirty_count": 0,
-     "dirty_paths": []
-    },
-    "harness": {
-     "leg_drive_sha256": "5217dbfde4d80237e1828d873f8c129b195c11b2bb5a8fa165ef2a86b58ad20e",
-     "tool_sha256": "984a3f5034b33352165713fc51f765ac465fed3757647a3dc418fbd38f43cf91",
-     "v1_reference_sha256": "70c486fbc94766e097d0d6e61bbf47908922a5f1c7657a273d394483d5491a8d"
-    },
-    "oracle": {
-     "commit": "dd09acb96ad5d0c2b1ee603f919942dd819f80c6",
-     "dirty": false,
-     "server_build_id": "dd09acb96ad5d0c2b1ee603f919942dd819f80c6+profile=release+target=x86_64-unknown-linux-gnu+features=",
-     "sha256": "162a0e976364aecaab5e14c969a03b26bdda62cd943308e56a512b36acec1ae8",
-     "source": "vcs"
-    },
-    "rom": {
-     "crc32": "193507d9",
-     "debug": 0,
-     "extra_entries": "none",
-     "game": "sonic4",
-     "rom": "s4.bin",
-     "sigil_revision": "7630ba0d87cf003f8ab040678babadb2e13347bb",
-     "size": 850296,
-     "target": "sonic4",
-     "tree": "clean-sources"
-    }
-   },
-   "reason": "progress: max px 1143 has not grown by 32 px in 300 ticks; at (px, py) = (1143, 301), cam (983, 157)",
-   "reference_grade": true,
-   "shape": "s4",
-   "status": "STUCK",
-   "t0": 300,
-   "ticks": 594,
-   "wall_s": 4.83
-  },
-  "s4/topspeed": {
-   "coverage": {
-    "got": 739,
-    "met": true,
-    "need": 60,
-    "rule": "ticks with |gspeed| >= PHYS_TOP_SPEED ($600) >= 60"
-   },
-   "covered": "COVERED",
-   "date_utc": "2026-11-17T01:57:07Z",
-   "first_tick": 300,
-   "framebuffer_source": "raster",
-   "frames_bytes": 70251,
-   "frames_sha256": "e19ce4d8577fee3b8b74bbea77ad0c3079be0d7fb98a890dc2c5f57e9fca6867",
-   "identical_to": "s4/run",
-   "inputs_sha256": "73f657812e24afcaa2cd1983c24676df1bf8d214219a8fbd7229e3e225be76db",
-   "lag_frames": 1,
-   "last_tick": 1399,
-   "leg": "topspeed",
-   "mode": "closed-loop",
-   "notes": [],
-   "phase": 0,
-   "provenance": {
-    "aeon": {
-     "branch": "feat/v2-step0-harness",
-     "commit": "2627868fd3be3b2a4995482320d7c9a8257bb41b",
-     "dirty": false,
-     "dirty_count": 0,
-     "dirty_paths": []
-    },
-    "harness": {
-     "leg_drive_sha256": "5217dbfde4d80237e1828d873f8c129b195c11b2bb5a8fa165ef2a86b58ad20e",
-     "tool_sha256": "984a3f5034b33352165713fc51f765ac465fed3757647a3dc418fbd38f43cf91",
-     "v1_reference_sha256": "70c486fbc94766e097d0d6e61bbf47908922a5f1c7657a273d394483d5491a8d"
-    },
-    "oracle": {
-     "commit": "dd09acb96ad5d0c2b1ee603f919942dd819f80c6",
-     "dirty": false,
-     "server_build_id": "dd09acb96ad5d0c2b1ee603f919942dd819f80c6+profile=release+target=x86_64-unknown-linux-gnu+features=",
-     "sha256": "162a0e976364aecaab5e14c969a03b26bdda62cd943308e56a512b36acec1ae8",
-     "source": "vcs"
-    },
-    "rom": {
-     "crc32": "193507d9",
-     "debug": 0,
-     "extra_entries": "none",
-     "game": "sonic4",
-     "rom": "s4.bin",
-     "sigil_revision": "7630ba0d87cf003f8ab040678babadb2e13347bb",
-     "size": 850296,
-     "target": "sonic4",
-     "tree": "clean-sources"
-    }
-   },
-   "reason": "cx 5824 >= Camera_X_Max 5824",
-   "reference_grade": true,
-   "shape": "s4",
-   "status": "FINISHED",
-   "t0": 300,
-   "ticks": 1100,
-   "wall_s": 6.7
   }
  },
  "replay_runner": {
