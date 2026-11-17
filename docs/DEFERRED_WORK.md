@@ -50,10 +50,10 @@ against the AS-era tree and cite `.asm` paths and line numbers into files that *
 
 `docs/benchmarks/v1-reference/` (tool `tools/v1_reference.py`, v2 E1) holds 10 recordings:
 `s4.bin` and `s4.debug.bin` x idle/run/topspeed/diagfall/spindash, phase 0, each replayed 10/10
-identical (MANIFEST `determinism`). **Open:** (1) diagfall and spindash are recorded STUCK at
-px 1143 (release) / px 503 (DEBUG) -- a deterministic behaviour reference, not coverage; if the
-owner rules on the at-a-wall question (jump or dash at gspeed 0), those four recordings are
-re-recorded with `v1_reference.py record` and re-diffed. (2) `topspeed` is byte-identical to
+identical (MANIFEST `determinism`). **Open:** (1) release diagfall and both spindash recordings are DID NOT COVER (diagfall STUCK at px 1143 on
+release; DEBUG diagfall is COVERED, 35/30, though it also sticks at px 503) -- deterministic
+behaviour references, not coverage; if the owner rules on the at-a-wall question (jump or dash at
+gspeed 0), those three recordings are re-recorded with `v1_reference.py record` and re-diffed. (2) `topspeed` is byte-identical to
 `run` on both shapes (its slow-for-30-ticks dash never fires on this act), so it adds no
 behaviour today; the MANIFEST marks it `identical_to: "<shape>/run"`, computed from both
 sha256s. (3) oracle's `replay_runner` on `s4.debug.bin` (crc32 ce326232) is DESYNC at
