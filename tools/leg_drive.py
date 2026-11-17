@@ -284,6 +284,31 @@ class DiagFall(Spindash):
         return h
 
 
+class Replay:
+    """OPEN-LOOP replay of a saved InputLog (E1, tools/v1_reference.py): the held byte for tick
+    t is `held[t - t0]`, whatever the state says. `open_loop` tells LegCore to skip the DEBUG
+    free-flight exit too -- the recorded log already contains the bytes that exit wrote, so a
+    replay re-applies them verbatim instead of re-deciding them. A tick outside the log is a
+    loud DriveError (the caller caps the drive at len(held), so it never asks)."""
+    progress = False          # a replay ends at the end of its log, never on a stuck verdict
+    open_loop = True
+
+    def __init__(self, log: InputLog):
+        if not isinstance(log, dict) or not isinstance(log.get("t0"), int) or not isinstance(
+                log.get("held"), list):
+            raise DriveError(f"not an InputLog {{t0: int, held: list[int]}}: {type(log)}")
+        if any(not isinstance(h, int) or not 0 <= h <= 0xFF for h in log["held"]):
+            raise DriveError("InputLog.held carries a value that is not a byte")
+        self.t0, self.log = log["t0"], list(log["held"])
+
+    def held(self, s):
+        k = s.tick - self.t0
+        if not 0 <= k < len(self.log):
+            raise DriveError(f"replay asked for tick {s.tick}, outside the log "
+                             f"[{self.t0}, {self.t0 + len(self.log)})")
+        return self.log[k]
+
+
 #: name -> factory(buttons, equ), `equ` being the listing's equates (`Syms.equ`). The brief's
 #: interface was Callable[[Buttons], Policy]; the equates are passed because the spindash
 #: family's gate (PHYS_ROLL_START_MIN) must come from the listing, not be typed here.
@@ -330,7 +355,9 @@ class LegCore:
         self.status: str | None = None
         self.reason = ""
         self.prev: TickState | None = None
-        self.policy_from: int | None = None if debug else t0
+        # An open-loop policy (Replay) owns every tick from t0, DEBUG free-flight exit included.
+        open_loop = getattr(policy, "open_loop", False)
+        self.policy_from: int | None = None if (debug and not open_loop) else t0
         self._dbg_py0 = self._dbg_py1 = None
         self.notes: list[str] = []
 
