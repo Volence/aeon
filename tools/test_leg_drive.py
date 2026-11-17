@@ -892,3 +892,13 @@ def test_sidekick_separation_is_wrap_aware_above_the_act_top():
         r["p2y"] = 60
     cov = ld.sidekick_coverage("FINISHED", rows, SK_EQ, sk_dma(rows), 300, K)
     assert cov["got"]["sep_max"] < 512 and cov["got"]["sep_pct"] == 100
+
+
+def test_sidekick_cost_block_stderr_sees_autocorrelation():
+    """A slow drift (correlated ticks) leaves the iid stderr small; the batch-means one is not."""
+    rows = [{"t": t, "px": t, "py": 0, "p2c": 1, "cyc": 60000 + (2000 if (t // 64) % 2 else 0)}
+            for t in range(640)]
+    ref = [{"t": t, "px": t, "py": 0, "cyc": 50000} for t in range(640)]
+    c = ld.sidekick_cost_paired(rows, ref)
+    assert c["blocks"] == 20 and c["stderr_block"] > 2 * c["stderr"]
+    assert ld.sidekick_cost_paired(rows[:64], ref)["stderr_block"] is None

@@ -636,3 +636,94 @@ def test_the_lane_shape_list_parse():
             '    > "$STATE/x.log" 2>&1\n')
     assert lane_shapes_built(text) == ["s4.debug", "demo"]
     assert lane_shapes_built('python3 tools/needs_build_lane.py --built-after "$T"\n') is None
+
+
+# --------------------------------------------------------------- the nightly's pinned exemption
+
+#: THE NIGHTLY'S EXEMPTION, PINNED (v2 C3 fix 1, 2026-11-17). The nightly hands
+#: needs_build_lane `--shapes-built` with its four canonical shapes, so the lane exempts
+#: BUILD_ARTIFACTS minus those: today the off-canonical s4.sidekick* pairs. A derived
+#: exemption alone would silently swallow the NEXT artifact added to BUILD_ARTIFACTS
+#: without a nightly build, which is the 2026-09-07 drift reopened. So the derived set
+#: must be EXACTLY this allowlist, and every entry must be graded by its own leg in the
+#: nightly: the literal stress-build line that writes it (whose post-sigil lane must run
+#: the case: build.sh refuses a deferral) and that leg's rc in the worst-wins fold.
+#: Growing or shrinking it is a reviewed edit of this table, never a side effect.
+NIGHTLY_GRADED_EXEMPT = {
+    "s4.sidekick.bin": (r"^STRESS_SIDEKICK=1 \./build\.sh\b", "rc_sk"),
+    "s4.sidekick.lst": (r"^STRESS_SIDEKICK=1 \./build\.sh\b", "rc_sk"),
+    "s4.sidekick.debug.bin": (r"^STRESS_SIDEKICK=1 DEBUG=1 \./build\.sh\b", "rc_skd"),
+    "s4.sidekick.debug.lst": (r"^STRESS_SIDEKICK=1 DEBUG=1 \./build\.sh\b", "rc_skd"),
+}
+
+
+def nightly_exemption_problems(script_text, build_artifacts, allow=None):
+    """What is wrong with a nightly's needs_build exemption: [] means pinned and graded."""
+    import needs_build_lane
+    allow = NIGHTLY_GRADED_EXEMPT if allow is None else allow
+    listed = lane_shapes_built(script_text)
+    if listed is None:
+        return ["the nightly hands needs_build_lane no --shapes-built list: nothing to pin"]
+    exempt = set(needs_build_lane.exempt_artifacts(listed, build_artifacts))
+    out = []
+    for a in sorted(exempt - set(allow)):
+        out.append("%s is EXEMPTED by the nightly's needs_build lane (BUILD_ARTIFACTS minus "
+                   "--shapes-built %s) but is not in NIGHTLY_GRADED_EXEMPT: an artifact no "
+                   "nightly leg grades would be silently exempt. Build its shape in the "
+                   "nightly, or give it a stress leg and an allowlist row." % (a, " ".join(listed)))
+    for a in sorted(set(allow) - exempt):
+        out.append("NIGHTLY_GRADED_EXEMPT lists %s, which the nightly no longer exempts: "
+                   "drop the row" % a)
+    body = [l.strip() for l in script_text.splitlines()
+            if l.strip() and not l.strip().startswith("#")]
+    for a in sorted(exempt & set(allow)):
+        pat, rc = allow[a]
+        builds = [i for i, l in enumerate(body) if re.search(pat, l)]
+        if len(builds) != 1:
+            out.append("%s: expected exactly one nightly line matching %r (the leg that "
+                       "builds and grades it), found %d" % (a, pat, len(builds)))
+            continue
+        after = body[builds[0] + 1:]
+        if not any(re.match(r"^%s=\$\?" % rc, l) for l in after[:3]):
+            out.append("%s: the build line is not followed by `%s=$?`" % (a, rc))
+        fold = [l for l in body if l.startswith("for r in ") and '"$rc_tree"' in l]
+        if not fold or ('"$%s"' % rc) not in fold[0]:
+            out.append("%s: %s is not in the worst-wins fold" % (a, rc))
+    return out
+
+
+def test_the_nightly_exemption_is_exactly_the_graded_stress_pairs():
+    import conftest
+    with open(os.path.join(TOOLS, "nightly_effects_gates.sh"), encoding="utf-8") as fh:
+        problems = nightly_exemption_problems(fh.read(), conftest.BUILD_ARTIFACTS)
+    assert not problems, "the nightly's needs_build exemption:\n  - " + "\n  - ".join(problems)
+
+
+_NIGHTLY_GOOD = (
+    'python3 tools/needs_build_lane.py --built-after "$T" \\\n'
+    '    --shapes-built s4.debug demo.debug s4 demo > "$STATE/nb.log" 2>&1\n'
+    'STRESS_SIDEKICK=1 ./build.sh >> "$STATE/a.log" 2>&1\n'
+    'rc_sk=$?\n'
+    'STRESS_SIDEKICK=1 DEBUG=1 ./build.sh >> "$STATE/b.log" 2>&1\n'
+    'rc_skd=$?\n'
+    'for r in "$rc" "$rc_sk" "$rc_skd" "$rc_tree"; do\n')
+_ARTS = ("s4.bin", "s4.lst", "s4.debug.bin", "s4.debug.lst", "demo.bin", "demo.lst",
+         "demo.debug.bin", "demo.debug.lst", "s4.sidekick.bin", "s4.sidekick.lst",
+         "s4.sidekick.debug.bin", "s4.sidekick.debug.lst")
+
+
+def test_the_exemption_pin_accepts_the_good_nightly():
+    assert nightly_exemption_problems(_NIGHTLY_GOOD, _ARTS) == []
+
+
+@pytest.mark.parametrize("name,text,arts", [
+    ("a new artifact no nightly leg builds", _NIGHTLY_GOOD, _ARTS + ("s4.fake.bin", "s4.fake.lst")),
+    ("the DEBUG sidekick leg dropped",
+     _NIGHTLY_GOOD.replace('STRESS_SIDEKICK=1 DEBUG=1 ./build.sh >> "$STATE/b.log" 2>&1\n', ""), _ARTS),
+    ("a leg's rc not folded", _NIGHTLY_GOOD.replace(' "$rc_skd"', ""), _ARTS),
+    ("an allowlisted pair no longer exempt", _NIGHTLY_GOOD,
+     tuple(a for a in _ARTS if "sidekick.debug" not in a)),
+    ("no --shapes-built at all", _NIGHTLY_GOOD.replace("--shapes-built s4.debug demo.debug s4 demo", ""), _ARTS),
+])
+def test_the_exemption_pin_refuses(name, text, arts):
+    assert nightly_exemption_problems(text, arts), name

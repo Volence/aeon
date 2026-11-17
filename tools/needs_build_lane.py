@@ -331,7 +331,9 @@ def main(argv=None):
         print("\nOK — all %d marked test(s) this caller's shapes can reach ran and passed; %d "
               "EXEMPTED above." % (len(ran), len(exempted)))
         print("  EXEMPTED is not passed: those cases need a shape this caller does not build,")
-        print("  and are graded by whatever builds it (./build.sh <game>, the nightly).")
+        print("  and are graded by whatever builds it: a canonical pair by ./build.sh <game> and")
+        print("  the nightly; an s4.sidekick* pair by its own STRESS_SIDEKICK=1 [DEBUG=1]")
+        print("  ./build.sh (its post-sigil lane must run it), which the nightly's last legs run.")
         return 0
     print("\nOK — all %d marked test(s) ran and passed." % len(cases))
     return 0

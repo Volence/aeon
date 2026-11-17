@@ -1711,6 +1711,22 @@ if [[ "$FAST" == "0" ]]; then
             echo "  the listing THIS build just emitted, so a failure here is about today's ROM."
             exit 1
         fi
+        # STRESS_SIDEKICK (v2 C3 fix 1): the lane above DEFERS a marked case quietly, and
+        # this build is the ONLY runner of test_sidekick_slot_live (the nightly's
+        # STRESS_SIDEKICK legs map this build's exit). So the case for THIS shape's pair
+        # must have RUN: needs_build_lane reads the verdict from JUnit, exempts only the
+        # other sidekick pair (--shapes-built ${ROM_NAME}), and calls a deferral of this
+        # pair COULD NOT RUN (exit 2), which fails the build. The patch is still applied
+        # here (the EXIT trap restores it), so the listing's Source Digest reproduces.
+        if [[ "${STRESS_SIDEKICK:-0}" == "1" ]]; then
+            echo "STRESS_SIDEKICK: test_sidekick_slot_live must RUN on ${ROM_NAME} (not defer)..."
+            if ! python3 "${TOOLS}/needs_build_lane.py" --built-after "${SIGIL_T0}" \
+                    --shapes-built "${ROM_NAME}" -k test_sidekick_slot_live; then
+                echo "ERROR: STRESS_SIDEKICK: test_sidekick_slot_live did not RUN and pass on"
+                echo "  ${ROM_NAME}.bin / ${ROM_NAME}.lst (needs_build_lane above says which)."
+                exit 1
+            fi
+        fi
     fi
 
     # NOT `|| true`. It was, and that mattered: s4budget returned 0 on every path

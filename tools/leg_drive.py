@@ -677,10 +677,14 @@ def sidekick_coverage(status, rows, equ, dma, start, delay=None):
     return dict(rule=rule, got=got, need=need, met=met)
 
 
+#: Batch-means block length (ticks) for the sidekick cost's autocorrelation-aware stderr.
+SK_COST_BLOCK = 32
 SK_COST_METHOD = (
     "paired by tick: for each tick present in both runs, with a cycle reading in both, the same "
     "P1 (px, py) in both (same route) and Player_2 live in the sidekick run, d = sidekick cyc - "
-    "canonical cyc; reported as mean d +- its standard error. Cycles = mclk / 7 from Input_Tick "
+    "canonical cyc; reported as mean d +- its standard error. `stderr` assumes independent ticks "
+    "and is therefore OPTIMISTIC (consecutive ticks share scene state); `stderr_block` is the "
+    "batch-means estimate over 32-tick blocks, the honest one to quote. Cycles = mclk / 7 from Input_Tick "
     "to the next VSync_Wait entry (interrupt time inside the window included). Emulator: the "
     "pinned oracle-aether.")
 
@@ -705,8 +709,17 @@ def sidekick_cost_paired(rows: list, ref_rows: list) -> dict:
     mean = sum(d) / n
     sd = math.sqrt(sum((x - mean) ** 2 for x in d) / (n - 1))
     srt = sorted(d)
+    blocks = [sum(d[i:i + SK_COST_BLOCK]) / SK_COST_BLOCK
+              for i in range(0, n - SK_COST_BLOCK + 1, SK_COST_BLOCK)]
+    nb = len(blocks)
+    if nb >= 3:
+        bm = sum(blocks) / nb
+        se_block = math.sqrt(sum((b - bm) ** 2 for b in blocks) / (nb - 1)) / math.sqrt(nb)
+    else:
+        se_block = None                                   # too few blocks: not estimated
     return {"status": "MEASURED", "label": "MEASURED (Oracle)", "method": SK_COST_METHOD,
             "n": n, "mean_cyc": mean, "stderr": sd / math.sqrt(n), "sd": sd,
+            "stderr_block": se_block, "blocks": nb, "block_ticks": SK_COST_BLOCK,
             "median_cyc": srt[n // 2], "min_cyc": srt[0], "max_cyc": srt[-1],
             "frame_pct": 100.0 * mean / FRAME_CYC, "ticks_off_route": off}
 

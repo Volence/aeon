@@ -187,4 +187,4 @@ def test_sidekick_slot_live(rom, lst):
     tr, p2, s = _p2_after(AEON / rom, AEON / lst)
     assert len(tr.rows) >= SK_TICKS - 1, (tr.status, tr.reason, len(tr.rows))
     assert p2["p2c"] != 0, f"Player_2's code word is 0 after {len(tr.rows)} ticks: no sidekick"
-    assert abs(p2["p2x"] - s.px) <= SK_NEAR_PX, (p2, s.px, s.py)
+    assert abs(ld._d16(p2["p2x"], s.px)) <= SK_NEAR_PX, (p2, s.px, s.py)

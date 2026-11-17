@@ -25,8 +25,11 @@
 # before it lands rather than the next morning. That pre-merge check builds only the shapes
 # in its LANDING_SHAPES list (three since CTRL-3b, 2026-09-14; demo normal is assembled
 # there, not built) and EXEMPTS by name what the others would feed, so THIS script, which
-# still builds all four, is the one place every marked test runs, and it takes no
-# exemption. This stays as the backstop for a parcel that skipped the ritual. LS-1 moved the tests that read a build
+# still builds all four, is the one place every marked test runs. Its only exemption (v2 C3,
+# 2026-11-17) is the off-canonical s4.sidekick* pairs, and only because the STRESS_SIDEKICK
+# legs at the end of this script grade them in their own builds; the exemption is pinned to
+# that list by tools/test_landing_lane_shapes.py (NIGHTLY_GRADED_EXEMPT), so every
+# canonical artifact still takes none. This stays as the backstop for a parcel that skipped the ritual. LS-1 moved the tests that read a build
 # artifact into a post-sigil lane inside build.sh; one of them —
 # test_segmented_parent_checks_the_row_set_it_aggregated — declares s4.debug.bin,
 # s4.debug.lst AND demo.debug.lst, and one build.sh invocation writes exactly one
@@ -35,13 +38,14 @@
 # the only place several shapes are built back to back in one checkout, so it is the
 # only place the whole marked lane is reachable — and the release shape is built here
 # purely so the fourth marked test (s4.lst) is reachable too. The rule that keeps the
-# lane honest is that ZERO deferrals are legitimate HERE: every artifact the marked
-# tests declare is built by this script, so a deferral means a build did not write
+# lane honest is that ZERO canonical deferrals are legitimate HERE: every canonical artifact
+# the marked tests declare is built by this script, so a deferral means a build did not write
 # what it was supposed to, and tools/needs_build_lane.py calls that COULD NOT RUN.
 # Do NOT "fix" this by adding a second game's build to build.sh: one invocation
 # builds one game, and that is the contract every other gate in it depends on.
 #
-# AND IT BUILDS THE TWO STRESS_* FIXTURE SHAPES (STRESS-SHAPES-NIGHTLY, 2026-09-17), LAST,
+# AND IT BUILDS THE STRESS_* FIXTURE SHAPES (STRESS-SHAPES-NIGHTLY, 2026-09-17; the two
+# STRESS_SIDEKICK legs since v2 C3 fix 1, 2026-11-17), LAST,
 # after every lane above has graded the canonical artifacts: see the block above the
 # worst-wins combination for why last, and why a failure there is FAILED, not COULD NOT RUN.
 # The STRESS_EVICT artifact is then graded by tools/evict_witness.py (2026-09-25), and the
@@ -264,9 +268,13 @@ esac
 # --shapes-built (v2 C3, 2026-11-17): exactly the four canonical shapes built above. Since
 # the STRESS_SIDEKICK shape's s4.sidekick* pairs joined conftest.BUILD_ARTIFACTS, the lane
 # EXEMPTS a deferral caused ONLY by them (named, never passed; derived as BUILD_ARTIFACTS
-# minus these four). Every canonical artifact is still built here, so nothing canonical is
-# exempt: a canonical deferral is still exit 2. test_sidekick_slot_live runs in every
-# STRESS_SIDEKICK build's own post-sigil lane, where that pair is the build's.
+# minus these four). They are GRADED, not dropped: by the two STRESS_SIDEKICK legs at the
+# end of this script, whose own post-sigil lane must run test_sidekick_slot_live (the
+# listing reproduces only while the patch is applied, i.e. inside that build). The
+# exemption is PINNED, not open: tools/test_landing_lane_shapes.py fails if this derived
+# set is anything but NIGHTLY_GRADED_EXEMPT, the pairs a stress leg here builds, so the
+# next artifact added without a nightly build is red in every pre-build lane, never
+# silently EXEMPTED (the 2026-09-07 drift). A canonical deferral is still exit 2.
 python3 tools/needs_build_lane.py --built-after "$BUILD_T0" \
     --shapes-built s4.debug demo.debug s4 demo \
     > "$STATE/needs_build.log" 2>&1
@@ -422,6 +430,40 @@ else
         > "$STATE/stress_art_legs.log"
     rc_sw=1
 fi
+# THE STRESS_SIDEKICK LEGS (v2 C3 fix 1, 2026-11-17): the only unattended runner of
+# test_sidekick_slot_live, and the reason the needs_build lane above may exempt the
+# s4.sidekick* pairs at all (tools/test_landing_lane_shapes.py pins that exemption to
+# exactly the pairs these two legs build: NIGHTLY_GRADED_EXEMPT). Each build applies
+# tools/stress/sidekick.patch in place under an EXIT trap, and its post-sigil lane must RUN
+# that test on its own pair (build.sh refuses a deferral of it). Both shapes are built
+# because each pair is a separate BUILD_ARTIFACTS entry with its own ROM; the stress legs
+# above build one shape each only because each is one ROM. Both run here, after every lane
+# that reads a canonical artifact, for the reasons in the block header, and before the tree
+# check, which then also proves the sidekick trap restored the five files. VERDICT MAPPING
+# (controller ruling, 2026-11-17): the gate case failing in the build's log is FAILED (1);
+# any other non-zero build exit is COULD NOT RUN (2) -- the gate was never reached -- and
+# neither leg is ever skipped. Spelled out literally, like the legs above.
+sidekick_leg() {  # sidekick_leg <shape label> <logfile> <rc>: prints the mapped rc
+    if [ "$3" = 0 ]; then
+        echo "$(date -Is) OK at $AT ($1 build + test_sidekick_slot_live)" >> "$LOG"; echo 0
+    elif grep -q "^FAILED tools/test_stress_sidekick.py::test_sidekick_slot_live" "$2"; then
+        note "$1 SIDEKICK GATE FAILED at $AT — see $2" >/dev/null; echo 1
+    else
+        note "COULD NOT RUN: $1 build (exit $3) never graded test_sidekick_slot_live at $AT — see $2" >/dev/null; echo 2
+    fi
+}
+t_sk=$(date +%s)
+stress_stamp STRESS_SIDEKICK "$STATE/stress_sidekick.log" begin
+STRESS_SIDEKICK=1 ./build.sh >> "$STATE/stress_sidekick.log" 2>&1
+rc_sk=$?
+stress_stamp STRESS_SIDEKICK "$STATE/stress_sidekick.log" end "$rc_sk" "$t_sk"
+rc_sk=$(sidekick_leg STRESS_SIDEKICK "$STATE/stress_sidekick.log" "$rc_sk")
+t_skd=$(date +%s)
+stress_stamp "STRESS_SIDEKICK=1 DEBUG" "$STATE/stress_sidekick_debug.log" begin
+STRESS_SIDEKICK=1 DEBUG=1 ./build.sh >> "$STATE/stress_sidekick_debug.log" 2>&1
+rc_skd=$?
+stress_stamp "STRESS_SIDEKICK=1 DEBUG" "$STATE/stress_sidekick_debug.log" end "$rc_skd" "$t_skd"
+rc_skd=$(sidekick_leg "STRESS_SIDEKICK DEBUG" "$STATE/stress_sidekick_debug.log" "$rc_skd")
 tree_after=$(git -C "$NIGHTLY" status --porcelain 2>&1)
 rc_git=$?
 { echo "before the stress legs:"; echo "$tree_before"; echo "after the stress legs (git status exit $rc_git):"; echo "$tree_after"; } \
@@ -433,7 +475,7 @@ elif [ -n "$tree_after" ]; then
     if [ -n "$tree_before" ]; then
         note "STRESS TREE CHECK FAILED: $NIGHTLY is dirty after the stress legs at $AT, and was ALREADY dirty before them — see $STATE/stress_tree.log"
     else
-        note "STRESS TREE CHECK FAILED: the stress legs left $NIGHTLY dirty at $AT (STRESS_ART's EXIT-trap restore did not restore) — see $STATE/stress_tree.log"
+        note "STRESS TREE CHECK FAILED: the stress legs left $NIGHTLY dirty at $AT (STRESS_ART's or STRESS_SIDEKICK's EXIT-trap restore did not restore) — see $STATE/stress_tree.log"
     fi
     rc_tree=1
 else
@@ -443,7 +485,7 @@ fi
 
 # worst-wins: 2 (could not run) beats 1 (failed) beats 0
 worst=0
-for r in "$rc" "$rc_lab" "$rc_nb" "$rc_se" "$rc_ew" "$rc_sa" "$rc_sw" "$rc_tree"; do
+for r in "$rc" "$rc_lab" "$rc_nb" "$rc_se" "$rc_ew" "$rc_sa" "$rc_sw" "$rc_sk" "$rc_skd" "$rc_tree"; do
     if [ "$r" = 2 ] || { [ "$r" != 0 ] && [ "$worst" != 2 ]; }; then
         [ "$r" = 2 ] && worst=2 || worst=1
     fi
