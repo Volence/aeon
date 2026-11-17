@@ -39,6 +39,71 @@
   }
  },
  "recordings": {
+  "s4.debug/diagfall": {
+   "coverage": {
+    "got": 458,
+    "met": true,
+    "need": 30,
+    "rule": "ticks with camera moving on both axes and yvel > 0 >= 30"
+   },
+   "covered": "COVERED",
+   "date_utc": "2026-11-17T09:06:14Z",
+   "first_tick": 300,
+   "framebuffer_source": "raster",
+   "frames_bytes": 61024,
+   "frames_sha256": "5536ae35930e0a06a4239ed69cf7b234c59cbe59bea1e4acaac37469f5a76d07",
+   "inputs_sha256": "071614c23b5dfb85eebd6dc111c61ca9ecefc993ada611b0cc056d9d06955ea5",
+   "lag_frames": 18,
+   "last_tick": 1246,
+   "leg": "diagfall",
+   "mode": "closed-loop",
+   "notes": [
+    "DEBUG: py frozen at 256 for 8 ticks; B pressed at tick 308",
+    "DEBUG: free flight left (py 256->262); policy from tick 316"
+   ],
+   "phase": 0,
+   "policy_version": 2,
+   "provenance": {
+    "aeon": {
+     "branch": "feat/v2-step0-harness",
+     "commit": "0853bc1a155c619633823e701ab0d85ebd8c6d40",
+     "dirty": false,
+     "dirty_count": 0,
+     "dirty_paths": []
+    },
+    "harness": {
+     "leg_drive_sha256": "03977455fc1c1155e9d65277ae84de6fe0e84a3bbf8293bc89cb5a5a8eec81a6",
+     "tool_sha256": "ce60694974dccfbf079ac32813afd15097c78dbbd3f78b965228078b7fbc30c2",
+     "v1_reference_sha256": "b00b794d6a13a9d88cff2594ff72caa46ed07c38a1d769e67f8e8940ecc24a97"
+    },
+    "oracle": {
+     "commit": "dd09acb96ad5d0c2b1ee603f919942dd819f80c6",
+     "dirty": false,
+     "server_build_id": "dd09acb96ad5d0c2b1ee603f919942dd819f80c6+profile=release+target=x86_64-unknown-linux-gnu+features=",
+     "sha256": "162a0e976364aecaab5e14c969a03b26bdda62cd943308e56a512b36acec1ae8",
+     "source": "vcs"
+    },
+    "rom": {
+     "crc32": "ce326232",
+     "debug": 1,
+     "extra_entries": "none",
+     "game": "sonic4",
+     "rom": "s4.debug.bin",
+     "sigil_revision": "7630ba0d87cf003f8ab040678babadb2e13347bb",
+     "size": 870560,
+     "target": "sonic4",
+     "tree": "clean-sources"
+    }
+   },
+   "reason": "cx 5824 >= Camera_X_Max 5824",
+   "reference_grade": true,
+   "shape": "s4.debug",
+   "status": "FINISHED",
+   "supersedes": "archive/policy-v1/MANIFEST.json recordings['s4.debug/diagfall'] (policy v1)",
+   "t0": 300,
+   "ticks": 947,
+   "wall_s": 4.63
+  },
   "s4.debug/idle": {
    "coverage": {
     "got": 600,
@@ -167,6 +232,207 @@
    "ticks": 923,
    "wall_s": 7.3
   },
+  "s4.debug/spindash": {
+   "coverage": {
+    "got": {
+     "releases": 0,
+     "status": "FINISHED"
+    },
+    "met": false,
+    "need": {
+     "releases": 1,
+     "status": "FINISHED"
+    },
+    "rule": "status == FINISHED and spindash releases (PSTATE_SPINDASH exits) >= 1"
+   },
+   "covered": "DID NOT COVER",
+   "date_utc": "2026-11-17T09:06:19Z",
+   "first_tick": 300,
+   "framebuffer_source": "raster",
+   "frames_bytes": 61012,
+   "frames_sha256": "2b4bcf905b01b7fabff6073939e1d96323c2fe4092d40290de11c5d94e93287b",
+   "inputs_sha256": "56c25f25f150d31e893a168d6c89bd1bc9c5fe80b16f85f718c99f36f6272428",
+   "lag_frames": 18,
+   "last_tick": 1246,
+   "leg": "spindash",
+   "mode": "closed-loop",
+   "notes": [
+    "DEBUG: py frozen at 256 for 8 ticks; B pressed at tick 308",
+    "DEBUG: free flight left (py 256->262); policy from tick 316"
+   ],
+   "outcome_note": "FINISHED but DID NOT COVER (0 releases): the one dash trigger fired on a landing tick (gspeed reads 0 while xvel is 1080), so DOWN started a roll, not a charge; no later ground tick was below the gate and unblocked. The px-503 wall where v1 stuck is now cleared by the blocked jump.",
+   "phase": 0,
+   "policy_version": 2,
+   "provenance": {
+    "aeon": {
+     "branch": "feat/v2-step0-harness",
+     "commit": "0853bc1a155c619633823e701ab0d85ebd8c6d40",
+     "dirty": false,
+     "dirty_count": 0,
+     "dirty_paths": []
+    },
+    "harness": {
+     "leg_drive_sha256": "03977455fc1c1155e9d65277ae84de6fe0e84a3bbf8293bc89cb5a5a8eec81a6",
+     "tool_sha256": "ce60694974dccfbf079ac32813afd15097c78dbbd3f78b965228078b7fbc30c2",
+     "v1_reference_sha256": "b00b794d6a13a9d88cff2594ff72caa46ed07c38a1d769e67f8e8940ecc24a97"
+    },
+    "oracle": {
+     "commit": "dd09acb96ad5d0c2b1ee603f919942dd819f80c6",
+     "dirty": false,
+     "server_build_id": "dd09acb96ad5d0c2b1ee603f919942dd819f80c6+profile=release+target=x86_64-unknown-linux-gnu+features=",
+     "sha256": "162a0e976364aecaab5e14c969a03b26bdda62cd943308e56a512b36acec1ae8",
+     "source": "vcs"
+    },
+    "rom": {
+     "crc32": "ce326232",
+     "debug": 1,
+     "extra_entries": "none",
+     "game": "sonic4",
+     "rom": "s4.debug.bin",
+     "sigil_revision": "7630ba0d87cf003f8ab040678babadb2e13347bb",
+     "size": 870560,
+     "target": "sonic4",
+     "tree": "clean-sources"
+    }
+   },
+   "reason": "cx 5824 >= Camera_X_Max 5824",
+   "reference_grade": true,
+   "shape": "s4.debug",
+   "status": "FINISHED",
+   "supersedes": "archive/policy-v1/MANIFEST.json recordings['s4.debug/spindash'] (policy v1)",
+   "t0": 300,
+   "ticks": 947,
+   "wall_s": 4.67
+  },
+  "s4.debug/topspeed": {
+   "coverage": {
+    "got": 699,
+    "met": true,
+    "need": 60,
+    "rule": "ticks with |gspeed| >= PHYS_TOP_SPEED ($600) >= 60"
+   },
+   "covered": "COVERED",
+   "date_utc": "2026-11-17T09:06:10Z",
+   "first_tick": 300,
+   "framebuffer_source": "raster",
+   "frames_bytes": 59564,
+   "frames_sha256": "50cfe0399aa64c4f1566737ca5d726f3bd73ffc3351ccb8945dd9e0f59fcafd8",
+   "identical_to": "s4.debug/run",
+   "inputs_sha256": "6b8bbd0d986b7b32118059f8ed0ce8b2f8f0abbaafa6ac251c0b302e33c71b3a",
+   "lag_frames": 16,
+   "last_tick": 1222,
+   "leg": "topspeed",
+   "mode": "closed-loop",
+   "notes": [
+    "DEBUG: py frozen at 256 for 8 ticks; B pressed at tick 308",
+    "DEBUG: free flight left (py 256->262); policy from tick 316"
+   ],
+   "phase": 0,
+   "policy_version": 2,
+   "provenance": {
+    "aeon": {
+     "branch": "feat/v2-step0-harness",
+     "commit": "0853bc1a155c619633823e701ab0d85ebd8c6d40",
+     "dirty": false,
+     "dirty_count": 0,
+     "dirty_paths": []
+    },
+    "harness": {
+     "leg_drive_sha256": "03977455fc1c1155e9d65277ae84de6fe0e84a3bbf8293bc89cb5a5a8eec81a6",
+     "tool_sha256": "ce60694974dccfbf079ac32813afd15097c78dbbd3f78b965228078b7fbc30c2",
+     "v1_reference_sha256": "b00b794d6a13a9d88cff2594ff72caa46ed07c38a1d769e67f8e8940ecc24a97"
+    },
+    "oracle": {
+     "commit": "dd09acb96ad5d0c2b1ee603f919942dd819f80c6",
+     "dirty": false,
+     "server_build_id": "dd09acb96ad5d0c2b1ee603f919942dd819f80c6+profile=release+target=x86_64-unknown-linux-gnu+features=",
+     "sha256": "162a0e976364aecaab5e14c969a03b26bdda62cd943308e56a512b36acec1ae8",
+     "source": "vcs"
+    },
+    "rom": {
+     "crc32": "ce326232",
+     "debug": 1,
+     "extra_entries": "none",
+     "game": "sonic4",
+     "rom": "s4.debug.bin",
+     "sigil_revision": "7630ba0d87cf003f8ab040678babadb2e13347bb",
+     "size": 870560,
+     "target": "sonic4",
+     "tree": "clean-sources"
+    }
+   },
+   "reason": "cx 5824 >= Camera_X_Max 5824",
+   "reference_grade": true,
+   "shape": "s4.debug",
+   "status": "FINISHED",
+   "supersedes": "archive/policy-v1/MANIFEST.json recordings['s4.debug/topspeed'] (policy v1)",
+   "t0": 300,
+   "ticks": 923,
+   "wall_s": 4.51
+  },
+  "s4/diagfall": {
+   "coverage": {
+    "got": 21,
+    "met": false,
+    "need": 30,
+    "rule": "ticks with camera moving on both axes and yvel > 0 >= 30"
+   },
+   "covered": "DID NOT COVER",
+   "date_utc": "2026-11-17T09:06:02Z",
+   "first_tick": 300,
+   "framebuffer_source": "raster",
+   "frames_bytes": 26607,
+   "frames_sha256": "51d136a69fe1206b1b678fd539b8d8c3a7e67bac50e434ea8d45cefc31843238",
+   "inputs_sha256": "f03f7e405dd19582fd9b9ff92f6ed77368e78583984ee7b0aa44c435f9b0caaa",
+   "lag_frames": 0,
+   "last_tick": 831,
+   "leg": "diagfall",
+   "mode": "closed-loop",
+   "notes": [],
+   "outcome_note": "STUCK at px 1143 (policy v2), the same cause as s4/spindash: the one rolling tick after each release re-arms the dash before the blocked count reaches its jump.",
+   "phase": 0,
+   "policy_version": 2,
+   "provenance": {
+    "aeon": {
+     "branch": "feat/v2-step0-harness",
+     "commit": "0853bc1a155c619633823e701ab0d85ebd8c6d40",
+     "dirty": false,
+     "dirty_count": 0,
+     "dirty_paths": []
+    },
+    "harness": {
+     "leg_drive_sha256": "03977455fc1c1155e9d65277ae84de6fe0e84a3bbf8293bc89cb5a5a8eec81a6",
+     "tool_sha256": "ce60694974dccfbf079ac32813afd15097c78dbbd3f78b965228078b7fbc30c2",
+     "v1_reference_sha256": "b00b794d6a13a9d88cff2594ff72caa46ed07c38a1d769e67f8e8940ecc24a97"
+    },
+    "oracle": {
+     "commit": "dd09acb96ad5d0c2b1ee603f919942dd819f80c6",
+     "dirty": false,
+     "server_build_id": "dd09acb96ad5d0c2b1ee603f919942dd819f80c6+profile=release+target=x86_64-unknown-linux-gnu+features=",
+     "sha256": "162a0e976364aecaab5e14c969a03b26bdda62cd943308e56a512b36acec1ae8",
+     "source": "vcs"
+    },
+    "rom": {
+     "crc32": "193507d9",
+     "debug": 0,
+     "extra_entries": "none",
+     "game": "sonic4",
+     "rom": "s4.bin",
+     "sigil_revision": "7630ba0d87cf003f8ab040678babadb2e13347bb",
+     "size": 850296,
+     "target": "sonic4",
+     "tree": "clean-sources"
+    }
+   },
+   "reason": "progress: max px 1143 has not grown by 32 px in 300 ticks; at (px, py) = (1143, 301), cam (983, 157)",
+   "reference_grade": true,
+   "shape": "s4",
+   "status": "STUCK",
+   "supersedes": "archive/policy-v1/MANIFEST.json recordings['s4/diagfall'] (policy v1)",
+   "t0": 300,
+   "ticks": 532,
+   "wall_s": 3.37
+  },
   "s4/idle": {
    "coverage": {
     "got": 600,
@@ -288,6 +554,138 @@
    "t0": 300,
    "ticks": 1100,
    "wall_s": 7.41
+  },
+  "s4/spindash": {
+   "coverage": {
+    "got": {
+     "releases": 9,
+     "status": "STUCK"
+    },
+    "met": false,
+    "need": {
+     "releases": 1,
+     "status": "FINISHED"
+    },
+    "rule": "status == FINISHED and spindash releases (PSTATE_SPINDASH exits) >= 1"
+   },
+   "covered": "DID NOT COVER",
+   "date_utc": "2026-11-17T09:06:05Z",
+   "first_tick": 300,
+   "framebuffer_source": "raster",
+   "frames_bytes": 26584,
+   "frames_sha256": "a954e110207528fe11eb48c9703f0acb0523b48219a007cc956a824c2da14d1a",
+   "inputs_sha256": "7c423927f6caf6b005a530387817ea4d8572dc1e792cdd1094f4319c56cd7799",
+   "lag_frames": 0,
+   "last_tick": 831,
+   "leg": "spindash",
+   "mode": "closed-loop",
+   "notes": [],
+   "outcome_note": "STUCK at px 1143 (policy v2). Each release rolls Sonic into the wall for one tick; a ROLLING tick is not blocked (fix round 2 standing-only rule) and gspeed 0 is below PHYS_ROLL_START_MIN, so the next dash starts at once and the blocked count never reaches its jump (9 releases, no jump).",
+   "phase": 0,
+   "policy_version": 2,
+   "provenance": {
+    "aeon": {
+     "branch": "feat/v2-step0-harness",
+     "commit": "0853bc1a155c619633823e701ab0d85ebd8c6d40",
+     "dirty": false,
+     "dirty_count": 0,
+     "dirty_paths": []
+    },
+    "harness": {
+     "leg_drive_sha256": "03977455fc1c1155e9d65277ae84de6fe0e84a3bbf8293bc89cb5a5a8eec81a6",
+     "tool_sha256": "ce60694974dccfbf079ac32813afd15097c78dbbd3f78b965228078b7fbc30c2",
+     "v1_reference_sha256": "b00b794d6a13a9d88cff2594ff72caa46ed07c38a1d769e67f8e8940ecc24a97"
+    },
+    "oracle": {
+     "commit": "dd09acb96ad5d0c2b1ee603f919942dd819f80c6",
+     "dirty": false,
+     "server_build_id": "dd09acb96ad5d0c2b1ee603f919942dd819f80c6+profile=release+target=x86_64-unknown-linux-gnu+features=",
+     "sha256": "162a0e976364aecaab5e14c969a03b26bdda62cd943308e56a512b36acec1ae8",
+     "source": "vcs"
+    },
+    "rom": {
+     "crc32": "193507d9",
+     "debug": 0,
+     "extra_entries": "none",
+     "game": "sonic4",
+     "rom": "s4.bin",
+     "sigil_revision": "7630ba0d87cf003f8ab040678babadb2e13347bb",
+     "size": 850296,
+     "target": "sonic4",
+     "tree": "clean-sources"
+    }
+   },
+   "reason": "progress: max px 1143 has not grown by 32 px in 300 ticks; at (px, py) = (1143, 301), cam (983, 157)",
+   "reference_grade": true,
+   "shape": "s4",
+   "status": "STUCK",
+   "supersedes": "archive/policy-v1/MANIFEST.json recordings['s4/spindash'] (policy v1)",
+   "t0": 300,
+   "ticks": 532,
+   "wall_s": 3.0
+  },
+  "s4/topspeed": {
+   "coverage": {
+    "got": 739,
+    "met": true,
+    "need": 60,
+    "rule": "ticks with |gspeed| >= PHYS_TOP_SPEED ($600) >= 60"
+   },
+   "covered": "COVERED",
+   "date_utc": "2026-11-17T09:05:59Z",
+   "first_tick": 300,
+   "framebuffer_source": "raster",
+   "frames_bytes": 70251,
+   "frames_sha256": "e19ce4d8577fee3b8b74bbea77ad0c3079be0d7fb98a890dc2c5f57e9fca6867",
+   "identical_to": "s4/run",
+   "inputs_sha256": "73f657812e24afcaa2cd1983c24676df1bf8d214219a8fbd7229e3e225be76db",
+   "lag_frames": 1,
+   "last_tick": 1399,
+   "leg": "topspeed",
+   "mode": "closed-loop",
+   "notes": [],
+   "phase": 0,
+   "policy_version": 2,
+   "provenance": {
+    "aeon": {
+     "branch": "feat/v2-step0-harness",
+     "commit": "0853bc1a155c619633823e701ab0d85ebd8c6d40",
+     "dirty": false,
+     "dirty_count": 0,
+     "dirty_paths": []
+    },
+    "harness": {
+     "leg_drive_sha256": "03977455fc1c1155e9d65277ae84de6fe0e84a3bbf8293bc89cb5a5a8eec81a6",
+     "tool_sha256": "ce60694974dccfbf079ac32813afd15097c78dbbd3f78b965228078b7fbc30c2",
+     "v1_reference_sha256": "b00b794d6a13a9d88cff2594ff72caa46ed07c38a1d769e67f8e8940ecc24a97"
+    },
+    "oracle": {
+     "commit": "dd09acb96ad5d0c2b1ee603f919942dd819f80c6",
+     "dirty": false,
+     "server_build_id": "dd09acb96ad5d0c2b1ee603f919942dd819f80c6+profile=release+target=x86_64-unknown-linux-gnu+features=",
+     "sha256": "162a0e976364aecaab5e14c969a03b26bdda62cd943308e56a512b36acec1ae8",
+     "source": "vcs"
+    },
+    "rom": {
+     "crc32": "193507d9",
+     "debug": 0,
+     "extra_entries": "none",
+     "game": "sonic4",
+     "rom": "s4.bin",
+     "sigil_revision": "7630ba0d87cf003f8ab040678babadb2e13347bb",
+     "size": 850296,
+     "target": "sonic4",
+     "tree": "clean-sources"
+    }
+   },
+   "reason": "cx 5824 >= Camera_X_Max 5824",
+   "reference_grade": true,
+   "shape": "s4",
+   "status": "FINISHED",
+   "supersedes": "archive/policy-v1/MANIFEST.json recordings['s4/topspeed'] (policy v1)",
+   "t0": 300,
+   "ticks": 1100,
+   "wall_s": 6.2
   }
  },
  "replay_runner": {

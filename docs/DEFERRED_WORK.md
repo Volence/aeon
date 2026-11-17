@@ -50,10 +50,21 @@ against the AS-era tree and cite `.asm` paths and line numbers into files that *
 
 `docs/benchmarks/v1-reference/` (tool `tools/v1_reference.py`, v2 E1) holds 10 recordings:
 `s4.bin` and `s4.debug.bin` x idle/run/topspeed/diagfall/spindash, phase 0, each replayed 10/10
-identical (MANIFEST `determinism`). **Open:** (1) release diagfall and both spindash recordings are DID NOT COVER (diagfall STUCK at px 1143 on
-release; DEBUG diagfall is COVERED, 35/30, though it also sticks at px 503) -- deterministic
-behaviour references, not coverage; if the owner rules on the at-a-wall question (jump or dash at
-gspeed 0), those three recordings are re-recorded with `v1_reference.py record` and re-diffed. (2) `topspeed` is byte-identical to
+identical (MANIFEST `determinism`). Every entry names its `policy_version`
+(`leg_drive.policy_version`); `v1_reference.py diff` refuses entries whose versions differ.
+**Policy v2 (owner-proxy ruling Q1, 2026-11-17: when blocked, a jump outranks the dash):** the
+moving family (spindash, diagfall, topspeed) was re-recorded under v2; the six v1 recordings are
+kept under `archive/policy-v1/` (MANIFEST rows marked `superseded`). topspeed's v2 re-record is
+byte-identical to v1. **Open:** (1) coverage under v2 (MEASURED, pinned oracle `dd09acb9`):
+DEBUG diagfall is COVERED and FINISHED (458/30; v1 stuck at px 503, now cleared by the blocked
+jump); release diagfall and release spindash are STUCK at px 1143 and DID NOT COVER (diagfall
+21/30; spindash 9 releases): each release rolls Sonic into the wall for one tick, a ROLLING tick
+is not blocked (fix round 2 standing-only rule) and gspeed 0 is below the gate, so the next dash
+starts at once and the blocked count never reaches its jump. DEBUG spindash FINISHES but DID NOT
+COVER (0 releases: its one dash trigger fired on a landing tick, gspeed 0 with xvel 1080, so DOWN
+rolled instead of charging). Per the ruling these are recorded, not tuned further: the
+rolling-tick-after-release interaction is the **owner's call** (e.g. counting a rolling tick
+at |xvel| < $80 right after a release as blocked would be a policy v3). (2) `topspeed` is byte-identical to
 `run` on both shapes (its slow-for-30-ticks dash never fires on this act), so it adds no
 behaviour today; the MANIFEST marks it `identical_to: "<shape>/run"`, computed from both
 sha256s. (3) oracle's `replay_runner` on `s4.debug.bin` (crc32 ce326232) is DESYNC at
