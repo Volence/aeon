@@ -172,9 +172,10 @@ kind = "object_bank"
 # starting exactly at $C0000 (`SongBank2_Head`) is outside it. `when = "sound_on"`:
 # the window is in force only in the shapes that build the sound driver; in the
 # sound-off shapes nothing places there and ordinary code may flow through
-# $B8000-$BFFFF. The bank's placement authority is still the `sound_bank` anchor;
-# keep lma_base equal to it. (An anchor overlay that moves `sound_bank` does not move
-# this row; see sigil docs/QUEUE.md Z80-BANK-REGION-FOLLOWS-OVERLAY.)
+# $B8000-$BFFFF. The bank's placement authority is still the `sound_bank` anchor, and
+# lma_base MUST equal its `at`: that equality is how sigil ties the window to the
+# anchor, so an anchor overlay that moves `sound_bank` (an S2CLIP clip's anchors.toml)
+# moves this window with it (sigil `map_placement::move_bank_regions`).
 # History: before A2 no sigil consumer read a `z80_bank` region. It was
 # `z80_moving_trucks_bank @ 0x60000`, a leftover from when the MT bank had its own
 # $8000 window at $60000 (retired with the $58000 fold, see sigil golden/PROVENANCE.md);
