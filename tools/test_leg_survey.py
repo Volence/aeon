@@ -25,18 +25,30 @@ def _dma(line=230, off=100):
             "worst_end": {"status": "MEASURED", "line": line, "off": off, "tick": 1}}
 
 
+def _sync(out):
+    """A manifest as leg_run would have left it: rc 0 for a good cell, 1 for a written-but-not-good
+    one, rc None (no file) for a missing one."""
+    with open(Path(out) / "manifest.jsonl", "w") as f:
+        for c in ls.expected_matrix():
+            p = ls.result_path(out, *c)
+            rc = None if not p.is_file() else (0 if ls._judge(p, c)[0] == "OK" else 1)
+            f.write(json.dumps({"leg": c[0], "shape": c[1], "phase": c[2], "rc": rc}) + "\n")
+
+
 def write(out, leg, shape, ph, **over):
     r = {"provenance": _good_prov(leg, shape), "leg": ls.LEG_POLICY[leg], "phase": ph, "status": "FINISHED",
          "coverage": {"rule": "r", "got": 1, "need": 1, "met": True}, "lag": {"frames": 3, "ticks": 90},
          "dma": _dma()}
     r.update(over)
     ls.result_path(out, leg, shape, ph).write_text(json.dumps(r))
+    _sync(out)
 
 
 def fill(out, skip=()):
     for c in ls.expected_matrix():
         if c not in skip:
             write(out, *c)
+    _sync(out)
 
 
 def test_matrix_is_48():
@@ -318,3 +330,44 @@ def test_file_with_no_manifest_record_is_failed(tmp_path):
     mp.write_text("\n".join(lines) + "\n")
     summ, rc = ls.write_summary(tmp_path)
     assert summ.counts["FAILED"] == 6 and rc == 1
+
+
+def test_release_and_debug_from_different_commits_is_failed(tmp_path):
+    """One aeon + oracle tuple across the WHOLE survey, not per shape."""
+    fill(tmp_path)
+    for leg in ls.LEGS:
+        for ph in (0, 1, 2):
+            p = ls.result_path(tmp_path, leg, "debug", ph)
+            r = json.loads(p.read_text())
+            r["provenance"]["aeon"]["commit"] = "other-commit"
+            p.write_text(json.dumps(r))
+    summ, rc = ls.write_summary(tmp_path)
+    bad = [x for x in summ.rows if x.status == "FAILED"]
+    assert len(bad) == 24 and all(x.shape == "debug" for x in bad) and rc == 1
+    assert "aeon.commit" in bad[0].detail and "'other-commit'" in bad[0].detail
+    assert "'x'" in bad[0].detail                      # both values named
+
+
+def test_no_manifest_fails_every_present_file(tmp_path):
+    fill(tmp_path, skip=[("stream", "debug", 2)])
+    (tmp_path / "manifest.jsonl").unlink()
+    summ, rc = ls.write_summary(tmp_path)
+    assert summ.counts["FAILED"] == 47 and summ.counts["DID NOT RUN"] == 1 and rc == 2
+    assert all("no manifest: cannot confirm this run wrote it" in x.detail
+               for x in summ.rows if x.status == "FAILED")
+
+
+def test_rc1_with_an_ok_file_is_failed(tmp_path):
+    fill(tmp_path)
+    cell = ("run", "debug", 1)
+    _manifest_for(tmp_path, {cell: 1})
+    summ, rc = ls.write_summary(tmp_path)
+    row = [x for x in summ.rows if (x.leg, x.shape, x.phase) == cell][0]
+    assert row.status == "FAILED" and "rc disagrees with file" in row.detail and rc == 1
+
+
+def test_witness_disagrees_verdict_exits_one(tmp_path, monkeypatch):
+    fill(tmp_path)
+    monkeypatch.setattr(ls.lc, "classify", lambda *a, **k: "WITNESS-DISAGREES")
+    summ, rc = ls.write_summary(tmp_path)
+    assert summ.counts["OK"] == 48 and rc == 1

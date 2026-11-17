@@ -5,21 +5,25 @@
     python3 tools/leg_survey.py summarise --out DIR
 
 Every leg x shape x phase cell (8 x 2 x 3 = 48) goes through `leg_run --dma-probe`, one
-subprocess per cell, with `rc` appended to DIR/manifest.jsonl. `summarise` judges ONLY the
-result files on disk (never the manifest, never "the run finished"): a cell with no result
-file is DID NOT RUN, with the cell named. Cell status is one of
-    OK             `coverage.met` per `leg_drive.coverage` (idle and topspeed may be CAP+met; the others
-                   need FINISHED), the DMA probe measured, and no DMA overrun and the DMA probe measured
+subprocess per cell, with `rc` appended to DIR/manifest.jsonl. `summarise` judges the result files on disk
+(never "the run finished"): a cell with no result file is DID NOT RUN, with the cell named. A
+file is only believed when manifest.jsonl confirms this run wrote it (no manifest, no record,
+or an rc that disagrees with the file -> FAILED), it matches its cell, and its provenance is one
+aeon + oracle tuple across the whole survey with one ROM crc per leg x shape. Cell status:
+    OK             `coverage.met` per `leg_drive.coverage` (idle and topspeed may be CAP+met;
+                   the others need FINISHED), the DMA probe measured, and no DMA overrun
     STUCK          the leg's progress stalled
     DID NOT COVER  ran, but hit the cap or never met its coverage condition
     DID NOT RUN    no result file (a missing ROM/listing, a refused or crashed run, not yet run)
-    FAILED         a result file that is unreadable, lacks provenance, or whose DMA probe could
-                   not measure
+    FAILED         a result that is unreadable, lacks provenance, mismatches its cell or the
+                   survey's provenance, disagrees with the manifest, overran, or whose DMA probe
+                   could not measure
 The rule-4 verdict per leg x shape is `leg_correction.classify` on the WORST last-DMA end over
 the 3 phases against the VBlank window (VInt line -> DMA_END_LIMIT_LINE); anything not derivable
 is `n/a (unmeasurable)`, never FITS.
 
-Exit: 0 all 48 OK; 2 any DID NOT RUN; 1 otherwise.
+Exit: 0 all 48 OK and every leg x shape rule-4 verdict FITS; 2 any DID NOT RUN; 1 otherwise
+(any cell not OK, or a verdict that is OVER / NEEDS-WITNESS / WITNESS-DISAGREES / n/a).
 """
 from __future__ import annotations
 
@@ -241,7 +245,10 @@ def summarise(out_dir) -> Summary:
                 loaded[(leg, shape, ph)] = json.loads(path.read_text())
             except (OSError, ValueError):
                 pass
-            if man is not None:
+            if man is None:
+                s, d = "FAILED", ("no manifest: cannot confirm this run wrote it (result file "
+                                  f"was {s})")
+            elif s != "FAILED":
                 rec = man.get((leg, shape, ph))
                 rc = None if rec is None else rec.get("rc")
                 if rec is None or rc not in (0, 1) or (rc == 0 and s != "OK") or (
@@ -250,12 +257,14 @@ def summarise(out_dir) -> Summary:
                                       f"{'has no record' if rec is None else 'rc=' + repr(rc)}, "
                                       f"result file is {s}" + (f" ({d})" if d else ""))
         rows.append(Row(leg, shape, ph, s, d, lag, dma))
-    # One provenance tuple per shape (aeon + oracle), one ROM crc per leg x shape. The first
-    # readable cell sets the reference; every deviant is FAILED with the field named.
-    ref, crc, prov = {}, {}, {}
+    # ONE aeon + oracle tuple across the whole survey (both shapes come from one checkout and
+    # one pinned oracle; G0 is judged on the survey as a whole), one ROM crc32 per leg x shape.
+    # The first readable cell sets the reference; every deviant is FAILED naming the field and
+    # both values.
+    ref, crc = {}, {}
     for r in rows:
         j = loaded.get((r.leg, r.shape, r.phase))
-        if j is None or r.status in ("DID NOT RUN",) or "no provenance" in r.detail:
+        if j is None or r.status == "DID NOT RUN" or "no provenance" in r.detail:
             continue
         try:
             t = _tuple_of(j, r.shape)
@@ -263,13 +272,14 @@ def summarise(out_dir) -> Summary:
         except (KeyError, TypeError):
             continue
         bad = None
-        if r.shape in ref:
+        if ref:
             for k, v in t.items():
-                if ref[r.shape][k] != v:
-                    bad = f"provenance mismatch: {k} is {v!r}, shape {r.shape} reference {ref[r.shape][k]!r}"
+                if ref["t"][k] != v:
+                    bad = (f"provenance mismatch: {k} is {v!r} here but {ref['t'][k]!r} in "
+                           f"{ref['cell']} (one tuple across the survey)")
                     break
         else:
-            ref[r.shape] = t
+            ref = {"t": t, "cell": f"{r.leg}/{r.shape}/p{r.phase}"}
         if bad is None:
             if (r.leg, r.shape) in crc and crc[(r.leg, r.shape)] != c:
                 bad = (f"provenance mismatch: rom.crc32 is {c!r}, {r.leg}/{r.shape} "
@@ -278,7 +288,7 @@ def summarise(out_dir) -> Summary:
                 crc.setdefault((r.leg, r.shape), c)
         if bad:
             r.status, r.detail = "FAILED", bad
-    prov = {"shapes": ref, "crc": {f"{l}/{sh}": c for (l, sh), c in crc.items()}}
+    prov = {"survey": ref.get("t", {}), "crc": {f"{l}/{sh}": c for (l, sh), c in crc.items()}}
     counts = {s: 0 for s in STATUSES}
     counts.update(Counter(r.status for r in rows))
     groups = {}
@@ -330,12 +340,13 @@ def render(out_dir, summ: Summary) -> str:
     L = ["# Leg survey summary", "",
          f"ran {summ.ran} of {len(summ.rows)}  |  " +
          "  ".join(f"{k}: {summ.counts[k]}" for k in STATUSES), "",
-         "## Provenance (one tuple per shape; every cell must match)", ""]
-    for shape, t in (summ.prov or {}).get("shapes", {}).items():
-        L.append(f"- {shape}: " + ", ".join(f"{k}={v}" for k, v in t.items()))
+         "## Provenance (one aeon + oracle tuple for the whole survey; every cell must match)", ""]
+    t = (summ.prov or {}).get("survey", {})
+    if t:
+        L.append("- survey: " + ", ".join(f"{k}={v}" for k, v in t.items()))
     for k, c in (summ.prov or {}).get("crc", {}).items():
         L.append(f"- rom crc32 {k}: {c}")
-    if not (summ.prov or {}).get("shapes"):
+    if not t:
         L.append("- none (no readable result)")
     L += ["", "| leg | shape | cells (p0 p1 p2) | lag frames min-max, MEASURED (Oracle) | "
           "worst last-DMA end, MEASURED (Oracle) | rule-4 verdict, ESTIMATED: classify, "
