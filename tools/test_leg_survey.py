@@ -308,3 +308,13 @@ def test_verdict_fits_over_and_unmeasurable():
     bad = {"status": "UNMEASURABLE", "unmeasurable": "x", "worst_end": None}
     assert ls.dma_verdict(rows([_dma(), bad, _dma()])) == ("n/a", "n/a (unmeasurable)")
     assert ls.dma_verdict(rows([_dma(), None, _dma()]))[1] == "n/a (unmeasurable)"
+
+
+def test_file_with_no_manifest_record_is_failed(tmp_path):
+    fill(tmp_path)
+    _manifest_for(tmp_path)
+    mp = tmp_path / "manifest.jsonl"
+    lines = [l for l in mp.read_text().splitlines() if '"leg": "stream"' not in l]
+    mp.write_text("\n".join(lines) + "\n")
+    summ, rc = ls.write_summary(tmp_path)
+    assert summ.counts["FAILED"] == 6 and rc == 1
