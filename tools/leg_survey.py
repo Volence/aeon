@@ -22,8 +22,13 @@ The rule-4 verdict per leg x shape is `leg_correction.classify` on the WORST las
 the 3 phases against the VBlank window (VInt line -> DMA_END_LIMIT_LINE); anything not derivable
 is `n/a (unmeasurable)`, never FITS.
 
-Exit: 0 all 48 OK and every leg x shape rule-4 verdict FITS; 2 any DID NOT RUN; 1 otherwise
-(any cell not OK, or a verdict that is OVER / NEEDS-WITNESS / WITNESS-DISAGREES / n/a).
+The stream leg's finishing companion (v2 C4, `run --companion`) is 6 cells OUTSIDE the 48, in
+`<out>/companion/`, judged by the same rule; its DID NOT COVER / STUCK never move the exit.
+
+Exit: 0 all 48 OK, every leg x shape rule-4 verdict FITS, and the 6 companion cells ran and
+none FAILED; 2 any DID NOT RUN among the 48 OR the companion (so a 48-cell survey without
+`run --companion` exits 2); 1 otherwise (any of the 48 not OK, a companion cell FAILED, or a
+verdict that is OVER / NEEDS-WITNESS / WITNESS-DISAGREES / n/a).
 """
 from __future__ import annotations
 
@@ -439,21 +444,38 @@ def summarise(out_dir) -> Summary:
     return summ
 
 
+def _run_name(r) -> str:
+    return (f"stream ({STREAM_CLIP})" if r.leg == "stream"
+            else f"companion ({STREAM_COMPANION_CLIP})")
+
+
 def sustained(summ: Summary) -> tuple[str, str]:
-    """Did any ONE run stream (decode >= 1 and evictions >= 1) and FINISH? Over the stream
-    cells and the companion. (verdict, why)."""
+    """Did any ONE run stream (decode >= 1 and evictions >= 1) and FINISH? Over the 6 stream
+    cells and the 6 companion cells. (verdict, why), in this order:
+
+      COVERED        a cell is OK under the stream rule (it streamed and finished)
+      DID NOT RUN    else, any of the 12 cells has no result: a missing half is never read
+                     as a negative finding about the clip that did not run (fix 1, I1)
+      FAILED         else, any cell is FAILED (wrong clip, unmeasurable, provenance): refused
+                     evidence is named, never cited as a run (fix 1, M1)
+      DID NOT COVER  all 12 ran and were believed, and no one run both evicted and finished"""
     runs = [r for r in summ.rows if r.leg == "stream"] + list(summ.companion)
-    seen = [r for r in runs if r.stream is not None]
-    if not seen:
-        return "DID NOT RUN", "no stream or companion result carries streaming counts"
-    both = [r for r in seen if r.stream["streamed"] and r.drive_status == "FINISHED"
-            and r.status == "OK"]
+    cell = lambda r: f"{r.leg}/{r.shape}/p{r.phase}"  # noqa: E731
+    both = [r for r in runs if r.status == "OK" and r.stream is not None
+            and r.stream["streamed"] and r.drive_status == "FINISHED"]
     if both:
-        return "COVERED", f"{both[0].leg}/{both[0].shape}/p{both[0].phase} streamed and finished"
-    ev = sorted({f"{'stream (' + STREAM_CLIP + ')' if r.leg == 'stream' else 'companion (' + STREAM_COMPANION_CLIP + ')'}"
-                 for r in seen if r.stream["streamed"]})
-    fin = sorted({f"{'stream (' + STREAM_CLIP + ')' if r.leg == 'stream' else 'companion (' + STREAM_COMPANION_CLIP + ')'}"
-                  for r in seen if r.drive_status == "FINISHED"})
+        return "COVERED", f"{cell(both[0])} ({_run_name(both[0])}) streamed and finished"
+    missing = [cell(r) for r in runs if r.status == "DID NOT RUN"]
+    if missing or not runs:
+        return "DID NOT RUN", (f"{len(missing)} of {len(runs)} stream/companion cells have no "
+                               f"result: {', '.join(missing)}; nothing is concluded about the "
+                               f"clip that did not run")
+    refused = [cell(r) for r in runs if r.status == "FAILED" or r.stream is None]
+    if refused:
+        return "FAILED", (f"{len(refused)} of {len(runs)} stream/companion cells are refused "
+                          f"evidence (FAILED or no streaming counts): {', '.join(refused)}")
+    ev = sorted({_run_name(r) for r in runs if r.stream["streamed"]})
+    fin = sorted({_run_name(r) for r in runs if r.drive_status == "FINISHED"})
     return "DID NOT COVER", (f"NO single run both evicts and finishes: evicting runs: "
                              f"{', '.join(ev) or 'none'}; finishing runs: {', '.join(fin) or 'none'}")
 

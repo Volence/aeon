@@ -571,3 +571,63 @@ def test_run_refuses_a_rom_of_the_wrong_clip(tmp_path, capsys):
     rel = [r for r in recs if r["shape"] == "release"]
     assert rel and all(r["rc"] is None and "s2_ehz_cpz" in r["note"] and "s2_woven" in r["note"]
                        for r in rel)
+
+
+# ---- the "streaming sustained" summary line: all four outcomes (v2 C4 fix 1, I1/I2/M1) -----
+
+def _sus_dir(out, stream="STUCK", comp="FINISHED", skip_stream=(), skip_comp=(),
+             stream_clip=None, stream_gens=(3, 4, 6), comp_gens=(1, 1)):
+    """Stream + companion cells only (the other 42 cells do not feed the line)."""
+    for sh in ls.SHAPES:
+        for ph in ls.PHASES:
+            if (sh, ph) not in skip_stream:
+                cov = ld.stream_coverage(stream, _stream_rows(list(stream_gens)), _stream_hits())
+                _stream_result(out, sh, ph, stream, cov, clip=stream_clip)
+            if (sh, ph) not in skip_comp:
+                ccov = ld.stream_coverage(comp, _stream_rows(list(comp_gens), dm=1),
+                                          _stream_hits(pick=0))
+                _stream_result(out, sh, ph, comp, ccov, clip=ls.STREAM_COMPANION_CLIP, sub=True)
+    _sync(out)
+    _sync_comp(out)
+    return ls.sustained(ls.summarise(out))
+
+
+def test_sustained_covered_when_one_run_streams_and_finishes(tmp_path):
+    v, why = _sus_dir(tmp_path, stream="FINISHED")
+    assert v == "COVERED" and "stream/" in why
+
+
+def test_sustained_did_not_cover_only_when_every_cell_ran(tmp_path):
+    v, why = _sus_dir(tmp_path)
+    assert v == "DID NOT COVER"
+    assert "NO single run both evicts and finishes" in why
+    assert f"evicting runs: stream ({ls.STREAM_CLIP})" in why
+    assert f"finishing runs: companion ({ls.STREAM_COMPANION_CLIP})" in why
+
+
+def test_sustained_is_did_not_run_when_the_stream_half_is_missing(tmp_path):
+    """I1: the companion ran, the stream cells did not -> DID NOT RUN, never a negative
+    finding about the evicting clip from runs that never happened."""
+    allc = {(sh, ph) for sh in ls.SHAPES for ph in ls.PHASES}
+    v, why = _sus_dir(tmp_path, skip_stream=allc)
+    assert v == "DID NOT RUN"
+    assert "NO single run" not in why and "stream/release/p0" in why
+
+
+def test_sustained_is_did_not_run_on_a_partial_survey(tmp_path):
+    v, why = _sus_dir(tmp_path, skip_comp={("debug", 2)})
+    assert v == "DID NOT RUN" and "stream_companion/debug/p2" in why
+    assert "NO single run" not in why
+
+
+def test_sustained_is_failed_and_cites_no_refused_evidence(tmp_path):
+    """M1: wrong-clip (FAILED) cells are refused evidence: the line is FAILED, names them, and
+    never labels their counts as the stream clip's."""
+    v, why = _sus_dir(tmp_path, stream="FINISHED", stream_clip=ls.STREAM_COMPANION_CLIP)
+    assert v == "FAILED" and "stream/release/p0" in why
+    assert "finishing runs" not in why
+
+
+def test_sustained_covered_outranks_a_missing_cell(tmp_path):
+    v, _ = _sus_dir(tmp_path, stream="FINISHED", skip_comp={("release", 0)})
+    assert v == "COVERED"
