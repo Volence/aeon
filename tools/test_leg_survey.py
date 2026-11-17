@@ -377,6 +377,7 @@ def test_objheavy_runs_under_its_own_coverage_rule():
     """objheavy drives the run policy, but leg_run is asked for `--leg objheavy` so its result
     is judged by the objheavy rule (v2 C2), and the cell's file is named for it."""
     assert ls.LEG_RUN_LEG["objheavy"] == "objheavy"
-    assert ls.LEG_RUN_LEG["run"] == "run" and ls.LEG_RUN_LEG["sidekick"] == "run"
+    assert ls.LEG_RUN_LEG["run"] == "run" and ls.LEG_RUN_LEG["sidekick"] == "sidekick"
+    assert ls.LEG_RUN_LEG["stream"] == "run"
     assert ls.result_path(Path("/o"), "objheavy", "debug", 1).name == \
         "s4.stressobj.debug_objheavy_p1.json"

@@ -124,9 +124,14 @@ AEON = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 #: The working-tree build artifacts. Enumerated by tracing every filesystem touch
 #: of a repo-root path during a full `pytest tools` run with all eight present —
 #: not by grepping for names, which cannot see a test that builds its path.
+#: The two `s4.sidekick*` pairs (v2 C3) are the STRESS_SIDEKICK shape's: only
+#: `STRESS_SIDEKICK=1 [DEBUG=1] ./build.sh` writes them, and test_sidekick_slot_live runs in
+#: that build's post-sigil lane. A multi-shape runner that does not build the shape EXEMPTS
+#: them through `--shapes-built` (derived: BUILD_ARTIFACTS minus the shapes it lists).
 BUILD_ARTIFACTS = (
     "s4.bin", "s4.lst", "s4.debug.bin", "s4.debug.lst",
     "demo.bin", "demo.lst", "demo.debug.bin", "demo.debug.lst",
+    "s4.sidekick.bin", "s4.sidekick.lst", "s4.sidekick.debug.bin", "s4.sidekick.debug.lst",
 )
 
 MARKER = "needs_build"

@@ -32,7 +32,8 @@ def test_off_canonical_listings_are_build_sh_stress_shapes():
     got = gcs.off_canonical_listings()
     assert got == {"s4.stress.lst", "s4.stressart.lst",
                    "s4.s2clip.lst", "s4.s2clip.debug.lst",
-                   "s4.stressobj.lst", "s4.stressobj.debug.lst"}, got
+                   "s4.stressobj.lst", "s4.stressobj.debug.lst",
+                   "s4.sidekick.lst", "s4.sidekick.debug.lst"}, got
     assert not (got & gcs.canonical_listings())
 
 

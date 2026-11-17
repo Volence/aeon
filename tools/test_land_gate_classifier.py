@@ -56,6 +56,11 @@ KNOWN = {
         "the hand-run ledger write site; it names the owner's boot files in a message",
     ("tools/decisions_append.py", "docs/OVERSEER-LOG.md"):
         "the same hand-run write site",
+    ("tools/stress_sidekick.py", "docs/generated/vram-map-sonic4.md"):
+        "the STRESS_SIDEKICK shape's restore list and gen_vram_map's --map-doc OUTPUT (v2 C3): "
+        "`apply` writes it and build.sh's EXIT trap checks it out; nothing in the tool reads "
+        "it (GUARDED excludes it, `rebake` regenerates it in a temp dir). Read in-process only "
+        "by tools/test_stress_sidekick.py, a declared reader of docs/generated/",
     ("tools/fg_working_set.py", "docs/generated/vram-map-sonic4.md"):
         "read in-process by tools/test_fg_working_set.py, a declared reader of docs/generated/",
     ("tools/megaact_page_order.py", "docs/research/megaact-bg-streaming/08-m-b-results-s2.json"):

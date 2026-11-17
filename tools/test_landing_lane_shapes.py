@@ -162,6 +162,21 @@ def shapes_built_by(script_text):
     return shapes
 
 
+_LANE_SHAPES = re.compile(r"--shapes-built((?:\s+[A-Za-z0-9_.]+)+)")
+
+
+def lane_shapes_built(script_text):
+    """The `--shapes-built` list a runner hands tools/needs_build_lane.py, or None. Read from
+    the non-comment text, with line continuations joined; more than one list raises."""
+    body = "\n".join(l for l in script_text.splitlines() if not l.strip().startswith("#"))
+    body = body.replace("\\\n", " ")
+    calls = [m for m in re.finditer(r"needs_build_lane\.py[^\n]*", body)]
+    lists = [m.group(1).split() for c in calls for m in _LANE_SHAPES.finditer(c.group(0))]
+    if len(lists) > 1:
+        raise ValueError("more than one --shapes-built list: %r" % lists)
+    return lists[0] if lists else None
+
+
 def declared_artifacts():
     """The union of every artifact named by every `@pytest.mark.needs_build` in tools/.
 
@@ -305,8 +320,17 @@ def test_a_multi_shape_runner_builds_every_declared_artifact(runner):
         listed = landing_shapes(text)
         shapes = {shape_game_debug(s) for s in listed}
     else:
-        listed = None
+        # A runner whose needs_build_lane call carries `--shapes-built` (the nightly, since
+        # v2 C3) is graded like the landing check: the listed shapes must all be ones it
+        # builds, and only the derived exemption may stay uncovered.
         shapes = shapes_built_by(text)
+        listed = lane_shapes_built(text)
+        if listed is not None:
+            unbuilt = sorted(s for s in listed if shape_game_debug(s) not in shapes)
+            assert not unbuilt, (
+                "%s hands needs_build_lane --shapes-built %s, but does not build %s: a shape "
+                "listed as built that is not would leave its artifacts un-exempt and unbuilt"
+                % (path, listed, unbuilt))
     assert shapes, (
         "%s contains no parseable `./build.sh` invocation outside its comments. Either it "
         "stopped being a multi-shape runner, or it invokes build.sh in a form this file's "
@@ -603,3 +627,12 @@ def test_the_stress_art_leg_parse_reports_each_broken_shape(name):
     assert _BROKEN_ART_LEGS[name] != _GOOD_ART_LEG, "the %r control mutated nothing" % name
     assert stress_art_witness_leg(_BROKEN_ART_LEGS[name]), (
         "the %r control was not reported" % name)
+
+
+def test_the_lane_shape_list_parse():
+    text = ('# python3 tools/needs_build_lane.py --shapes-built nope\n'
+            'python3 tools/needs_build_lane.py --built-after "$T" \\\n'
+            '    --shapes-built s4.debug demo \\\n'
+            '    > "$STATE/x.log" 2>&1\n')
+    assert lane_shapes_built(text) == ["s4.debug", "demo"]
+    assert lane_shapes_built('python3 tools/needs_build_lane.py --built-after "$T"\n') is None

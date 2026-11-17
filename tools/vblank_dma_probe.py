@@ -211,6 +211,23 @@ class DmaEvent:
     start_off: int
     end_line: int
     end_off: int
+    #: Opt-in (DmaProbe `site_regs`, v2 C3): the entry's VDP command decoded at the trigger
+    #: site, BEFORE the step -- the VRAM/CRAM/VSRAM byte address and the CD code (VRAM write
+    #: DMA = $21). None when the probe was not asked to decode.
+    dest: int | None = None
+    cd: int | None = None
+
+
+def decode_command(hi: int, lo: int) -> tuple[int, int]:
+    """(address, CD5..CD0) of a VDP command long `hi:lo` (plutiedev's layout: CD1-0 in hi's
+    top two bits, A13-0 in hi's low 14, CD5-2 in lo bits 7-4, A15-14 in lo bits 1-0)."""
+    addr = (hi & 0x3FFF) | ((lo & 0x3) << 14)
+    cd = ((hi >> 14) & 0x3) | ((lo >> 2) & 0x3C)
+    return addr, cd
+
+
+#: CD for a VRAM-write DMA (CD5 DMA + CD0 VRAM write).
+CD_VRAM_DMA = 0x21
 
 
 def _end_key(e: DmaEvent):
@@ -240,8 +257,13 @@ class DmaProbe:
     (marks a lag VBlank). Shares the drive's client: `drive_leg(on_break=probe.on_break)`.
     The caller sets `probe.tick` to the current Logic_Tick on every row."""
 
-    def __init__(self, sites, vblank_addr: int, lag_addr: int | None, entry_line: int):
+    def __init__(self, sites, vblank_addr: int, lag_addr: int | None, entry_line: int,
+                 site_regs: dict | None = None):
         self.sites = sorted(set(sites))
+        #: {site: n}: decode each event's destination from the DMAEntry An points into at
+        #: the site (`move.w (An)+,(a5)` writes Command's low word; its high word is at
+        #: An - 2). None = do not decode (every leg but sidekick: no extra bus calls).
+        self.site_regs = site_regs
         self.vblank_addr, self.lag_addr, self.entry_line = vblank_addr, lag_addr, entry_line
         self.events: list[DmaEvent] = []
         self.vblanks: list[dict] = []
@@ -300,6 +322,18 @@ class DmaProbe:
             self._cannot_see(f"DMA site ${pc:X} hit at mclk {m}, outside a calibrated VBlank "
                              f"(tick {self.tick})")
             return True
+        dest = cd = None
+        if self.site_regs is not None:
+            n = self.site_regs.get(pc)
+            regs = await client.call("emulator/registers", {})
+            an = _hexpc(regs.get(f"a{n}", -1)) if n is not None else -1
+            if an < 2:
+                self._cannot_see(f"DMA site ${pc:X}: cannot read a{n} to decode the command")
+            else:
+                r = await client.call("emulator/read_memory", {"addr": hex(an - 2), "len": 4})
+                b = bytes.fromhex(str(r["bytes"]).removeprefix("0x").lstrip("$")[:8])
+                dest, cd = decode_command(int.from_bytes(b[:2], "big"),
+                                          int.from_bytes(b[2:4], "big"))
         s = await client.call("emulator/step", {"count": 1})
         if s.get("stepped") != 1 or "mclk" not in s:
             self._cannot_see(f"step from DMA site ${pc:X} did not step one instruction: {s}")
@@ -310,7 +344,8 @@ class DmaProbe:
         end, base, mpl = int(s["mclk"]), cur["_base"], lc.MCLK_PER_LINE
         e = DmaEvent(tick=self.tick, vblank=cur["index"], site=pc,
                      start_line=(m - base) // mpl, start_off=(m - base) % mpl,
-                     end_line=(end - base) // mpl, end_off=(end - base) % mpl)
+                     end_line=(end - base) // mpl, end_off=(end - base) % mpl,
+                     dest=dest, cd=cd)
         self.events.append(e)
         cur["events"] += 1
         if cur["end_line"] is None or _end_key(e) > (cur["end_line"], cur["end_off"]):
@@ -342,10 +377,24 @@ class DmaProbe:
             "entry_line_expected": self.entry_line,
             "vblanks": vbs,
             "unmeasurable": self.unmeasurable,
+            "dest_decoded": self.site_regs is not None,
         }
 
 
-def probe_for(lst_text: str, syms_addr: dict, syms_equ: dict, rom: bytes) -> DmaProbe:
+def site_regs_of(sites, rom: bytes) -> dict:
+    """{site: n} -- the An of each trigger site's `move.w (An)+,(a5)` (from the ROM word)."""
+    out = {}
+    for a in sites:
+        w = _word(rom, a)
+        n = next((k for k, v in MOVE_W.items() if v == w), None)
+        if n is None:
+            raise NoTriggerSites(f"site ${a:X} is not a move.w (An)+,(a5) (word {w:04X})")
+        out[a] = n
+    return out
+
+
+def probe_for(lst_text: str, syms_addr: dict, syms_equ: dict, rom: bytes,
+              decode_dest: bool = False) -> DmaProbe:
     """Build the probe from a build's listing + ROM. Whatever cannot be resolved becomes the
     probe's `unmeasurable` (so the leg still runs and the result says so), never a guess."""
     why = None
@@ -358,6 +407,11 @@ def probe_for(lst_text: str, syms_addr: dict, syms_equ: dict, rom: bytes) -> Dma
         miss.append("EQU SCREEN_HEIGHT")
     p = DmaProbe(sites, vblank_addr=syms_addr.get("VBlank_Handler", -1),
                  lag_addr=syms_addr.get("VInt_Lag"), entry_line=syms_equ.get("SCREEN_HEIGHT", -1))
+    if decode_dest and sites:
+        try:
+            p.site_regs = site_regs_of(sites, rom)
+        except NoTriggerSites as e:
+            why = why or f"NoTriggerSites: {e}"
     if miss:
         why = why or f"the listing publishes no {miss}: calibration impossible"
     if why:

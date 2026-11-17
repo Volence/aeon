@@ -260,7 +260,15 @@ esac
 # precisely the state the lane exists to catch. tools/needs_build_lane.py reads the
 # verdict out of a JUnit report instead, and its own arms are gated by
 # tools/test_needs_build_lane.py in build.sh's pre-build lane.
+#
+# --shapes-built (v2 C3, 2026-11-17): exactly the four canonical shapes built above. Since
+# the STRESS_SIDEKICK shape's s4.sidekick* pairs joined conftest.BUILD_ARTIFACTS, the lane
+# EXEMPTS a deferral caused ONLY by them (named, never passed; derived as BUILD_ARTIFACTS
+# minus these four). Every canonical artifact is still built here, so nothing canonical is
+# exempt: a canonical deferral is still exit 2. test_sidekick_slot_live runs in every
+# STRESS_SIDEKICK build's own post-sigil lane, where that pair is the build's.
 python3 tools/needs_build_lane.py --built-after "$BUILD_T0" \
+    --shapes-built s4.debug demo.debug s4 demo \
     > "$STATE/needs_build.log" 2>&1
 rc_nb=$?
 case $rc_nb in

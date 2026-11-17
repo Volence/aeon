@@ -142,9 +142,12 @@ RULES: tuple = (
      "test_constants_match_hardware_limits_doc parses its constant table and rule text and "
      "asserts they equal tools/leg_correction.py (v2 B4), so a push editing the doc must run "
      "the test that reads it"),
-    ("docs/generated/", CHECKED, ("tools/test_gen_vram_map.py", "tools/test_fg_working_set.py"),
+    ("docs/generated/", CHECKED, ("tools/test_gen_vram_map.py", "tools/test_fg_working_set.py",
+                                  "tools/test_stress_sidekick.py"),
      "the generated VRAM maps must equal their generator's output and agree with the "
-     "pool ceiling; a prefix because the generator writes one file per game"),
+     "pool ceiling; a prefix because the generator writes one file per game. "
+     "test_stress_sidekick re-bakes vram-map-sonic4.md through the STRESS_SIDEKICK patch "
+     "(v2 C3), so a push editing it must run the test that patches it"),
     ("docs/research/s2-compressed-act/", CHECKED,
      ("tools/test_clip_manifest.py", "tools/test_s2_clip_collision.py"),
      "the S2-COMPRESSED-ACT design's measurement tool is IMPORTED as the independent "

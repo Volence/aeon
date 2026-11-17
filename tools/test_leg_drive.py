@@ -197,7 +197,8 @@ def test_diagfall_holds_down_in_the_air():
 def test_idle_is_zero():
     p = ld.POLICIES["idle"](B, EQ)
     assert {p.held(st(t)) for t in range(50)} == {0}
-    assert set(ld.POLICIES) == {"idle", "run", "topspeed", "diagfall", "spindash", "objheavy"}
+    assert set(ld.POLICIES) == {"idle", "run", "topspeed", "diagfall", "spindash", "objheavy",
+                                 "sidekick"}
 
 
 class _Script:
@@ -755,3 +756,129 @@ def test_objheavy_path_shortfall_names_the_fixture_commit_and_the_recipe():
     assert "d60c5ee6" in note and "V2-C2-STRESS-OBJECTS" in note and "re-record" in note
     ok = ld.coverage("objheavy", "FINISHED", rows, OEQ, ref=_ref(rows), ref_source="x")
     assert "note" not in ok["got"]
+
+
+# ---- sidekick (v2 C3, the STRESS_SIDEKICK leg) -------------------------------------------
+
+SK_EQ = {"VRAM_STRESS_SIDEKICK": 0x300, "VRAM_STRESS_SIDEKICK_TILES": 29,
+         "VRAM_TEST_SONIC": 0x3C0, "VRAM_TEST_SONIC_TILES": 29}
+K = 16
+
+
+def sk_rows(n=200, t0=300, lag=K, p2c=0x1234, art=0x300, stuck_from=None):
+    """P1 runs right 3 px a tick; P2 is P1 delayed `lag` ticks (stuck in place after
+    `stuck_from`)."""
+    px = {t0 + i: 100 + 3 * i for i in range(n)}
+    rows = []
+    for i in range(n):
+        t = t0 + i
+        src = max(t0, t - lag)
+        x2 = px[src] if stuck_from is None or t < stuck_from else px[max(t0, stuck_from - lag)]
+        rows.append({"t": t, "px": px[t], "py": 500, "p2c": p2c, "p2x": x2, "p2y": 500,
+                     "p2art": 0x8000 | art})
+    return rows
+
+
+def sk_dma(rows, p1_every=4, p2_every=4, k=K):
+    ev = []
+    for r in rows:
+        if (r["t"] % p1_every) == 0:
+            ev.append({"tick": r["t"], "dest": 0x3C0 * 32, "cd": 0x21})
+        if ((r["t"] - k) % p2_every) == 0 and r["t"] - k >= rows[0]["t"]:
+            ev.append({"tick": r["t"], "dest": 0x300 * 32 + 64, "cd": 0x21})
+    ev.append({"tick": rows[0]["t"], "dest": 0x300 * 32, "cd": 0x23})     # CRAM: not counted
+    return {"status": "MEASURED", "dest_decoded": True, "events": ev}
+
+
+def test_sidekick_drives_the_run_policy():
+    assert ld.POLICIES["sidekick"] is ld.Run
+
+
+def test_sidekick_coverage_met():
+    rows = sk_rows()
+    cov = ld.sidekick_coverage("FINISHED", rows, SK_EQ, sk_dma(rows), start=300, delay=K)
+    g = cov["got"]
+    assert cov["met"], g
+    assert g["live_pct"] == 100 and g["art_pct"] == 100 and g["replay_pct"] == 100
+    assert g["dma_ratio"] >= ld.SK_DPLC_RATIO and "sidekick_stuck" not in g
+
+
+def test_sidekick_left_behind_is_a_stuck_sidekick_not_a_pass():
+    rows = sk_rows(n=400, stuck_from=350)
+    cov = ld.sidekick_coverage("FINISHED", rows, SK_EQ, sk_dma(rows), start=300, delay=K)
+    assert not cov["met"]
+    assert cov["got"]["sidekick_stuck"] is True and "STUCK sidekick" in cov["got"]["note"]
+
+
+def test_sidekick_dead_slot_and_wrong_art_fail():
+    rows = sk_rows(p2c=0)
+    assert ld.sidekick_coverage("FINISHED", rows, SK_EQ, sk_dma(rows), 300, K)["got"][
+        "live_pct"] == 0
+    rows = sk_rows(art=0x3C0)                                      # P1's window: not borrowed
+    cov = ld.sidekick_coverage("FINISHED", rows, SK_EQ, sk_dma(rows), 300, K)
+    assert not cov["met"] and cov["got"]["art_pct"] == 0
+
+
+def test_sidekick_desync_fails_the_replay_witness():
+    rows = sk_rows(lag=K + 1)
+    cov = ld.sidekick_coverage("FINISHED", rows, SK_EQ, sk_dma(rows), 300, K)
+    assert not cov["met"] and cov["got"]["replay_pct"] < ld.SK_REPLAY_PCT
+    assert cov["got"]["first_desync"] is not None
+
+
+def test_sidekick_without_its_dplc_transfers_does_not_cover():
+    rows = sk_rows()
+    cov = ld.sidekick_coverage("FINISHED", rows, SK_EQ, sk_dma(rows, p2_every=10**6), 300, K)
+    assert not cov["met"] and cov["got"]["dma_ticks_p2"] == 0
+
+
+def test_sidekick_not_finished_does_not_cover():
+    rows = sk_rows()
+    assert not ld.sidekick_coverage("STUCK", rows, SK_EQ, sk_dma(rows), 300, K)["met"]
+
+
+@pytest.mark.parametrize("why,args", [
+    ("EQU", dict(equ={})),
+    ("no Player_2 reading", dict(rows=[{"t": 300, "px": 1, "py": 1}])),
+    ("did not measure", dict(dma={"status": "UNMEASURABLE", "unmeasurable": "x"})),
+    ("did not decode", dict(dma={"status": "MEASURED", "dest_decoded": False, "events": []})),
+    ("did not measure", dict(dma={"status": "DID NOT RUN", "reason": "--dma-probe not given"})),
+])
+def test_sidekick_unmeasurable_is_loud_and_never_met(why, args):
+    rows = sk_rows()
+    kw = dict(rows=rows, equ=SK_EQ, dma=sk_dma(rows))
+    kw.update(args)
+    cov = ld.sidekick_coverage("FINISHED", kw["rows"], kw["equ"], kw["dma"], 300, K)
+    assert not cov["met"] and why in cov["got"]["unmeasurable"]
+
+
+def test_sidekick_no_p1_dplc_is_unmeasurable_not_met():
+    rows = sk_rows()
+    d = sk_dma(rows)
+    d["events"] = [e for e in d["events"] if e["dest"] != 0x3C0 * 32]
+    cov = ld.sidekick_coverage("FINISHED", rows, SK_EQ, d, 300, K)
+    assert not cov["met"] and "UNMEASURABLE" in cov["got"]["note"]
+
+
+def test_sidekick_cost_is_the_paired_mean_difference():
+    rows = [{"t": t, "px": t, "py": 0, "p2c": 1, "cyc": 50000 + 1500 + (t % 3)}
+            for t in range(100)]
+    ref = [{"t": t, "px": t, "py": 0, "cyc": 50000 + (t % 7) * 0} for t in range(100)]
+    ref[5]["px"] = -1                                             # off route: not paired
+    rows[6]["p2c"] = 0                                            # P2 dead: not paired
+    c = ld.sidekick_cost_paired(rows, ref)
+    assert c["status"] == "MEASURED" and c["n"] == 98 and c["ticks_off_route"] == 1
+    assert abs(c["mean_cyc"] - 1501) < 0.1 and c["stderr"] < 1 and c["label"].startswith("MEASURED")
+    assert ld.sidekick_cost_paired(rows[:2], ref)["status"] == "UNMEASURABLE"
+
+
+def test_sidekick_dplc_delta_missing_row_is_unmeasurable():
+    prof = {"status": "MEASURED", "items": [{"addr": "0x1234", "name": "Perform_DPLC",
+                                             "callsTotal": 900}]}
+    ref = {"status": "MEASURED", "items": [{"addr": "0x1234", "callsTotal": 400}]}
+    d = ld.sidekick_dplc_delta(prof, ref, 0x1234, 500)
+    assert d["status"] == "MEASURED" and d["delta"] == 500 and d["met"]
+    assert ld.sidekick_dplc_delta(prof, {"status": "MEASURED", "items": []}, 0x1234,
+                                  500)["status"] == "UNMEASURABLE"
+    assert ld.sidekick_dplc_delta(prof, {"status": "DID NOT RUN"}, 0x1234, 1)["status"] == \
+        "UNMEASURABLE"

@@ -73,6 +73,13 @@ IDLE_NEED_TICKS = 600      # idle coverage
 # from the listing's NUM_DYNAMIC (`obj_dispatch_min`), never typed.
 OBJ_COVER_TICKS = 60       # ticks with >= obj_dispatch_min dispatched objects: one second at 60 Hz
 OBJ_PATH_PCT = 95          # path witness: P1 (x, y) == the canonical run leg's on >= this % of ticks
+# sidekick (v2 C3, the STRESS_SIDEKICK leg; C1 note §2.7). The replay delay is read from the
+# committed patch (`sidekick_delay`), never typed; the window bases/extents are listing equates.
+SK_LIVE_PCT = 90           # P2 live / near / on its art window on >= this % of drive ticks
+SK_SEP_MAX = 512           # px, Manhattan |dx| + |dy|: ~2x the largest measured excursion (252)
+SK_REPLAY_PCT = 95         # desync witness: P2(t) == P1(t - delay) on >= this % of eligible ticks
+SK_DPLC_RATIO = 0.9        # P2's DPLC DMA ticks >= this x P1's (it replays P1's animation)
+SIDEKICK_PATCH = AEON_ROOT / "tools" / "stress" / "sidekick.patch"
 
 STATUSES = ("FINISHED", "STUCK", "CAP", "FAILED")
 
@@ -322,6 +329,7 @@ POLICIES: dict[str, Callable[[Buttons, dict], Policy]] = {
     # The stress legs drive the run policy on their own shape's ROM; the leg NAME selects the
     # coverage rule (and, in leg_run, the per-tick instruments the rule reads).
     "objheavy": Run,
+    "sidekick": Run,
 }
 
 
@@ -491,7 +499,10 @@ def coverage(leg: str, status: str, rows: list, equ: dict, ref: dict | None = No
                     met=status == "FINISHED" and n >= 1)
     if leg == "objheavy":
         return _objheavy_coverage(status, rows, equ, ref, ref_source)
-    raise DriveError(f"no coverage rule for leg {leg!r} (sidekick/stream are Tasks 9-10)")
+    if leg == "sidekick":
+        raise DriveError("the sidekick rule needs the DMA events and the drive start: call "
+                         "sidekick_coverage(status, rows, equ, dma, start)")
+    raise DriveError(f"no coverage rule for leg {leg!r} (stream is Task 10)")
 
 
 def obj_dispatch_min(equ: dict) -> int:
@@ -558,6 +569,172 @@ def _objheavy_coverage(status, rows, equ, ref, ref_source=None):
     met = (status == "FINISHED" and loaded >= OBJ_COVER_TICKS and over == 0
            and pct >= OBJ_PATH_PCT)
     return dict(rule=rule, got=got, need=need, met=met)
+
+
+def sidekick_delay(patch: Path = SIDEKICK_PATCH) -> int:
+    """The replay delay K the committed patch spells (`subi.w #4*(K+1), d0`: the ring index
+    has already advanced past the leader's entry for this tick)."""
+    m = re.findall(r"^\+.*subi\.w\s+#4\*\((\d+)\+1\)", Path(patch).read_text(), re.M)
+    if len(m) != 1:
+        raise DriveError(f"{patch}: expected one `subi.w #4*(K+1)` replay-delay line, found "
+                         f"{len(m)}")
+    return int(m[0])
+
+
+def _window_ticks(events, base_tile: int, tiles: int) -> set:
+    lo, hi = base_tile * 32, (base_tile + tiles) * 32
+    return {e["tick"] for e in events
+            if e.get("cd") == 0x21 and e.get("dest") is not None and lo <= e["dest"] < hi}
+
+
+SK_FIELDS = ("p2c", "p2x", "p2y", "p2art")
+
+
+def sidekick_coverage(status, rows, equ, dma, start, delay=None):
+    """The STRESS_SIDEKICK leg rule (C1 note §2.7; brief: Player_2 live on >= 90% of drive
+    ticks and its DPLC transfers in the DMA probe's events). `dma` is leg_run's probe result
+    (decoded destinations); `start` is the first tick the policy drove (DEBUG: after free
+    flight). A P2 left behind (separation rule unmet) is reported as a STUCK sidekick."""
+    k = sidekick_delay() if delay is None else delay
+    rule = (f"status == FINISHED and, on >= {SK_LIVE_PCT}% of drive ticks: Player_2 code word "
+            f"!= 0, |P2 - P1| (Manhattan) <= {SK_SEP_MAX}, P2 art_tile & $7FF == "
+            f"VRAM_STRESS_SIDEKICK; P2(t) == P1(t - {k}) on >= {SK_REPLAY_PCT}% of ticks from "
+            f"start + {k}; and VRAM-write DMA ticks into P2's window >= {SK_DPLC_RATIO} x P1's "
+            f"(VRAM_TEST_SONIC) ticks that P2 can replay")
+    need = {"status": "FINISHED", "live_pct": SK_LIVE_PCT, "sep_pct": SK_LIVE_PCT,
+            "art_pct": SK_LIVE_PCT, "replay_pct": SK_REPLAY_PCT, "dma_ratio": SK_DPLC_RATIO}
+    why = []
+    eq = ("VRAM_STRESS_SIDEKICK", "VRAM_STRESS_SIDEKICK_TILES", "VRAM_TEST_SONIC",
+          "VRAM_TEST_SONIC_TILES")
+    miss = [n for n in eq if n not in equ]
+    if miss:
+        why.append(f"the listing publishes no EQU {miss} (not a STRESS_SIDEKICK build?)")
+    if not rows:
+        why.append("no rows")
+    lacking = [r.get("t") for r in rows if any(r.get(x) is None for x in SK_FIELDS)]
+    if lacking:
+        why.append(f"{len(lacking)} row(s) carry no Player_2 reading (first tick {lacking[0]})")
+    if not isinstance(dma, dict) or dma.get("status") != "MEASURED":
+        why.append("the DMA probe did not measure (" + (
+            str(dma.get("unmeasurable") or dma.get("reason") or dma.get("status"))
+            if isinstance(dma, dict) else "no probe result") + ")")
+    elif not dma.get("dest_decoded"):
+        why.append("the DMA probe did not decode destinations")
+    if why:
+        return dict(rule=rule, need=need, met=False,
+                    got={"status": status, "unmeasurable": "UNMEASURABLE: " + "; ".join(why)})
+    n = len(rows)
+    pct = lambda c: round(100.0 * c / n, 2)  # noqa: E731
+    live = sum(1 for r in rows if r["p2c"] != 0)
+    sep = [abs(r["p2x"] - r["px"]) + abs(r["p2y"] - r["py"]) for r in rows]
+    near = sum(1 for r, d in zip(rows, sep) if r["p2c"] != 0 and d <= SK_SEP_MAX)
+    art = sum(1 for r in rows if r["p2art"] & 0x7FF == equ["VRAM_STRESS_SIDEKICK"])
+    by_t = {r["t"]: r for r in rows}
+    elig = [r for r in rows if r["t"] >= start + k and (r["t"] - k) in by_t]
+    same = sum(1 for r in elig
+               if (r["p2x"], r["p2y"]) == (by_t[r["t"] - k]["px"], by_t[r["t"] - k]["py"]))
+    replay = round(100.0 * same / len(elig), 2) if elig else None
+    ev = dma.get("events", [])
+    last = rows[-1]["t"]
+    sk_t = _window_ticks(ev, equ["VRAM_STRESS_SIDEKICK"], equ["VRAM_STRESS_SIDEKICK_TILES"])
+    p1_t = {t for t in _window_ticks(ev, equ["VRAM_TEST_SONIC"], equ["VRAM_TEST_SONIC_TILES"])
+            if t is not None and t + k <= last}
+    ratio = round(len(sk_t) / len(p1_t), 3) if p1_t else None
+    got = {"status": status, "delay": k, "ticks": n, "live_pct": pct(live),
+           "sep_pct": pct(near), "sep_max": max(sep), "art_pct": pct(art),
+           "replay_pct": replay, "replay_ticks": len(elig),
+           "first_desync": next((r["t"] for r in elig if (r["p2x"], r["p2y"]) !=
+                                 (by_t[r["t"] - k]["px"], by_t[r["t"] - k]["py"])), None),
+           "dma_ticks_p2": len(sk_t), "dma_ticks_p1": len(p1_t), "dma_ratio": ratio,
+           "dma_events_p2": sum(1 for e in ev if e.get("tick") in sk_t and e.get("cd") == 0x21
+                                and equ["VRAM_STRESS_SIDEKICK"] * 32 <= (e.get("dest") or -1)
+                                < (equ["VRAM_STRESS_SIDEKICK"]
+                                   + equ["VRAM_STRESS_SIDEKICK_TILES"]) * 32),
+           "end_p1": [rows[-1]["px"], rows[-1]["py"]],
+           "end_p2": [rows[-1]["p2x"], rows[-1]["p2y"]]}
+    notes = []
+    if not p1_t:
+        notes.append("UNMEASURABLE: no VRAM-write DMA into P1's window (VRAM_TEST_SONIC) in the "
+                     "window, so P2's DPLC count has nothing to be judged against")
+    if got["sep_pct"] < SK_LIVE_PCT:
+        got["sidekick_stuck"] = True
+        notes.append(f"STUCK sidekick: P2 within {SK_SEP_MAX} px of P1 on only {got['sep_pct']}% "
+                     f"of ticks (max {got['sep_max']} px; ends P1 {got['end_p1']} / P2 "
+                     f"{got['end_p2']}). P2 was left behind; reported, not tuned away.")
+    if replay is None:
+        notes.append(f"UNMEASURABLE: no tick at or after start + {k} to test the replay on")
+    if notes:
+        got["note"] = " ".join(notes)
+    met = (status == "FINISHED" and pct(live) >= SK_LIVE_PCT and got["sep_pct"] >= SK_LIVE_PCT
+           and got["art_pct"] >= SK_LIVE_PCT and replay is not None and replay >= SK_REPLAY_PCT
+           and ratio is not None and ratio >= SK_DPLC_RATIO)
+    return dict(rule=rule, got=got, need=need, met=met)
+
+
+SK_COST_METHOD = (
+    "paired by tick: for each tick present in both runs, with a cycle reading in both, the same "
+    "P1 (px, py) in both (same route) and Player_2 live in the sidekick run, d = sidekick cyc - "
+    "canonical cyc; reported as mean d +- its standard error. Cycles = mclk / 7 from Input_Tick "
+    "to the next VSync_Wait entry (interrupt time inside the window included). Emulator: the "
+    "pinned oracle-aether.")
+
+
+def sidekick_cost_paired(rows: list, ref_rows: list) -> dict:
+    """What one sidekick costs per tick: the paired mean difference against a canonical run
+    instrumented the same way (`leg_run --leg sidekick` on s4.bin / s4.debug.bin)."""
+    ref = {r["t"]: r for r in ref_rows}
+    d, off = [], 0
+    for r in rows:
+        q = ref.get(r["t"])
+        if q is None or r.get("cyc") is None or q.get("cyc") is None or not r.get("p2c"):
+            continue
+        if (r["px"], r["py"]) != (q["px"], q["py"]):
+            off += 1
+            continue
+        d.append(r["cyc"] - q["cyc"])
+    n = len(d)
+    if n < 3:
+        return {"status": "UNMEASURABLE", "reason": f"{n} paired tick(s)", "n": n,
+                "ticks_off_route": off, "method": SK_COST_METHOD}
+    mean = sum(d) / n
+    sd = math.sqrt(sum((x - mean) ** 2 for x in d) / (n - 1))
+    srt = sorted(d)
+    return {"status": "MEASURED", "label": "MEASURED (Oracle)", "method": SK_COST_METHOD,
+            "n": n, "mean_cyc": mean, "stderr": sd / math.sqrt(n), "sd": sd,
+            "median_cyc": srt[n // 2], "min_cyc": srt[0], "max_cyc": srt[-1],
+            "frame_pct": 100.0 * mean / FRAME_CYC, "ticks_off_route": off}
+
+
+def dplc_calls(profile: dict, addr: int | None) -> int | None:
+    """`callsTotal` of Perform_DPLC's profiler row (by address, else name); None when the
+    profile did not measure or has no such row (UNMEASURABLE, never 0)."""
+    if not isinstance(profile, dict) or profile.get("status") != "MEASURED":
+        return None
+    for it in profile.get("items", []):
+        a = it.get("addr")
+        try:
+            ai = (int(_unhex(a), 16) if isinstance(a, str) else int(a)) & 0xFFFFFF
+        except (TypeError, ValueError):
+            ai = None
+        if (addr is not None and ai == addr) or it.get("name") == "Perform_DPLC":
+            return int(it.get("callsTotal", it.get("calls", 0)))
+    return None
+
+
+def sidekick_dplc_delta(profile, ref_profile, addr, live_ticks: int) -> dict:
+    """C1 note §2.7's profiler check: Perform_DPLC calls (sidekick) - (canonical, same
+    window) >= SK_DPLC_RATIO x ticks with P2 live. A missing row in either is UNMEASURABLE."""
+    a, b = dplc_calls(profile, addr), dplc_calls(ref_profile, addr)
+    if a is None or b is None:
+        return {"status": "UNMEASURABLE",
+                "reason": f"Perform_DPLC row missing (sidekick {a}, canonical {b})"}
+    need = SK_DPLC_RATIO * live_ticks
+    return {"status": "MEASURED", "label": "MEASURED (Oracle)", "calls": a, "ref_calls": b,
+            "delta": a - b, "need": need, "live_ticks": live_ticks, "met": a - b >= need}
+
+
+#: The frame constant (globals: 262 x 3420 / 7); FRAME_CYC = 127840 must not be copied.
+FRAME_CYC = 128006
 
 
 UNPAIRED_WHAT = (
@@ -874,6 +1051,28 @@ async def read_obj_load(c, syms: Syms, cx: int, cy: int) -> dict:
         k = j + 1
     return {"live": live, "pend": pend, "disp": disp, "zero": len(words) - len(ptrs),
             "mclk": mclk}
+
+
+SK_ADDR_SYMS = ("Player_2", "VSync_Wait")
+SK_EQU_NEEDED = ("SST_code_addr", "SST_art_tile")
+
+
+def sk_syms_missing(syms: Syms) -> list:
+    return ([n for n in SK_ADDR_SYMS if n not in syms.addr]
+            + [f"EQU {n}" for n in SK_EQU_NEEDED if n not in syms.equ])
+
+
+async def read_sidekick(c, syms: Syms) -> dict:
+    """Player_2's code word, x, y and art_tile this tick (by symbol; offsets from sst.emp
+    and the listing's SST_* equates), plus the mclk stamp (paused at the Input_Tick hit)."""
+    o, e = syms.off, syms.equ
+    span = max(o["x_pos"], o["y_pos"], e["SST_art_tile"], e["SST_code_addr"]) + 2
+    r = await c.call("emulator/read_memory", {"addr": hex(syms.addr["Player_2"] & 0xFFFFFF),
+                                              "len": span})
+    b = bytes.fromhex(_unhex(r["bytes"])[:span * 2])
+    return {"p2c": _be(b, e["SST_code_addr"], 2), "p2x": _be(b, o["x_pos"], 2),
+            "p2y": _be(b, o["y_pos"], 2), "p2art": _be(b, e["SST_art_tile"], 2),
+            "mclk": int(r["mclk"])}
 
 
 async def _write_pad(c, syms: Syms, held: int, press: int):

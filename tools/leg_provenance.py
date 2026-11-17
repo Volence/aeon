@@ -127,6 +127,18 @@ SHAPE_REBAKES = {
         "argv": ["python3", "tools/ojz_entity_gen.py", "generate", "--overlay",
                  "games/sonic4/test/fixtures/stress_objects.overlay.json", "--out", "{out}"],
     },
+    # STRESS_SIDEKICK (v2 C3): tools/stress/sidekick.patch applied in place plus the VRAM map
+    # regenerated from it. A MULTI-file re-bake: `paths` (not `path`) are the files the sigil
+    # build READS (DIGEST-READ rows) and `{out}` is a DIRECTORY the argv writes each one under
+    # at its repo path. vram.toml / vram_map.py / the map doc are inputs, never read by sigil.
+    "s4.sidekick": {
+        "paths": ["games/sonic4/test/ojz_scroll_test.emp",
+                  "games/sonic4/config/constants.emp"],
+        "inputs": ["tools/stress/sidekick.patch", "tools/stress_sidekick.py",
+                   "tools/gen_vram_map.py", "games/sonic4/test/ojz_scroll_test.emp",
+                   "games/sonic4/vram.toml", "games/sonic4/config/constants.emp"],
+        "argv": ["python3", "tools/stress_sidekick.py", "rebake", "--out", "{out}"],
+    },
 }
 
 
@@ -149,20 +161,27 @@ def rebake_inputs(spec: dict, root: Path) -> dict:
 
 
 def regenerate_rebake(rom: Path, out_dir: Path, root: Path = AEON_ROOT):
-    """(path, file, record) for a throwaway shape's re-bake, or None for any other ROM."""
+    """({path: file}, record) for a throwaway shape's re-bake, or None for any other ROM.
+    A spec with `path` writes one file at `{out}`; one with `paths` writes each declared path
+    under the `{out}` directory at its repo path."""
     spec = SHAPE_REBAKES.get(_shape_stem(rom))
     if spec is None:
         return None
-    out = Path(out_dir) / Path(spec["path"]).name
+    multi = "paths" in spec
+    out = Path(out_dir) / ("rebake" if multi else Path(spec["path"]).name)
     argv = [a.replace("{out}", str(out)) for a in spec["argv"]]
     p = subprocess.run(argv, cwd=root, capture_output=True, text=True)
-    if p.returncode != 0 or not out.is_file():
+    files = ({rel: out / rel for rel in spec["paths"]} if multi else {spec["path"]: out})
+    if p.returncode != 0 or not all(f.is_file() for f in files.values()):
         raise StalePair(f"leg_provenance: the {_shape_stem(rom)} re-bake could not be "
                         f"regenerated ({' '.join(argv)} -> rc {p.returncode}): "
                         f"{(p.stdout + p.stderr)[-800:]}")
-    rec = {"path": spec["path"], "argv": spec["argv"], "sha256": sha256_file(out),
-           "inputs": rebake_inputs(spec, root)}
-    return spec["path"], out, rec
+    rec = {"argv": spec["argv"], "inputs": rebake_inputs(spec, root)}
+    if multi:
+        rec["paths"] = {rel: sha256_file(f) for rel, f in files.items()}
+    else:
+        rec.update(path=spec["path"], sha256=sha256_file(out))
+    return files, rec
 
 
 def rom_provenance(rom: Path, lst: Path, root: Path | None = None) -> dict:
@@ -174,7 +193,7 @@ def rom_provenance(rom: Path, lst: Path, root: Path | None = None) -> dict:
     with tempfile.TemporaryDirectory(prefix="leg_rebake.") as td:
         rb = regenerate_rebake(rom, Path(td), Path(root) if root is not None else AEON_ROOT)
         v = check_pair(str(rom), str(lst), root=None if root is None else str(root),
-                       rebaked=None if rb is None else {rb[0]: str(rb[1])})
+                       rebaked=None if rb is None else {k: str(f) for k, f in rb[0].items()})
     if not v.fresh:
         raise StalePair(v.render("leg_provenance"))
     d = read_digest(str(lst))
@@ -183,7 +202,7 @@ def rom_provenance(rom: Path, lst: Path, root: Path | None = None) -> dict:
     return {"rom": rom.name, "crc32": f"{zlib.crc32(data) & 0xFFFFFFFF:08x}", "size": len(data),
             "game": shape["game"], "debug": int(shape["debug"]), "target": shape["target"],
             "extra_entries": shape["extra-entries"], "sigil_revision": asm["revision"],
-            "tree": asm["tree"], **({} if rb is None else {"rebake": rb[2]})}
+            "tree": asm["tree"], **({} if rb is None else {"rebake": rb[1]})}
 
 
 def _git(root: Path, *args: str) -> str:

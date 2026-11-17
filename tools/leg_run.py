@@ -46,7 +46,7 @@ DRIVE_FAILURES = (ld.DriveError, BusError, ConnectionError, EOFError,
                   asyncio.IncompleteReadError, TimeoutError, OSError)
 
 DEFAULT_CAP = {"idle": ld.IDLE_NEED_TICKS, "run": 3000, "topspeed": 3000, "diagfall": 3000,
-               "spindash": 3000, "objheavy": 3000}
+               "spindash": 3000, "objheavy": 3000, "sidekick": 3000}
 
 #: objheavy's path witness: the canonical `run` leg's per-tick P1 path, per shape/phase
 #: (tools/stress_objects_overlay.py fixture). Committed next to the overlay it shaped.
@@ -69,9 +69,9 @@ def path_ref(fixture: Path, debug: bool, phase: int):
     return {e["t0"] + i: (x, y) for i, (x, y) in enumerate(zip(e["px"], e["py"]))}, text
 
 
-def load_cost_ref(path: Path, debug: bool, phase: int) -> dict:
+def load_cost_ref(path: Path, debug: bool, phase: int, leg: str = "objheavy") -> dict:
     """The canonical instrumented run the paired cost differences against. Refused (ValueError)
-    unless it is an objheavy result on a CANONICAL ROM of the same shape and phase, with
+    unless it is a result of the SAME leg on a CANONICAL ROM of the same shape and phase, with
     cycle readings."""
     try:
         r = json.loads(Path(path).read_text())
@@ -79,13 +79,14 @@ def load_cost_ref(path: Path, debug: bool, phase: int) -> dict:
         raise ValueError(f"{path}: unreadable ({e})")
     rom = r.get("provenance", {}).get("rom", {})
     want = "s4.debug.bin" if debug else "s4.bin"
-    if r.get("leg") != "objheavy" or rom.get("rom") != want or r.get("phase") != phase:
+    if r.get("leg") != leg or rom.get("rom") != want or r.get("phase") != phase:
         raise ValueError(f"{path}: leg {r.get('leg')!r} rom {rom.get('rom')!r} phase "
-                         f"{r.get('phase')!r}; need an objheavy result on {want}, phase {phase}")
+                         f"{r.get('phase')!r}; need a {leg} result on {want}, phase {phase}")
     if not any(x.get("cyc") is not None for x in r.get("rows", [])):
         raise ValueError(f"{path}: no row carries a cycle reading")
-    return {"rows": r["rows"], "source": f"{Path(path).name} ({want} {rom.get('crc32')}, "
-                                         f"aeon {str(r['provenance']['aeon']['commit'])[:12]})"}
+    return {"rows": r["rows"], "profile": r.get("profile"), "lag": r.get("lag"),
+            "source": f"{Path(path).name} ({want} {rom.get('crc32')}, "
+                      f"aeon {str(r['provenance']['aeon']['commit'])[:12]})"}
 
 
 class ObjLoad:
@@ -123,6 +124,38 @@ class ObjLoad:
             self.open = None
             self.closed += 1
         return True
+
+
+class SidekickLoad(ObjLoad):
+    """sidekick's per-tick instruments: Player_2's code word, x, y and art_tile
+    (`leg_drive.read_sidekick`) and the same Input_Tick -> VSync_Wait cycle window as
+    ObjLoad. On the canonical ROM it records P2 dead (the paired-cost reference)."""
+
+    async def on_tick(self, c, s, row):
+        got = await ld.read_sidekick(c, self.syms)
+        row.update(p2c=got["p2c"], p2x=got["p2x"], p2y=got["p2y"], p2art=got["p2art"], cyc=None)
+        self.open = (row, got["mclk"])
+
+
+def sidekick_block(tr, syms, result_profile, cost_ref) -> dict:
+    """leg_run's `sidekick`: the paired per-tick cost, the Perform_DPLC call delta (C1 note
+    §2.7, needs --profile on both runs) and the lag against the canonical reference."""
+    if cost_ref is None:
+        dnr = {"status": "DID NOT RUN",
+               "reason": "no --cost-ref: needs a canonical `leg_run --leg sidekick` result on "
+                         "s4.bin / s4.debug.bin, same phase (with --profile for the DPLC delta)"}
+        return {"cost": dnr, "dplc": dnr, "lag_vs_ref": dnr}
+    live = sum(1 for r in tr.rows if r.get("p2c"))
+    rl = cost_ref.get("lag") or {}
+    lag = ({"status": "MEASURED", "label": "MEASURED (Oracle)", "frames": tr.lag_frames,
+            "ref_frames": rl["frames"], "delta_frames": tr.lag_frames - rl["frames"],
+            "ticks": tr.lag_ticks, "ref_ticks": rl.get("ticks")}
+           if rl.get("frames") is not None else
+           {"status": "UNMEASURABLE", "reason": "the reference carries no lag.frames"})
+    return {"ref": cost_ref["source"], "cost": ld.sidekick_cost_paired(tr.rows, cost_ref["rows"]),
+            "dplc": ld.sidekick_dplc_delta(result_profile, cost_ref.get("profile"),
+                                           syms.addr.get("Perform_DPLC"), live),
+            "lag_vs_ref": lag}
 
 
 def _lfc_note(syms, tr) -> str:
@@ -211,8 +244,8 @@ def main(argv=None) -> int:
     ap.add_argument("--dma-probe", action="store_true")
     ap.add_argument("--cap", type=int, default=None)
     ap.add_argument("--cost-ref", default=None,
-                    help="objheavy: a canonical `leg_run --leg objheavy` result (same shape and "
-                         "phase) for the paired per-object cost")
+                    help="objheavy / sidekick: a canonical `leg_run --leg <same leg>` result "
+                         "(same shape and phase) for the paired cost")
     ap.add_argument("--path-ref", default=str(PATH_FIXTURE),
                     help="objheavy: the canonical run-leg path fixture (default: committed)")
     a = ap.parse_args(argv)
@@ -238,6 +271,18 @@ def main(argv=None) -> int:
             except ValueError as e:
                 print(f"leg_run: COULD NOT RUN — --cost-ref: {e}", file=sys.stderr)
                 return 2
+    if a.leg == "sidekick":
+        miss = ld.sk_syms_missing(syms)
+        if miss:
+            print(f"leg_run: COULD NOT RUN — {lst}: sidekick needs {miss}", file=sys.stderr)
+            return 2
+        obj = SidekickLoad(syms)
+        if a.cost_ref is not None:
+            try:
+                cost_ref = load_cost_ref(Path(a.cost_ref), syms.debug, a.phase, "sidekick")
+            except ValueError as e:
+                print(f"leg_run: COULD NOT RUN — --cost-ref: {e}", file=sys.stderr)
+                return 2
     probe = None
     if a.dma_probe:
         try:
@@ -245,7 +290,8 @@ def main(argv=None) -> int:
         except OSError as e:
             print(f"leg_run: COULD NOT RUN — {e}", file=sys.stderr)
             return 2
-        probe = vdp.probe_for(lst_text, syms.addr, syms.equ, rom_bytes)
+        probe = vdp.probe_for(lst_text, syms.addr, syms.equ, rom_bytes,
+                              decode_dest=a.leg == "sidekick")
     wall0 = time.monotonic()
     load0 = open("/proc/loadavg").read().split()[:3]
     try:
@@ -275,7 +321,12 @@ def main(argv=None) -> int:
         inst.reap()
     wall = time.monotonic() - wall0
     tr = got["trace"]
-    cov = ld.coverage(a.leg, tr.status, tr.rows, syms.equ, ref=ref, ref_source=ref_source)
+    dma_res = probe.result() if probe is not None else _did_not_run("--dma-probe not given")
+    if a.leg == "sidekick":
+        cov = ld.sidekick_coverage(tr.status, tr.rows, syms.equ, dma_res,
+                                   tr.policy_from if tr.policy_from is not None else got["t0"])
+    else:
+        cov = ld.coverage(a.leg, tr.status, tr.rows, syms.equ, ref=ref, ref_source=ref_source)
     lag = {"frames": tr.lag_frames, "ticks": tr.lag_ticks}
     if syms.debug:
         lag["lag_frame_count_delta"] = tr.lag_frame_count_delta
@@ -285,7 +336,7 @@ def main(argv=None) -> int:
         "provenance": prov, "leg": a.leg, "phase": a.phase, "status": tr.status,
         "coverage": cov, "lag": lag, "rows": tr.rows, "input_log": tr.input_log,
         "profile": got["profile"],
-        "dma": probe.result() if probe is not None else _did_not_run("--dma-probe not given"),
+        "dma": dma_res,
         "reason": tr.reason, "notes": tr.notes,
         "policy": ld.POLICIES[a.leg].__name__,
         "end": {k: last.get(k) for k in ("t", "px", "py", "cx", "cy", "cxm")},
@@ -295,7 +346,10 @@ def main(argv=None) -> int:
                 "loadavg_start": load0, "loadavg_end": open("/proc/loadavg").read().split()[:3],
                 "date_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())},
     }
-    if obj is not None:
+    if a.leg == "sidekick":
+        result["sidekick"] = sidekick_block(tr, syms, got["profile"], cost_ref)
+        result["sidekick"]["ticks_with_cycles"] = obj.closed
+    elif obj is not None:
         result["path_ref"] = {"file": str(a.path_ref), "sha256": lp.sha256_file(Path(a.path_ref))
                               if Path(a.path_ref).is_file() else None,
                               "key": f"{'debug' if syms.debug else 'release'}/{a.phase}",
@@ -316,7 +370,12 @@ def main(argv=None) -> int:
           f"; wall {wall:.1f}s -> {path}")
     for n in tr.notes:
         print(f"  note: {n}")
-    if obj is not None:
+    if a.leg == "sidekick":
+        print(f"  sidekick: {cov['got']}")
+        for k, v in result["sidekick"].items():
+            if isinstance(v, dict):
+                print(f"  sidekick {k}: {v}")
+    elif obj is not None:
         g = cov["got"]
         print(f"  objheavy: {g}")
         oc = result["obj_cost"]

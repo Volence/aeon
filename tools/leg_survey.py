@@ -61,8 +61,8 @@ LEG_POLICY = {leg: (leg if leg in ("idle", "run", "topspeed", "diagfall", "spind
               for leg in LEGS}
 
 #: The `leg_run --leg` each survey leg is run as (and the `leg` its result carries). A stress
-#: leg leg_run knows by name (objheavy, Task 8) drives LEG_POLICY's policy under its OWN
-#: coverage rule; one it does not know yet (sidekick, stream) still runs as its policy.
+#: leg leg_run knows by name (objheavy, Task 8; sidekick, Task 9) drives LEG_POLICY's policy
+#: under its OWN coverage rule; one it does not know yet (stream) still runs as its policy.
 LEG_RUN_LEG = {leg: (leg if leg in ld.POLICIES else LEG_POLICY[leg]) for leg in LEGS}
 
 

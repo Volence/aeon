@@ -229,6 +229,10 @@ BGANIM_SECTION_CEILINGS = {
     # background, and so its ruled ceiling, is the shipped act's.
     "s4.stressobj.lst": BGANIM_SECTION_CEILING_RULED,        # STRESS_OBJECTS=1
     "s4.stressobj.debug.lst": BGANIM_SECTION_CEILING_RULED,  # STRESS_OBJECTS=1 DEBUG=1
+    # The STRESS_SIDEKICK shape (v2 C3) patches only the OJZ test state's player code and
+    # borrows spare_nametable tiles: the act's background is the shipped act's.
+    "s4.sidekick.lst": BGANIM_SECTION_CEILING_RULED,         # STRESS_SIDEKICK=1
+    "s4.sidekick.debug.lst": BGANIM_SECTION_CEILING_RULED,   # STRESS_SIDEKICK=1 DEBUG=1
 }
 BGANIM_SECTION_CEILING = min(BGANIM_SECTION_CEILINGS.values())
 

@@ -1,0 +1,117 @@
+diff --git a/games/sonic4/test/ojz_scroll_test.emp b/games/sonic4/test/ojz_scroll_test.emp
+index 95075b1b..6846362f 100644
+--- a/games/sonic4/test/ojz_scroll_test.emp
++++ b/games/sonic4/test/ojz_scroll_test.emp
+@@ -208,6 +208,13 @@ use games.sonic4.ojz_effects_editor_act1.{EditorRaster_OJZ_Act1_authored_probe,
+ // player_common's, imported the way the player state files import them.
+ use games.sonic4.player_common.{PlayerV, player_block}
+ 
++// STRESS_SIDEKICK (Empyrean v2 step 0, C3): this hunk and the two below exist ONLY in the
++// off-canonical s4.sidekick[.debug] shape. They come from tools/stress/sidekick.patch,
++// applied by build.sh under an EXIT trap; canonical sources never carry them, and
++// tools/stress_sidekick.py guard refuses a canonical build that does.
++use engine.structs.{CharacterDef}
++use games.sonic4.constants.{VRAM_STRESS_SIDEKICK}
++
+ // Screen half-extents — the camera-center offsets for the Player_1 spawn. Their
+ // real home is engine/level/camera.emp (not exported by it), mirrored
+ // file-local with a drift guard.
+@@ -831,6 +838,40 @@ pub proc GameState_OJZScroll_Init () clobbers(d0-d7/a0-a6) preserves(sr.mask) {
+         .no_boot_override:
+         }
+ 
++        // -- STRESS_SIDEKICK: spawn Player_2 on Player_1 with a CharacterDef copy whose
++        //    cd_vrambase is VRAM_STRESS_SIDEKICK (borrowed from spare_nametable). The copy
++        //    lives in System slot 0 (its code_addr stays 0: never dispatched). P2's own
++        //    per-tick call is in GameState_OJZScroll_Update; RunObjects only sees a parked
++        //    Ability_None word so the slot counts as live without being run twice. --
++        lea     System_Slots, a1
++        lea     2(a1), a1
++        movea.l a1, a2
++        movea.l Player_Chardef, a0
++        moveq   #sizeof(CharacterDef)/2-1, d0
++.sk_copy:
++        move.w  (a0)+, (a1)+
++        dbf     d0, .sk_copy
++        move.w  #VRAM_STRESS_SIDEKICK, offsetof(CharacterDef, cd_vrambase)(a2)
++        lea     Player_1, a0
++        lea     Player_2, a1
++        move.l  Sst.x_pos(a0), d0
++        move.l  d0, Sst.x_pos(a1)
++        move.l  Sst.y_pos(a0), Sst.y_pos(a1)
++        movea.l a1, a0
++        jbsr    Player_Init
++        movea.l Player_Chardef, a5
++        lea     System_Slots, a1
++        lea     2(a1), a1
++        move.l  a1, Player_Chardef
++        lea     Player_2, a0
++        tst.b   PlayerV.debug_flag(a0)
++        bne     .sk_marker
++        jbsr    Player_InitAssets
++.sk_marker:
++        move.l  a5, Player_Chardef
++        lea     Player_2, a0
++        move.w  #Ability_None - ObjCodeBase, Sst.code_addr(a0)   // park RunObjects' dispatch
++
+         // -- write 4 marker tiles to VRAM (16x16 sprite = 2x2 tiles) at
+         //    VRAM_TEST_MARKER, in the free gap below the BG region — the act
+         //    art pool owns tiles 0..POOL_TILE_CEILING-1, so a low slot would
+@@ -1108,6 +1149,33 @@ pub proc GameState_OJZScroll_Update () clobbers(d0-d7/a0-a6) {
+         // -- execute all objects (Player_Main handles its own movement) --
+         jbsr    RunObjects
+ 
++        // -- STRESS_SIDEKICK: run Player_2 on the leader's input word from 16 ticks ago
++        //    (Player_Stat_Ring, Held<<8|Press), with its own CharacterDef swapped in.
++        //    While the leader is in debug free flight it writes no trail: pin P2 to it. --
++        lea     Player_2, a0
++        tst.w   Sst.code_addr(a0)
++        beq     .sk_off
++        lea     Player_1, a1
++        tst.b   PlayerV.debug_flag(a1)
++        beq     .sk_trail
++        move.l  Sst.x_pos(a1), Sst.x_pos(a0)
++        move.l  Sst.y_pos(a1), Sst.y_pos(a0)
++.sk_trail:
++        movea.l Player_Chardef, a5
++        lea     System_Slots, a1
++        lea     2(a1), a1
++        move.l  a1, Player_Chardef
++        movea.w Ctrl_1_Held, a6                 // Held<<8|Press, restored below
++        move.w  Player_Ring_Index, d0
++        subi.w  #4*(16+1), d0                   // the leader's input 16 ticks ago
++        andi.w  #$FC, d0
++        lea     Player_Stat_Ring, a1
++        move.w  (a1,d0.w), Ctrl_1_Held
++        jbsr    Player_Main
++        move.w  a6, Ctrl_1_Held
++        move.l  a5, Player_Chardef
++.sk_off:
++
+         // -- camera follows Player_1 (deadzone + preview-aware clamp).
+         //    DEBUG scene-pin: skip so a write_memory Camera_X/Y stays put. --
+         if DEBUG == 1 {
+diff --git a/games/sonic4/vram.toml b/games/sonic4/vram.toml
+index dc58c084..7e8a9a57 100644
+--- a/games/sonic4/vram.toml
++++ b/games/sonic4/vram.toml
+@@ -63,6 +63,19 @@ lifetime = "boot"                # $18), Plane B base (reg $04 = $03) and Window
+ # passes it with exit 0. The rider that teaches it the granule table is booked in
+ # docs/DEFERRED_WORK.md and rides the parcel that consumes this region.
+ 
++# STRESS_SIDEKICK (v2 C3, off-canonical s4.sidekick shape only; from
++# tools/stress/sidekick.patch): Player_2's DPLC body window, borrowed from the
++# register-less spare_nametable (768..882 is free in both shapes).
++[[region]]
++name = "stress_sidekick_body"
++owner = "games.sonic4.ojz_scroll_test"
++kind = "window"
++base = 768
++tiles = 29                 # = character_window's 29
++lifetime = "mode"
++const = "VRAM_STRESS_SIDEKICK"
++borrows = "spare_nametable"
++
+ [[region]]
+ name = "debug_preset_readout"
+ owner = "games.sonic4.ojz_scroll_test"

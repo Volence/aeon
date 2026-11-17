@@ -278,12 +278,13 @@ def test_a_rebake_of_a_file_the_build_never_read_is_a_problem(tmp_path, monkeypa
 def test_only_the_declared_throwaway_shapes_rebake(tmp_path):
     for name in ("s4.bin", "s4.debug.bin", "s4.s2clip.bin", "demo.bin"):
         assert lp.regenerate_rebake(Path(name), tmp_path) is None, name
-    assert set(lp.SHAPE_REBAKES) == {"s4.stressobj"}
+    assert set(lp.SHAPE_REBAKES) == {"s4.stressobj", "s4.sidekick"}
     assert lp._shape_stem(Path("s4.stressobj.debug.bin")) == "s4.stressobj"
 
 
 def test_the_stressobj_rebake_regenerates_from_committed_inputs(tmp_path):
-    path, out, rec = lp.regenerate_rebake(Path("s4.stressobj.debug.bin"), tmp_path)
+    files, rec = lp.regenerate_rebake(Path("s4.stressobj.debug.bin"), tmp_path)
+    (path, out), = files.items()
     assert path == "games/sonic4/data/generated/ojz/act1/entity_data.emp"
     assert "STRESS_OBJECTS OVERLAY" in out.read_text()
     assert rec["sha256"] == lp.sha256_file(out) and rec["inputs"]
@@ -298,3 +299,18 @@ def test_the_stressobj_rebake_regenerates_from_committed_inputs(tmp_path):
 def test_a_rebake_input_that_matches_nothing_is_refused(tmp_path):
     with pytest.raises(lp.StalePair, match="matches nothing"):
         lp.rebake_inputs({"inputs": ["no/such/*.json"]}, tmp_path)
+
+
+def test_the_sidekick_rebake_regenerates_both_build_reads_from_committed_inputs(tmp_path):
+    """v2 C3: the patch applied to the committed files plus the regenerated VRAM map; only
+    the two files sigil reads are declared (vram.toml and the map doc are inputs)."""
+    files, rec = lp.regenerate_rebake(Path("s4.sidekick.debug.bin"), tmp_path)
+    assert set(files) == {"games/sonic4/test/ojz_scroll_test.emp",
+                          "games/sonic4/config/constants.emp"}
+    assert "jbsr    Player_Main" in files["games/sonic4/test/ojz_scroll_test.emp"].read_text()
+    assert "VRAM_STRESS_SIDEKICK" in files["games/sonic4/config/constants.emp"].read_text()
+    for rel, f in files.items():
+        assert rec["paths"][rel] == lp.sha256_file(f)
+        assert f.read_bytes() != (lp.AEON_ROOT / rel).read_bytes(), rel     # tree untouched
+    assert rec["inputs"]["tools/stress/sidekick.patch"] == lp.sha256_file(
+        lp.AEON_ROOT / "tools/stress/sidekick.patch")

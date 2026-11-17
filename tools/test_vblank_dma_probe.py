@@ -342,3 +342,60 @@ def test_end_past_the_frame_is_not_wrapped():
         return p
     p = asyncio.run(go())
     assert p.events[0].end_line == 280 and vp.overruns(p.events) == p.events
+
+
+# ---- destination decode (v2 C3: the sidekick leg's DPLC witness) ---------------------------
+
+def test_decode_command_vram_write_dma():
+    # VRAM write DMA to $6000 (tile 768): hi = $4000 | ($6000 & $3FFF), lo = $0080 | ($6000 >> 14)
+    hi, lo = 0x4000 | (0x6000 & 0x3FFF), 0x0080 | (0x6000 >> 14)
+    assert vp.decode_command(hi, lo) == (0x6000, vp.CD_VRAM_DMA)
+    assert vp.decode_command(0xC000, 0x0080) == (0x0000, 0x23)     # CRAM write DMA
+
+
+class DestBus(FakeBus):
+    """FakeBus plus registers / read_memory: a1 points at a DMAEntry's Command low word."""
+
+    def __init__(self, cmd, **kw):
+        super().__init__(**kw)
+        self.cmd = cmd
+
+    async def call(self, method, params):
+        if method == "emulator/registers":
+            self.calls.append((method, params))
+            return {"a1": "0xFF8010"}
+        if method == "emulator/read_memory":
+            self.calls.append((method, params))
+            assert params == {"addr": hex(0xFF800E), "len": 4}
+            return {"bytes": "0x%08X" % self.cmd}
+        return await super().call(method, params)
+
+
+def test_probe_decodes_destination_only_when_asked():
+    cmd = ((0x4000 | 0x2000) << 16) | (0x0080 | 0x0001)          # VRAM $6000 write DMA
+
+    async def go(regs):
+        bus = DestBus(cmd, step_cost=100)
+        p = vp.DmaProbe([0x106], vblank_addr=0x247E, lag_addr=None, entry_line=224,
+                        site_regs=regs)
+        await p.arm(bus)
+        p.tick = 7
+        await p.on_break(bus, 0x247E, {"mclk": at(224, 0)})
+        bus.now = at(240, 0)
+        await p.on_break(bus, 0x106, {"mclk": bus.now})
+        return p, bus
+    p, bus = asyncio.run(go({0x106: 1}))
+    assert p.unmeasurable is None
+    assert (p.events[0].dest, p.events[0].cd) == (0x6000, vp.CD_VRAM_DMA)
+    assert p.result()["dest_decoded"] is True
+    p, bus = asyncio.run(go(None))
+    assert p.events[0].dest is None and p.result()["dest_decoded"] is False
+    assert not any(m == "emulator/registers" for m, _ in bus.calls)
+
+
+def test_site_regs_come_from_the_rom_word():
+    rom = bytearray(0x200)
+    rom[0x106:0x108] = vp.MOVE_W[1].to_bytes(2, "big")
+    assert vp.site_regs_of([0x106], bytes(rom)) == {0x106: 1}
+    with pytest.raises(vp.NoTriggerSites):
+        vp.site_regs_of([0x100], bytes(rom))

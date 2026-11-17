@@ -204,7 +204,7 @@ if [[ -n "${S2CLIP:-}" ]]; then
         exit 1
     fi
     if [[ "${STRESS_ART:-0}" == "1" || "${STRESS_EVICT:-0}" == "1" \
-            || "${STRESS_OBJECTS:-0}" == "1" ]]; then
+            || "${STRESS_OBJECTS:-0}" == "1" || "${STRESS_SIDEKICK:-0}" == "1" ]]; then
         echo "ERROR: S2CLIP and the STRESS_* fixtures are mutually exclusive shapes —"
         echo "  both re-bake the same act slot."
         exit 1
@@ -283,6 +283,36 @@ if [[ "${STRESS_OBJECTS:-0}" == "1" ]]; then
     ROM_NAME="s4.stressobj"
     if [[ "${DEBUG:-0}" == "1" ]]; then
         ROM_NAME="s4.stressobj.debug"
+    fi
+fi
+
+# STRESS_SIDEKICK=1 (Empyrean v2 step 0, task C3): the sonic4 shape with a second player,
+# Player_2, that replays Player_1's input 16 ticks late (the mirror-input sidekick), so the
+# survey's `sidekick` leg measures what a sidekick costs v1. Off-canonical DEV shape in
+# STRESS_OBJECTS' sense: UNFROZEN, no golden, a DISTINCT artifact
+# (s4.sidekick[.debug].bin/.lst). Its whole mechanism is ONE committed patch,
+# tools/stress/sidekick.patch (data nothing compiles), applied IN PLACE to
+# games/sonic4/test/ojz_scroll_test.emp and games/sonic4/vram.toml, plus the VRAM map
+# regenerated from it (constants.emp, tools/vram_map.py, the map doc), under an EXIT trap
+# that restores all five from git (the block further down). Nothing sidekick-related is in
+# any canonical source, so canonical bytes are identical BY CONSTRUCTION (C1 note §2.5).
+# Release and DEBUG both build. Mutually exclusive with S2CLIP and every other STRESS_*
+# shape (both directions are refused here and in theirs); FAST is refused.
+if [[ "${STRESS_SIDEKICK:-0}" == "1" ]]; then
+    if [[ "$GAME" != "sonic4" ]]; then
+        echo "ERROR: STRESS_SIDEKICK=1 is a sonic4-only shape (it patches the OJZ test state)."
+        exit 1
+    fi
+    if [[ -n "${S2CLIP:-}" || "${STRESS_ART:-0}" == "1" || "${STRESS_EVICT:-0}" == "1" \
+            || "${STRESS_OBJECTS:-0}" == "1" ]]; then
+        echo "ERROR: STRESS_SIDEKICK is mutually exclusive with S2CLIP and the other STRESS_*"
+        echo "  shapes — each builds its own off-canonical artifact."
+        exit 1
+    fi
+    # Standalone literals (tools/gate_cut_shape.py reads them off this file).
+    ROM_NAME="s4.sidekick"
+    if [[ "${DEBUG:-0}" == "1" ]]; then
+        ROM_NAME="s4.sidekick.debug"
     fi
 fi
 MAIN_ASM="games/${GAME}/game_root.asm"
@@ -638,7 +668,7 @@ fi
 FAST="${FAST:-0}"
 if [[ "$FAST" == "1" ]]; then
     if [[ "${STRESS_EVICT:-0}" == "1" || "${STRESS_ART:-0}" == "1" \
-            || "${STRESS_OBJECTS:-0}" == "1" ]]; then
+            || "${STRESS_OBJECTS:-0}" == "1" || "${STRESS_SIDEKICK:-0}" == "1" ]]; then
         echo "ERROR: FAST=1 is refused on the STRESS_* fixture shapes."
         echo "  Those shapes exist to produce EVIDENCE (soaks, stress ROMs read as results),"
         echo "  and FAST skips every verification lane. Build them canonically."
@@ -682,6 +712,12 @@ fi
 gate strict "stress_objects_overlay.py guard (no leftover overlay bake)" \
     python3 tools/stress_objects_overlay.py guard \
     --entity-data games/sonic4/data/generated/ojz/act1/entity_data.emp
+# STRESS_SIDEKICK leftover guard (every shape, before any work), for the same reason: the
+# sidekick patch is applied in place under an EXIT trap, and a SIGKILLed shape build leaves
+# it (and its regenerated VRAM map) in the tree for the next build to ship. The patch's own
+# region name / constant are in no canonical file, so their presence is refused here.
+gate strict "stress_sidekick.py guard (no leftover sidekick patch)" \
+    python3 tools/stress_sidekick.py guard
 
 # The sigil build binary — THE assembler now. No asl fallback: a missing/failed sigil
 # is a HARD ERROR (mirrors the seam-1 SIGIL_EMIT dependency).
@@ -1228,6 +1264,43 @@ if [[ "${STRESS_OBJECTS:-0}" == "1" ]]; then
     echo "STRESS_OBJECTS: throwaway re-bake of entity_data.emp with ${STRESSOBJ_OVERLAY}..."
     python3 "${TOOLS}/ojz_entity_gen.py" generate --overlay "$STRESSOBJ_OVERLAY" || {
         echo "STRESS_OBJECTS: the overlay re-bake refused (see above)" >&2; exit 1; }
+fi
+
+# STRESS_SIDEKICK throwaway patch: apply tools/stress/sidekick.patch IN PLACE and regenerate
+# the VRAM map from it, under an EXIT trap that restores the five touched files from git
+# (success, failure and a signal alike; the TERM/INT handlers make bash wait for sigil before
+# it exits through the trap, as STRESS_OBJECTS' do). After the pre-build pytest lane, so every
+# pure test reads the committed tree. A patch that no longer applies is refused by name.
+if [[ "${STRESS_SIDEKICK:-0}" == "1" ]]; then
+    # The restore list is the tool's RESTORE_PATHS (one source: the trap restores exactly what
+    # `apply` may change).
+    mapfile -t STRESSSK_PATHS < <(python3 "${TOOLS}/stress_sidekick.py" paths)
+    if [[ "${#STRESSSK_PATHS[@]}" -lt 2 ]]; then
+        echo "ERROR: STRESS_SIDEKICK: tools/stress_sidekick.py paths gave no restore list."
+        exit 1
+    fi
+    if [[ -n "$(git status --porcelain -- "${STRESSSK_PATHS[@]}")" ]]; then
+        echo "ERROR: STRESS_SIDEKICK needs clean ${STRESSSK_PATHS[*]}, but git status shows"
+        echo "  changes. Commit or stash them first — the restore checks them out from git and"
+        echo "  would discard uncommitted changes."
+        exit 1
+    fi
+    # Same rule as _restore_s2clip_tree: a failed restore fails the build.
+    _restore_sidekick_tree() {
+        echo "STRESS_SIDEKICK: restoring the patched files from git..."
+        if ! git checkout -q -- "${STRESSSK_PATHS[@]}"; then
+            echo "ERROR: STRESS_SIDEKICK: could NOT restore the patched files (git said why above)."
+            echo "  They still carry tools/stress/sidekick.patch. Restore by hand:"
+            echo "    git checkout -- ${STRESSSK_PATHS[*]}"
+            exit 1
+        fi
+    }
+    trap _restore_sidekick_tree EXIT
+    trap 'exit 143' TERM
+    trap 'exit 130' INT
+    echo "STRESS_SIDEKICK: applying tools/stress/sidekick.patch in place..."
+    python3 "${TOOLS}/stress_sidekick.py" apply || {
+        echo "STRESS_SIDEKICK: the sidekick patch refused (see above)" >&2; exit 1; }
 fi
 
 # The committed OJZ level tree is consumed directly (its generators need
