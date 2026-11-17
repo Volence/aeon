@@ -88,8 +88,8 @@ corpus cases; imported in this pair). Measured with `sigil build --report name-e
 shapes: 0 names whose meaning changed. The literal-inlining pins and the scene import tax
 this section prescribed are now removable; they are left for aeon to retire. Still out of
 scope: an `ensure`/`raise` message's `{name}` interpolation is a string, resolved where it
-is evaluated, and labels (procs, data, equs) resolve through the link, not this rule. The
-original text is kept below for history.
+is evaluated; procs and data resolve through the link. An `equ` READ AS A VALUE binds like
+a const (its own link symbol is unchanged). The original text is kept below for history.
 
 
 **Trap:** a `comptime fn`'s free names resolve at its **call site**, not in its defining
