@@ -328,3 +328,72 @@ def test_diff_refuses_duplicate_tick_rows(tmp_path):
     _put(run, "s4", "run", rows + [rows[3]])
     with pytest.raises(ValueError, match="duplicate tick"):
         v1.diff(ref, run)
+
+
+# ---- policy versions (owner-proxy ruling Q1, 2026-11-17) ------------------------------------
+
+def _versions(d: Path, **v):
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "MANIFEST.json").write_text(json.dumps(
+        {"recordings": {k.replace("_", "/", 1): {"policy_version": n} for k, n in v.items()}}))
+
+
+def test_diff_refuses_across_policy_versions(tmp_path, capsys):
+    """Identical frames recorded under different policy versions are NOT a same-behaviour
+    verdict: the diff says plainly that the versions differ and fails."""
+    ref, run = _pair(tmp_path, legs=("spindash",), shapes=("s4",))
+    _versions(ref, s4_spindash=1)
+    _versions(run, s4_spindash=2)
+    rep = v1.diff(ref, run)
+    assert rep.results[("s4", "spindash")] == (v1.POLICY_DIFFERS, 1, 2)
+    assert not rep.ok
+    assert v1.main(["diff", "--ref", str(ref), "--run", str(run)]) == 1
+    assert "s4/spindash: POLICY VERSIONS DIFFER (reference v1, run v2)" in capsys.readouterr().out
+
+
+def test_diff_refuses_a_version_declared_on_one_side_only(tmp_path):
+    ref, run = _pair(tmp_path, legs=("spindash",), shapes=("s4",))
+    _versions(ref, s4_spindash=2)
+    rep = v1.diff(ref, run)
+    assert rep.results[("s4", "spindash")] == (v1.POLICY_DIFFERS, 2, None)
+    assert not rep.ok
+
+
+def test_diff_same_policy_version_compares_frames(tmp_path):
+    ref, run = _pair(tmp_path, legs=("spindash",), shapes=("s4",))
+    _versions(ref, s4_spindash=2)
+    _versions(run, s4_spindash=2)
+    assert v1.diff(ref, run).ok
+
+
+def test_recorded_entry_carries_the_policy_version(tmp_path, monkeypatch):
+    """Closed-loop: the leg's current policy version. Replay: the version of the log it
+    replays (passed from the reference's own entry), never the current policy's."""
+    leg_now = _fake_record(monkeypatch, {"run": ("FINISHED", [0x700] * 80, [0x08] * 80),
+                                         "spindash": ("STUCK", [0] * 80, [0x02] * 80)})
+    out = tmp_path / "ref"
+    for leg in ("run", "spindash"):
+        leg_now["leg"] = leg
+        v1.record(tmp_path / "s4.bin", tmp_path / "s4.lst", leg, out)
+    recs = json.loads((out / "MANIFEST.json").read_text())["recordings"]
+    assert recs["s4/run"]["policy_version"] == ld.policy_version("run") == 1
+    assert recs["s4/spindash"]["policy_version"] == ld.policy_version("spindash") == 2
+    leg_now["leg"] = "spindash"
+    log = {"t0": 300, "held": [0x02] * 80}
+    v1.record(tmp_path / "s4.bin", tmp_path / "s4.lst", "spindash", tmp_path / "rp",
+              inputs=log, policy_version=1)
+    rp = json.loads((tmp_path / "rp" / "MANIFEST.json").read_text())["recordings"]
+    assert rp["s4/spindash"]["policy_version"] == 1 and rp["s4/spindash"]["mode"] == "replay"
+    with pytest.raises(ld.DriveError, match="policy_version"):
+        v1.record(tmp_path / "s4.bin", tmp_path / "s4.lst", "spindash", tmp_path / "rp2",
+                  inputs=log)
+
+
+def test_replay_cli_refuses_a_reference_without_a_policy_version(tmp_path, capsys):
+    ref = tmp_path / "ref"
+    (ref / "s4").mkdir(parents=True)
+    (ref / "s4" / "spindash.inputs.json").write_text(json.dumps({"t0": 300, "held": [2]}))
+    (ref / "MANIFEST.json").write_text(json.dumps({"recordings": {"s4/spindash": {}}}))
+    rc = v1.main(["replay", "--rom", str(tmp_path / "s4.bin"), "--lst", str(tmp_path / "s4.lst"),
+                  "--leg", "spindash", "--ref", str(ref), "--out", str(tmp_path / "o")])
+    assert rc == 2 and "policy_version" in capsys.readouterr().err

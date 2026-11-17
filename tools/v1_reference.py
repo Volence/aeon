@@ -26,7 +26,8 @@ deliberately dirty tree passes `allow_dirty` and is stamped `reference_grade: fa
 
 `diff` answers, per (shape, leg), None (identical over the chosen fields) or the first
 divergent (Logic_Tick, field); a leg present on one side only, or with no rows, is
-DID NOT RUN -- never equal.
+DID NOT RUN -- never equal. Entries whose MANIFEST `policy_version`s differ (or that only one
+side names) read POLICY VERSIONS DIFFER and are not compared (ruling Q1, 2026-11-17).
 
     v1_reference.py record --rom s4.bin --lst s4.lst --leg run --out DIR
     v1_reference.py replay --rom s4.bin --lst s4.lst --leg run --ref REFDIR --out DIR
@@ -58,6 +59,9 @@ SEMANTIC = ("held", "px", "py", "xvel", "yvel", "status", "cx", "cy", "lag_befor
 ALL = ("held",) + RAW_HASHES + SEMANTIC[1:]
 DID_NOT_RUN = "DID NOT RUN"
 ROW_MISSING = "<row missing>"
+#: diff result head when the two sides' MANIFEST entries name different policy versions (or
+#: only one names one): (POLICY_DIFFERS, ref_version, run_version). Never a same-behaviour verdict.
+POLICY_DIFFERS = "POLICY VERSIONS DIFFER"
 
 #: The E1 scope: phase 0 of the five canonical legs (objheavy/sidekick/stream are stress shapes,
 #: not v1 canonical). Caps are leg_run's, so a recording is the same leg leg_run drives.
@@ -109,6 +113,7 @@ def frame_row(s: ld.TickState, drow: dict, status_byte: int, hashes: dict) -> di
 @dataclass
 class DiffReport:
     #: (shape, leg) -> None (identical) | (first Logic_Tick, field) | DID_NOT_RUN
+    #:                 | (POLICY_DIFFERS, ref_version, run_version)
     results: dict
 
     @property
@@ -122,6 +127,11 @@ class DiffReport:
                 out.append(f"{sh}/{leg}: identical")
             elif v == DID_NOT_RUN:
                 out.append(f"{sh}/{leg}: DID NOT RUN")
+            elif v[0] == POLICY_DIFFERS:
+                out.append(f"{sh}/{leg}: {POLICY_DIFFERS} (reference "
+                           f"{'v%d' % v[1] if v[1] is not None else 'unversioned'}, run "
+                           f"{'v%d' % v[2] if v[2] is not None else 'unversioned'}): "
+                           "different policies drove them, so frames are not compared")
             else:
                 out.append(f"{sh}/{leg}: DIVERGES at tick {v[0]} on {v[1]}")
         return out
@@ -141,6 +151,18 @@ def _legs_in(d: Path) -> set:
             sh, _, leg = k.rpartition("/")
             got.add((sh, leg))
     return got
+
+
+def _policy_versions(d: Path) -> dict:
+    """(shape, leg) -> the MANIFEST entry's policy_version (None when the entry names none)."""
+    m = Path(d) / "MANIFEST.json"
+    if not m.is_file():
+        return {}
+    out = {}
+    for k, e in json.loads(m.read_text()).get("recordings", {}).items():
+        sh, _, leg = k.rpartition("/")
+        out[(sh, leg)] = e.get("policy_version") if isinstance(e, dict) else None
+    return out
 
 
 def _first_divergence(a: list, b: list, fields, where: str):
@@ -166,10 +188,17 @@ def diff(ref_dir: Path, run_dir: Path, fields: tuple = ALL) -> DiffReport:
     if bad or not fields:
         raise ValueError(f"unknown field(s) {bad} (known: {ALL})")
     res = {}
+    va, vb = _policy_versions(ref_dir), _policy_versions(run_dir)
     for sh, leg in sorted(_legs_in(ref_dir) | _legs_in(run_dir)):
         pa, pb = _frame_path(ref_dir, sh, leg), _frame_path(run_dir, sh, leg)
         if not (pa.is_file() and pb.is_file()):
             res[(sh, leg)] = DID_NOT_RUN
+            continue
+        # Policy versions (ruling Q1): if either side names one, both must name the same one.
+        # Neither naming one (bare frame dirs) is compared as before.
+        pv = (va.get((sh, leg)), vb.get((sh, leg)))
+        if pv != (None, None) and pv[0] != pv[1]:
+            res[(sh, leg)] = (POLICY_DIFFERS,) + pv
             continue
         a, b = read_frames(pa), read_frames(pb)
         if not a or not b:
@@ -301,6 +330,9 @@ def _schema(status_bits: dict) -> dict:
         "coverage": "leg_drive.coverage(leg, status, drive rows, listing equates) computed at "
                     "record time from the drive's own rows (which carry gspeed and player "
                     "state, not kept in the frame rows); met=false is DID NOT COVER",
+        "policy_version": "the version of the closed-loop policy that produced this entry's "
+                          "InputLog (leg_drive.policy_version; a replay records its log's). "
+                          "diff refuses to compare entries whose versions differ",
         "identical_to": "set when this entry's inputs and frames sha256 both equal an earlier "
                         "leg's of the same shape (computed, never typed)",
         "tick": "Logic_Tick at the Input_Tick hit; held = the byte written at that hit",
@@ -320,13 +352,21 @@ def _manifest_update(out: Path, key: str, entry: dict, status_bits: dict | None 
 
 
 def record(rom, lst, leg: str, out: Path, inputs: ld.InputLog | None = None,
-           allow_dirty: bool = False, cap: int | None = None) -> RecordStats:
+           allow_dirty: bool = False, cap: int | None = None,
+           policy_version: int | None = None) -> RecordStats:
     """Drive `leg` on `rom` from reset and write out/<shape>/<leg>.{inputs.json,frames.jsonl.gz}
     plus its MANIFEST entry. Without `inputs` the drive is the closed-loop policy (phase 0) and
-    its InputLog is saved as the replay; with `inputs` it is the open-loop replay of that log."""
+    its InputLog is saved as the replay; with `inputs` it is the open-loop replay of that log,
+    and `policy_version` (required) is the version of the policy that PRODUCED the log -- the
+    entry records that, never the current policy's version."""
     if leg not in LEGS:
         raise ValueError(f"leg {leg!r} is not in the E1 scope {LEGS} (objheavy/sidekick/stream "
                          "are stress shapes, not v1 canonical)")
+    if inputs is None:
+        policy_version = ld.policy_version(leg)
+    elif not isinstance(policy_version, int):
+        raise ld.DriveError("a replay needs the policy_version of the log it replays (the "
+                            "reference entry's `policy_version`); none was given")
     rom, lst, out = Path(rom).resolve(), Path(lst).resolve(), Path(out)
     if allow_dirty:
         m = out / "MANIFEST.json"
@@ -379,6 +419,7 @@ def record(rom, lst, leg: str, out: Path, inputs: ld.InputLog | None = None,
     bits = {k: v for k, v in syms.equ.items() if k.startswith("ST_")}
     _manifest_update(out, f"{shape}/{leg}", dict(asdict(st), phase=PHASE, notes=tr.notes,
                                                  coverage=cov,
+                                                 policy_version=policy_version,
                                                  covered="COVERED" if cov["met"]
                                                  else "DID NOT COVER",
                                                  framebuffer_source=FB_SOURCE,
@@ -444,7 +485,7 @@ def main(argv=None) -> int:
         doc[a.key] = json.loads(Path(a.json).read_text())
         m.write_text(json.dumps(doc, indent=1, sort_keys=True) + "\n")
         return 0
-    inputs = None
+    inputs = pver = None
     if a.cmd == "replay":
         src = Path(a.ref) / Path(a.rom).stem / f"{a.leg}.inputs.json"
         try:
@@ -452,9 +493,19 @@ def main(argv=None) -> int:
         except (OSError, ValueError) as e:
             print(f"v1_reference: COULD NOT RUN -- {src}: {e}", file=sys.stderr)
             return 2
+        try:
+            pver = _policy_versions(Path(a.ref)).get((Path(a.rom).stem, a.leg))
+        except (OSError, ValueError) as e:
+            print(f"v1_reference: COULD NOT RUN -- {a.ref}/MANIFEST.json: {e}", file=sys.stderr)
+            return 2
+        if not isinstance(pver, int):
+            print(f"v1_reference: COULD NOT RUN -- {a.ref}/MANIFEST.json names no "
+                  f"policy_version for {Path(a.rom).stem}/{a.leg}: the replay could not say "
+                  "which policy produced the log", file=sys.stderr)
+            return 2
     try:
         st = record(a.rom, a.lst, a.leg, Path(a.out), inputs=inputs,
-                    allow_dirty=getattr(a, "allow_dirty", False))
+                    allow_dirty=getattr(a, "allow_dirty", False), policy_version=pver)
     except _could_not_run() as e:
         print(f"v1_reference: COULD NOT RUN {type(e).__name__}: {e}", file=sys.stderr)
         return 2

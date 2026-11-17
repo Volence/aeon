@@ -148,6 +148,7 @@ def press_edges(held: list[int], prev: int = 0) -> list[int]:
 
 class Idle:
     progress = False
+    version = 1
 
     def __init__(self, b: Buttons, equ: dict):
         pass
@@ -160,6 +161,7 @@ class Run:
     """Hold right; press C only when on ground and |xvel| < BLOCK_XVEL for BLOCK_TICKS
     consecutive ticks (blocked). Never on a period."""
     progress = True
+    version = 1
 
     def __init__(self, b: Buttons, equ: dict):
         self.b, self.blocked, self.jump_left = b, 0, 0
@@ -240,8 +242,19 @@ class _Moving:
     roll-jump with no air control; charging a spindash is PSTATE_SPINDASH, not ST_ROLLING,
     games/sonic4/player/player_ground.emp:595-598); a
     sequence in progress runs to its forced release, and no jump is pressed inside it; then a
-    due blocked jump; then the policy's own dash trigger (always below the engine gate)."""
+    due blocked jump; then the policy's own dash trigger (always below the engine gate), and
+    only on a tick that is NOT blocked.
+
+    POLICY v2 (owner-proxy ruling Q1, Fable, 2026-11-17: when blocked, a jump outranks the
+    dash). v1 consulted the dash trigger on blocked ticks too, so at a wall (gspeed 0, below the
+    gate) the dash started on the first blocked tick; its release rolled (ST_ROLLING: not
+    blocked), the count restarted, and the due jump was pre-empted by the next dash every time
+    (spindash and diagfall STUCK at px 1142/1143, B2 round 1b). v2 holds right while the count
+    runs, so a blocked stretch always reaches its jump. Only the precedence changed: no
+    threshold moved. A blocked tick is not offered to `want_dash` at all (topspeed's slow
+    count does not advance on it)."""
     progress = True
+    version = 2
 
     def __init__(self, b: Buttons, equ: dict):
         self.b, self.gate = b, spindash_gate(equ)
@@ -256,7 +269,7 @@ class _Moving:
             return self.seq.step()
         if self.run.jumping:
             return self.run.jump()
-        if self.want_dash(s):
+        if not self.run.blocked and self.want_dash(s):
             self.seq.start()
             return self.seq.step()
         return self.b.right
@@ -304,6 +317,7 @@ class Replay:
     loud DriveError (the caller caps the drive at len(held), so it never asks)."""
     progress = False          # a replay ends at the end of its log, never on a stuck verdict
     open_loop = True
+    version = None            # the version of the LOG it replays: the caller records that
 
     def __init__(self, log: InputLog):
         if not isinstance(log, dict) or not isinstance(log.get("t0"), int) or not isinstance(
@@ -332,6 +346,23 @@ POLICIES: dict[str, Callable[[Buttons, dict], Policy]] = {
     "sidekick": Run,
     "stream": Run,
 }
+
+
+
+
+def policy_version(leg: str) -> int:
+    """The version of the closed-loop policy that drives `leg` (`POLICIES[leg].version`).
+    Recorded in every leg result (leg_run) and every E1 entry (v1_reference); a comparison
+    across versions refuses (v1_reference.diff). Bump a policy's `version` whenever its decision
+    changes; never re-use a number. v1: the B2 policies. v2: the moving family's blocked-jump
+    precedence (ruling Q1, 2026-11-17)."""
+    try:
+        v = POLICIES[leg].version
+    except KeyError:
+        raise DriveError(f"no policy for leg {leg!r}") from None
+    if not isinstance(v, int):
+        raise DriveError(f"policy {POLICIES[leg].__name__} declares no integer version")
+    return v
 
 
 # ---- stuck detector -----------------------------------------------------------------------

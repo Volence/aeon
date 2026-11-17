@@ -79,10 +79,11 @@ def test_spindash_sequence_shape():
     want = spin_seq()
     assert len(want) == 30
     p = ld.POLICIES["spindash"](B, EQ)
-    got = [p.held(st(t, gspeed=0)) for t in range(30)]
+    # xvel $C0: moving, so not blocked (policy v2: a dash never starts on a blocked tick)
+    got = [p.held(st(t, xvel=0xC0, gspeed=0xC0)) for t in range(30)]
     assert got == want
     # sequence over: release down, hold right (a fast roll does not re-trigger)
-    assert p.held(st(30, gspeed=0x800)) == R
+    assert p.held(st(30, xvel=0x800, gspeed=0x800)) == R
 
 
 @pytest.mark.parametrize("name", ["spindash", "diagfall", "topspeed"])
@@ -125,16 +126,50 @@ def test_rolling_flag_read_from_the_listing_status_bit(tmp_path):
     assert s.equ["ST_ROLLING"] == 4
 
 
-def test_blocked_at_a_wall_after_a_dash_jumps_not_dashes_again():
-    """The px-1143 shape itself: gspeed 0 against a wall. The dash fires first (below the
-    gate), its charge ticks are stationary and count as blocked, and on the first tick after
-    the release, still blocked, the policy jumps instead of dashing into the wall again. C is
-    never pressed as a jump while the sequence runs (its taps are the sequence's own)."""
+@pytest.mark.parametrize("name", ["spindash", "diagfall", "topspeed"])
+def test_dash_never_starts_on_a_blocked_tick_at_a_wall(name):
+    """Policy v2 (owner-proxy ruling Q1, 2026-11-17: when blocked, a jump outranks the dash).
+    The px-1143 shape: gspeed 0 against a wall, every tick blocked. v1 started the dash on the
+    first blocked tick; its release rolled (ST_ROLLING, not blocked), the count restarted, and
+    the due jump was pre-empted by the next dash forever (STUCK at px 1142/1143, B2 round 1b).
+    v2: hold right while the count runs, jump on the 8th blocked tick, never press down."""
+    p = ld.POLICIES[name](B, EQ)
+    hs = [p.held(st(t, xvel=0, gspeed=0)) for t in range(8)]
+    assert hs[:7] == [R] * 7, f"{name}: a dash (or C) on a blocked tick: {hs[:7]}"
+    assert hs[7] == R | C, f"{name}: no blocked jump on the 8th blocked tick"
+
+
+def test_topspeed_dash_waits_out_a_blocked_tick():
+    """topspeed shares the moving shape: its slow-for-30 trigger due on a blocked tick does
+    not fire there (and the blocked tick does not count as slow); the next unblocked slow
+    tick fires it."""
+    p = ld.POLICIES["topspeed"](B, EQ)
+    hs = [p.held(st(t, xvel=0x100, gspeed=0x80)) for t in range(29)]
+    assert hs == [R] * 29
+    assert p.held(st(29, xvel=0, gspeed=0x80)) == R, "dash started on a blocked tick"
+    assert p.held(st(30, xvel=0x100, gspeed=0x80)) == D
+
+
+def test_blocked_count_still_jumps_after_a_dash_that_meets_a_wall():
+    """A dash started while moving whose charge ticks are stationary (blocked): on the first
+    tick after the forced release, still blocked, the policy jumps -- it never dashes again."""
     for name in ("spindash", "diagfall"):
         p = ld.POLICIES[name](B, EQ)
-        got = [p.held(st(t, xvel=0, gspeed=0)) for t in range(31)]
+        got = [p.held(st(0, xvel=0xC0, gspeed=0xC0))]
+        got += [p.held(st(t, xvel=0, gspeed=0)) for t in range(1, 31)]
         assert got[:30] == spin_seq() and got[30] == R, name
         assert p.held(st(31, xvel=0, gspeed=0)) == R | C, f"{name}: still blocked -> jump"
+
+
+def test_policy_versions():
+    """Every leg names its policy version (recorded in every leg result and E1 entry). The
+    moving family (spindash, diagfall, topspeed: the shared _Moving shape) is v2 since the
+    blocked-jump precedence ruling; run-driven and idle legs are v1."""
+    want = {"idle": 1, "run": 1, "objheavy": 1, "sidekick": 1, "stream": 1,
+            "spindash": 2, "diagfall": 2, "topspeed": 2}
+    assert {k: ld.policy_version(k) for k in ld.POLICIES} == want
+    with pytest.raises(ld.DriveError):
+        ld.policy_version("nope")
 
 
 def test_spindash_release_tick_is_never_skipped():
@@ -144,7 +179,7 @@ def test_spindash_release_tick_is_never_skipped():
     (right, no down) is part of the sequence and is emitted whatever the state says."""
     for name in ("spindash", "diagfall"):
         p = ld.POLICIES[name](B, EQ)
-        got = [p.held(st(t, gspeed=0)) for t in range(31)]
+        got = [p.held(st(t, xvel=0xC0, gspeed=0xC0)) for t in range(31)]
         assert got[:30] == spin_seq() and got[30] == R, name
         # not blocked (moving) and below the gate: a NEW sequence may start after it
         assert p.held(st(31, xvel=0x300, gspeed=0)) == D, name
@@ -161,13 +196,14 @@ def test_spindash_triggers_only_below_the_engine_gate_on_ground():
         assert p.held(st(0, gspeed=TOP // 2 - 1)) == R, f"{name}: $2FF would roll, not dash"
         assert p.held(st(1, gspeed=GATE)) == R
         assert p.held(st(2, gspeed=0, airborne=True)) & D == D or name == "spindash"
-        assert p.held(st(3, gspeed=-(GATE - 1))) == D, f"{name}: below the gate -> sequence"
+        assert p.held(st(3, xvel=-0xC0, gspeed=-(GATE - 1))) == D, \
+            f"{name}: below the gate (and not blocked) -> sequence"
 
 
 def test_spindash_gate_comes_from_the_listing_equate():
     p = ld.POLICIES["spindash"](B, dict(EQ, PHYS_ROLL_START_MIN=0x40))
-    assert p.held(st(0, gspeed=0x40)) == R
-    assert p.held(st(1, gspeed=0x3F)) == D
+    assert p.held(st(0, xvel=0xC0, gspeed=0x40)) == R
+    assert p.held(st(1, xvel=0xC0, gspeed=0x3F)) == D
     with pytest.raises(KeyError):
         ld.POLICIES["spindash"](B, {"PHYS_TOP_SPEED": TOP})
 
@@ -462,6 +498,41 @@ def test_failed_drive_is_could_not_run_and_writes_nothing(tmp_path, monkeypatch,
     assert "COULD NOT RUN" in capsys.readouterr().err
     assert not out.exists() or not any(out.iterdir())
     assert Inst.reaped
+
+
+@pytest.mark.parametrize("leg", ["spindash", "run"])
+def test_leg_result_records_its_policy_version(tmp_path, monkeypatch, leg):
+    """Owner-proxy ruling Q1: every leg result names the version of the policy that drove
+    it, so a comparison across policy versions can refuse."""
+    import leg_run
+    import leg_provenance as lp
+    from types import SimpleNamespace
+    lst = tmp_path / "x.lst"
+    lst.write_text(LST)
+
+    class Inst:
+        handshake = {}
+
+        def reap(self):
+            pass
+
+    tr = SimpleNamespace(status="STUCK", rows=[], lag_frames=0, lag_ticks=0,
+                         input_log={"t0": 300, "held": []}, reason="r", notes=[],
+                         policy_from=300, hits=0, misses=0, breaks=0,
+                         lag_frame_count_delta=0)
+
+    async def fake(a, inst, syms, probe=None, obj=None):
+        return {"trace": tr, "profile": {"status": "DID NOT RUN"}, "t0": 300}
+    monkeypatch.setattr(lp, "spawn_pinned", lambda rom, l: Inst())
+    monkeypatch.setattr(lp, "provenance", lambda *a: {"harness": {}})
+    monkeypatch.setattr(lp, "sha256_file", lambda p: "0" * 64)
+    monkeypatch.setattr(lp, "require_provenance", lambda p: None)
+    monkeypatch.setattr(leg_run, "run_leg", fake)
+    out = tmp_path / "out"
+    leg_run.main(["--rom", str(tmp_path / "x.bin"), "--lst", str(lst), "--leg", leg,
+                  "--phase", "0", "--out", str(out)])
+    res = __import__("json").loads((out / f"x_{leg}_p0.json").read_text())
+    assert res["policy_version"] == ld.policy_version(leg)
 
 
 # ---- emulator-backed (post-sigil lane) ----------------------------------------------------

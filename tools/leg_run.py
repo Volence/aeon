@@ -380,6 +380,7 @@ def main(argv=None) -> int:
         "dma": dma_res,
         "reason": tr.reason, "notes": tr.notes,
         "policy": ld.POLICIES[a.leg].__name__,
+        "policy_version": ld.policy_version(a.leg),
         "end": {k: last.get(k) for k in ("t", "px", "py", "cx", "cy", "cxm")},
         "run": {"t0": got["t0"], "cap_ticks": a.cap, "policy_from": tr.policy_from,
                 "hits": tr.hits, "run_frames_misses": tr.misses, "probe_breaks": tr.breaks,
