@@ -122,6 +122,31 @@ VBlank-overrun check (2/2/1 DMAs end past line 260; canonical DEBUG run p0 alrea
 v1 finding on the board) while coverage is MET. (8) The cost's `stderr` assumes independent
 ticks and is optimistic; quote `stderr_block` (32-tick batch means), added in fix 1.
 
+## V2-C4-STREAM-CLIP: what the streaming act leaves open (booked 2026-11-17, `feat/v2-step0-harness`)
+
+The survey's `stream` leg is `S2CLIP=s2_woven` (`s4.s2clip[.debug]`), driven by the `run`
+policy under `leg_drive.stream_coverage`: FINISHED and decode calls (breakpoint entries of
+`ZX0R_Decompress`, which `PageIn_Process` enters by `jbra`, so it has no profiler row) >= 1 and
+evictions (delta `Page_Evict_Gen` over the drive window) >= 1. The finishing companion
+`S2CLIP=s2_ehz_cpz` runs OUTSIDE the 48 (`leg_survey run --companion`, `<out>/companion`)
+under the same rule (owner-proxy ruling Q2, 2026-11-17). **Open:** (1) NO single run both
+evicts and finishes: s2_woven evicts 3 pages then is STUCK at x 2550 on every cell; s2_ehz_cpz
+finishes and never evicts (task-10 report). "Streaming sustained to the end of an act" is
+DID NOT COVER until a clip does both (C1 note Q1 options a/b; non-blocking). (2) The s2_woven
+stick is the woven layout, not an engine bug: Emerald Hill's low floor (world y 2880) ends at
+the clip's east edge x 2560 against the `ehz_to_mtz` corridor's solid body and the fill (a
+384+ px wall); the only exit, C5, leaves from the high ground at y 2496 (clips.json note items
+4 and 11). The C1 note's x 2230 was its probe's one-tick C press (a minimum jump) failing a
+64 px step at x 2240 that the run policy's held jump clears. (3) Only ONE `s4.s2clip[.debug].bin`
+can be graded at a time (check_pair pins a ROM to the aeon root), so the stream cells and the
+companion cells need a rebuild in between; `leg_survey run` refuses a cell whose ROM names the
+other clip (`<rom stem>.clip_anchors.json`), and `summarise` FAILS a result whose
+`provenance.rom.rebake.clip` is not the cell's. (4) Grading an S2CLIP pair re-bakes the clip
+(`tools/s2clip_rebake.py`, a private copy of HEAD under `tools/.cache/`, ~26 s per cell) and
+needs the gitignored donor trees (`python3 tools/s2_zone_convert.py convert --all-six`) and
+`tools/bin/salvador`; without them every stream cell is COULD NOT RUN (NOT FRESH), never a
+result. The pre-build lane tests only the declaration and refusals (the bake needs donors).
+
 ## V2-B2-SPINDASH-GATE: the v2 step-0 plan's spindash trigger sits above the engine's spindash gate (BRIEF WORDING OPEN, booked 2026-11-16, `feat/v2-step0-harness`)
 
 `docs/superpowers/plans/2026-11-16-measurement-harness-and-stress.md:102` says the `spindash`

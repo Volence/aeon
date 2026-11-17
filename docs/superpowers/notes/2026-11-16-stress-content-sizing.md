@@ -570,6 +570,19 @@ RUN for either clip.**
   "done at tick 2999"). The C-press unstick does not free it. `Camera_X_Max` is 9920 and
   cam_x stays at 2071.
 
+**Task 10 addendum (2026-11-17, MEASURED on Oracle, the pinned build; task-10 report).**
+Under Task 6's `run` policy `s2_woven` is STUCK at **x 2550**, not 2230, on all six cells
+(release and DEBUG, phases 0-2), with 3 decode calls and 3 evictions in each window. x 2230
+was this probe's input: a one-tick C press every 16 ticks is a minimum-height jump, and it
+cannot clear the 64 px step at x 2240 (fill top y 2944 up to Emerald Hill's floor y 2880);
+the run policy's 10-tick held jump does. x 2550 is the woven layout: that floor ends at the
+clip's east edge x 2560 against the `ehz_to_mtz` corridor body and the fill, a wall of 384+
+px; the act's only exit east (C5) leaves from the high ground at y 2496. Both stops sit
+exactly at the baked collision (P1 x + PLAYER_X_RADIUS 9 + 1 = the first solid column), so
+the engine's collision agrees with the data: the stick is no v1 collision bug, and
+nothing in it depends on streaming (the last eviction lands at tick 463-498, 176 ticks before P1
+reaches the x 2240 step, on every cell).
+
 **No candidate meets the brief's Step 3** (FINISH, plus decode ≥ 1). `s2_ehz_cpz`
 finishes but never pages. `s2_woven` pages but does not finish.
 
