@@ -23,9 +23,11 @@ the build's listing (leg_drive.resolve_syms).
 LIMITS. The stub has no cycle counter: the witness is lag-level and path-level only. PAL
 (`blastem -r E`) is not built here.
 
-Writes `<result>.blastem.json`. Exit 0 the witness agrees; 1 it ran and disagrees (or did not
-cover the leg); 2 COULD NOT RUN (the file is still written, status COULD NOT RUN, with the
-stderr tail).
+Writes `<result>.blastem.json`. Exit 0 the witness agrees; 1 it ran and disagrees, or did not
+cover the whole leg (`--ticks` shorter than the input log is PARTIAL and never agrees); 2 COULD
+NOT RUN. A pre-flight refusal (unreadable result, ROM/result mismatch, stale pair, missing
+symbol or BlastEm binary) writes NOTHING; a failure once BlastEm was launched (or in the
+comparison) writes the file with status COULD NOT RUN and the stderr tail.
 """
 from __future__ import annotations
 
@@ -75,10 +77,13 @@ class WitnessResult:
     extra_lag_ticks: tuple           # ticks whose lag (dFC - dTick) differs between the two
     common_ticks: int = 0
     oracle_ticks: int = 0
+    #: The witness replayed fewer ticks than the Oracle leg drove (`--ticks` < the log).
+    partial: bool = False
 
     def agrees(self) -> bool:
         """Same lag, same path, over every tick the Oracle leg drove."""
-        return (self.first_divergent_tick is None and self.lag_oracle == self.lag_blastem
+        return (not self.partial and self.first_divergent_tick is None
+                and self.lag_oracle == self.lag_blastem
                 and not self.extra_lag_ticks and self.common_ticks > 0
                 and self.common_ticks >= self.oracle_ticks
                 and self.path_agree_ticks == self.common_ticks)
@@ -106,8 +111,10 @@ def _norm(rows):
     return pos, lag, len(rows)
 
 
-def compare(oracle_rows, blastem_rows) -> WitnessResult:
-    """Tick-keyed comparison. Oracle rows may be leg_run row dicts or WitnessRows."""
+def compare(oracle_rows, blastem_rows, partial: bool = False) -> WitnessResult:
+    """Tick-keyed comparison. Oracle rows may be leg_run row dicts or WitnessRows. Pass the
+    Oracle leg's FULL rows: `oracle_ticks` counts them, and a witness that covered fewer
+    (common_ticks < oracle_ticks) never agrees (fix round 1, finding 1)."""
     po, lo, n_o = _norm(oracle_rows)
     pb, lb, _ = _norm(blastem_rows)
     common = sorted(set(po) & set(pb))
@@ -124,7 +131,7 @@ def compare(oracle_rows, blastem_rows) -> WitnessResult:
         path_agree_ticks=agree, first_divergent_tick=first,
         lag_oracle=sum(lo[t] for t in lag_ticks), lag_blastem=sum(lb[t] for t in lag_ticks),
         extra_lag_ticks=tuple(t for t in lag_ticks if lo[t] != lb[t]),
-        common_ticks=len(common), oracle_ticks=n_o)
+        common_ticks=len(common), oracle_ticks=n_o, partial=partial)
 
 
 # ---- the open-loop replay -----------------------------------------------------------------
@@ -316,16 +323,24 @@ def main(argv=None) -> int:
     wall = time.monotonic() - wall0
     tail = _tail(errp)
     errp.unlink(missing_ok=True)
-    # Compare only the ticks the witness was asked to replay.
-    o_rows = [r for r in oracle_rows if r["t"] < log["t0"] + n]
-    w = compare(o_rows, rows)
+    # The FULL Oracle rows, never cut to the replayed window: a short --ticks must read as
+    # PARTIAL / not agreeing, never as agreement over the ticks it happened to cover.
+    try:
+        w = compare(oracle_rows, rows, partial=n < len(log["held"]))
+    except (WitnessError, KeyError, TypeError) as e:
+        rec.update(status="COULD NOT RUN", reason=f"compare: {type(e).__name__}: {e}",
+                   stderr_tail=tail, wall_s=round(wall, 2))
+        out.write_text(json.dumps(rec, indent=1))
+        print(f"blastem_witness: COULD NOT RUN — {rec['reason']} -> {out}", file=sys.stderr)
+        return 2
     rec.update(status="MEASURED", wall_s=round(wall, 2), stderr_tail=tail,
                comparison=asdict(w) | {"agrees": w.agrees()},
                oracle_lag_result=result.get("lag"),
                rows=[list(r) for r in rows])
     out.write_text(json.dumps(rec))
     print(f"blastem_witness {rom.name} {rec['leg']} p{rec['phase']}: "
-          f"{'AGREES' if w.agrees() else 'DISAGREES'}; path_agree_ticks {w.path_agree_ticks}"
+          f"{'AGREES' if w.agrees() else 'DISAGREES'}{' (PARTIAL)' if w.partial else ''}; "
+          f"path_agree_ticks {w.path_agree_ticks}"
           f"/{w.common_ticks} common (oracle {w.oracle_ticks} rows); first_divergent_tick "
           f"{w.first_divergent_tick}; lag oracle {w.lag_oracle} blastem {w.lag_blastem}; "
           f"extra_lag_ticks {list(w.extra_lag_ticks)[:20]}; wall {wall:.1f}s -> {out}")

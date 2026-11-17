@@ -32,7 +32,7 @@ def test_corrected_margin_with_sound_adds_z80():
     assert z80 == 427
     assert lc.corrected_margin(10_000, elapsed, sound_playing=True) == 10_000 - 256 - z80
     # Sound costs more than silence, and the sum of the two bounds is the rule's ~4 % high end
-    # (1.5625 % + 2.6 % = 4.16 %; the doc states the band as "2-4%").
+    # (1.5625 % + 2.6 % = 4.1625 %; the doc states the band as "2-4%").
     corr = 10_000 - lc.corrected_margin(10_000, elapsed, sound_playing=True)
     assert corr > 10_000 - lc.corrected_margin(10_000, elapsed, sound_playing=False)
     assert corr == math.floor(elapsed * lc.REFRESH_FRACTION) + z80
@@ -288,3 +288,78 @@ def test_constants_match_hardware_limits_doc():
 def test_frame_cycles_derived_from_lines_and_mclk():
     assert lc.FRAME_CYCLES == round(lc.LINES_PER_FRAME * lc.MCLK_PER_LINE / 7)
     assert lc.FRAME_CYCLES != 127_840          # the retired FRAME_CYC must not come back
+
+
+# ---- fix round 1, finding 1: a partial witness must never read as agreement --------------
+
+def _leg_result(tmp_path, n=40, t0=300, lag_at=(310,)):
+    wrows = _rows(n, t0=t0, lag_at=lag_at)
+    rows = [dict(t=r.tick, fc=r.frame_counter, dfc=(r.frame_counter - p.frame_counter) & 0xFFFF,
+                 dlt=1, cx=r.cx, cy=r.cy, px=r.px, py=r.py) for p, r in zip(wrows, wrows[1:])]
+    res = {"provenance": {"rom": {"crc32": "00000000", "size": 4}}, "leg": "run", "phase": 0,
+           "lag": {"frames": len(lag_at), "ticks": n}, "rows": rows,
+           "input_log": {"t0": t0, "held": [8] * n}}
+    p = tmp_path / "s4_run_p0.json"
+    p.write_text(__import__("json").dumps(res))
+    return p, wrows
+
+
+def _stub_main(monkeypatch, wrows):
+    """Run blastem_witness.main with BlastEm replaced by `wrows` cut to the asked ticks."""
+    monkeypatch.setattr(bw.lp, "rom_provenance", lambda rom, lst: {"crc32": "00000000", "size": 4})
+    monkeypatch.setattr(bw.lp, "aeon_provenance", lambda: {"commit": "x", "dirty": False})
+    monkeypatch.setattr(bw.lp, "sha256_file", lambda p: "0" * 64)
+    monkeypatch.setattr(bw.ld, "resolve_syms", lambda lst: None)
+    monkeypatch.setattr(bw, "blastem_binary", lambda: Path("/nonexistent/blastem"))
+
+    def fake_run(rom, lst, log, n, **kw):
+        return [r for r in wrows if r.tick < log["t0"] + n]
+    monkeypatch.setattr(bw, "run_blastem", fake_run)
+
+
+def test_short_ticks_witness_does_not_agree(tmp_path, monkeypatch):
+    import json
+    res, wrows = _leg_result(tmp_path, n=40)
+    _stub_main(monkeypatch, wrows)
+    rc = bw.main(["--rom", "r.bin", "--lst", "r.lst", "--result", str(res), "--ticks", "10"])
+    out = json.loads((tmp_path / "s4_run_p0.json.blastem.json").read_text())
+    assert out["status"] == "MEASURED"
+    assert out["comparison"]["partial"] is True
+    assert out["comparison"]["oracle_ticks"] == 40          # the FULL leg, not the cut window
+    assert out["comparison"]["agrees"] is False
+    assert rc == 1
+
+
+def test_full_ticks_witness_agrees_through_main(tmp_path, monkeypatch):
+    import json
+    res, wrows = _leg_result(tmp_path, n=40)
+    _stub_main(monkeypatch, wrows)
+    rc = bw.main(["--rom", "r.bin", "--lst", "r.lst", "--result", str(res)])
+    out = json.loads((tmp_path / "s4_run_p0.json.blastem.json").read_text())
+    assert out["comparison"]["partial"] is False and out["comparison"]["agrees"] is True
+    assert rc == 0
+
+
+def test_partial_flag_alone_refuses_agreement():
+    assert not _agree(partial=True).agrees()
+    assert lc.classify(3800, 128_006, 16_418, False, _agree(partial=True)) == "WITNESS-DISAGREES"
+
+
+def test_compare_failure_in_main_is_recorded_could_not_run(tmp_path, monkeypatch):
+    import json
+    res, wrows = _leg_result(tmp_path, n=40)
+    _stub_main(monkeypatch, [bw.WitnessRow(9000 + i, i, 0, 0, 0, 0) for i in range(3)])
+    monkeypatch.setattr(bw, "run_blastem", lambda *a, **kw: [bw.WitnessRow(9000, 1, 0, 0, 0, 0)])
+    rc = bw.main(["--rom", "r.bin", "--lst", "r.lst", "--result", str(res)])
+    out = json.loads((tmp_path / "s4_run_p0.json.blastem.json").read_text())
+    assert rc == 2 and out["status"] == "COULD NOT RUN" and "compare" in out["reason"]
+
+
+def test_doc_states_what_the_code_actually_subtracts():
+    # Fix round 1, finding 2: the doc's "what the code subtracts" figures are the constants'.
+    sec = _section(DOC.read_text(), SECTION)
+    m = re.search(r"\*\*([\d.]+%)\*\* of elapsed \(2/128, the refresh alone\) for a silent leg", sec)
+    assert m and _value(m.group(1)) == _code("REFRESH_FRACTION")
+    m = re.search(r"\*\*([\d.]+%)\*\* \([\d.]+% \+ [\d.]+%\) with sound", sec)
+    assert m and _value(m.group(1)) == _code("REFRESH_FRACTION") + _code("Z80_STALL_MAX_FRACTION")
+    assert "Rule 4 is not a second correction" in sec

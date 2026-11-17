@@ -149,6 +149,16 @@ so the doc and the code cannot drift. Change one and the test fails until the ot
 5. **A "fits" call with a corrected margin under 3% of its budget (about 3.8k cycles of a frame) is not a verdict on Oracle alone.** It needs BlastEm agreement on lag and path for the same tick-keyed inputs, or it is reported NEEDS-WITNESS.
 6. A DMA past the blank is **not measurable** on Oracle (flat cost, finding 4). Report the flag, not a cost.
 
+**What the code subtracts (fix round 1).** The "2-4%" in rule 3 is a rounding. The code takes off
+**1.5625%** of elapsed (2/128, the refresh alone) for a silent leg, which is below the stated 2% low end, and
+**4.1625%** (1.5625% + 2.6%) with sound, which is above the stated 4% high end. Changing the rule's wording to
+match is the owner's call; until then the rule is quoted as the audit wrote it and the code follows the constants.
+
+**Rule 4 is not a second correction.** The "about 2% optimistic" of rule 4 is the empirical gap between Oracle
+and BlastEm over whole frames (one BlastEm lag frame where Oracle had 1.46% to spare; Oracle fitness finding 5,
+whose likely cause is the same refresh rule 3 corrects for). It is evidence that rule 3's correction is the
+right size, not an amount to add to it. Apply rule 3 once (`corrected_margin`) and never subtract rule 4 on top.
+
 | Constant | Value | Meaning | Label / source |
 |---|---|---|---|
 | `FRAME_CYCLES` | 128,006 | 68000 cycles per NTSC frame | ESTIMATED: 262 × 3,420 / 7 (section 2) |
@@ -162,7 +172,7 @@ so the doc and the code cannot drift. Change one and the test fails until the ot
 
 **How to apply it.** `corrected_margin(margin, elapsed, sound)` takes off `floor(elapsed × 2/128)` for the
 refresh and, when sound plays, `ceil(elapsed × 2.6%)` for the Z80 (an upper bound, so rounded up). `elapsed`
-is the cycles since VInt that the margin was measured over. With sound the two bounds sum to 4.16% (1.5625% + 2.6%), a little over rule 3's rounded "4%": the code takes the sum, never the rounded band. `classify(margin, budget, elapsed, sound, witness)` answers:
+is the cycles since VInt that the margin was measured over. The code takes these exact terms, never rule 3's rounded band (see "What the code subtracts" above). `classify(margin, budget, elapsed, sound, witness)` answers:
 
 - **OVER**: the corrected margin is negative. A witness cannot rescue it, because Oracle errs optimistic.
 - **FITS**: the corrected margin is at least 3% of the budget, or under it with a BlastEm witness that agrees.
