@@ -32,7 +32,7 @@ def test_corrected_margin_with_sound_adds_z80():
     assert z80 == 427
     assert lc.corrected_margin(10_000, elapsed, sound_playing=True) == 10_000 - 256 - z80
     # Sound costs more than silence; the sum of the two bounds is rule 3's with-sound term
-    # (1.5625 % + 2.6 % = 4.1625 %, pinned against the doc by test_rule3_states_the_exact_terms).
+    # (1.5625 % + 2.6 % = 4.1625 %, pinned against the doc by test_doc_states_what_the_code_actually_subtracts).
     corr = 10_000 - lc.corrected_margin(10_000, elapsed, sound_playing=True)
     assert corr > 10_000 - lc.corrected_margin(10_000, elapsed, sound_playing=False)
     assert corr == math.floor(elapsed * lc.REFRESH_FRACTION) + z80

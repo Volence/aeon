@@ -246,13 +246,22 @@ class _Moving:
     only on a tick that is NOT blocked.
 
     POLICY v2 (owner-proxy ruling Q1, Fable, 2026-11-17: when blocked, a jump outranks the
-    dash). v1 consulted the dash trigger on blocked ticks too, so at a wall (gspeed 0, below the
-    gate) the dash started on the first blocked tick; its release rolled (ST_ROLLING: not
-    blocked), the count restarted, and the due jump was pre-empted by the next dash every time
-    (spindash and diagfall STUCK at px 1142/1143, B2 round 1b). v2 holds right while the count
-    runs, so a blocked stretch always reaches its jump. Only the precedence changed: no
-    threshold moved. A blocked tick is not offered to `want_dash` at all (topspeed's slow
-    count does not advance on it)."""
+    dash). v1 consulted the dash trigger on blocked ticks too; v2 consults it only on a tick that
+    is not blocked, so a standing stretch at xvel 0 always reaches its jump on the 8th tick
+    unless a sequence is already running. Only the precedence changed: no threshold moved. A
+    blocked tick is not offered to `want_dash` at all, so topspeed's slow count neither advances
+    nor resets on it (slow ticks either side of a blocked stretch add up).
+
+    KNOWN v2 LOOP (MEASURED, fix round 1 of F1; the same loop as v1): at the px-1143 wall the
+    dash starts on an UNBLOCKED tick (a landing tick, or a rolling one). Its charge ticks stand at
+    xvel 0, so the blocked count DOES reach BLOCK_TICKS inside the sequence (due at t575, 30 on
+    the release tick) -- but no jump is pressed inside a sequence (fix round 1). The release
+    rolls Sonic into the wall for one tick (ST_ROLLING, xvel 250 or -6); a rolling tick is not
+    blocked (fix round 2), so the count is wiped to 0 and, gspeed 0 being below the gate, the
+    dash re-arms on that very tick. v1's archived frames show the identical loop after its
+    first, blocked-tick, onset (t601 xvel 0, then t632 xvel 250 rolling, t663 xvel -6 rolling,
+    ...). Breaking it redefines one of those earlier rulings -- a policy v3, the owner's call;
+    pinned by test_v2_known_loop_rolling_tick_after_release_redashes."""
     progress = True
     version = 2
 
@@ -355,7 +364,14 @@ def policy_version(leg: str) -> int:
     Recorded in every leg result (leg_run) and every E1 entry (v1_reference); a comparison
     across versions refuses (v1_reference.diff). Bump a policy's `version` whenever its decision
     changes; never re-use a number. v1: the B2 policies. v2: the moving family's blocked-jump
-    precedence (ruling Q1, 2026-11-17)."""
+    precedence (ruling Q1, 2026-11-17).
+
+    LIMIT: the integer is per policy CLASS and is bumped by hand. A class's decision also
+    depends on what it composes -- `_Moving` drives `Run.observe`/`Run.jump` and `_SpinSeq`, and
+    every policy reads the module constants (BLOCK_XVEL, BLOCK_TICKS, JUMP_HOLD, SPIN_*,
+    SLOW_*). A change to any of those changes every class that uses them and must bump EACH such
+    class's `version` (for `Run`: Run AND _Moving); nothing enforces it. The result's
+    `provenance.harness.leg_drive_sha256` is the mechanical backstop: it moves on any edit."""
     try:
         v = POLICIES[leg].version
     except KeyError:

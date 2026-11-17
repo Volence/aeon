@@ -418,7 +418,7 @@
    "leg": "diagfall",
    "mode": "closed-loop",
    "notes": [],
-   "outcome_note": "STUCK at px 1143 (policy v2), the same cause as s4/spindash: the one rolling tick after each release re-arms the dash before the blocked count reaches its jump.",
+   "outcome_note": "STUCK at px 1143 (policy v2), the same loop as s4/spindash: the dash starts on an unblocked tick (t536, a landing tick: xvel 768, gspeed 0); its charge ticks stand at xvel 0, so the blocked count DOES reach its jump (due t575, 30 on the release tick t566), but no jump is pressed inside a sequence; the release rolls Sonic into the wall for one tick (t567 xvel 250, later xvel -6, ST_ROLLING), a rolling tick is not blocked, so the due count is wiped and (gspeed 0 below the gate) the dash re-arms on that tick. v1's archived frames show the same rolling re-arm loop (t632 onward) after a blocked-tick entry (t601). Corrected in F1 fix round 1 (the first note said the count never reached its jump; it does).",
    "phase": 0,
    "policy_version": 2,
    "provenance": {
@@ -609,7 +609,7 @@
    "leg": "spindash",
    "mode": "closed-loop",
    "notes": [],
-   "outcome_note": "STUCK at px 1143 (policy v2). Each release rolls Sonic into the wall for one tick; a ROLLING tick is not blocked (fix round 2 standing-only rule) and gspeed 0 is below PHYS_ROLL_START_MIN, so the next dash starts at once and the blocked count never reaches its jump (9 releases, no jump).",
+   "outcome_note": "STUCK at px 1143 (policy v2), 9 releases, no jump: the dash starts on an unblocked tick (t536, a landing tick: xvel 768, gspeed 0); its charge ticks stand at xvel 0, so the blocked count DOES reach its jump (due t575, 30 on the release tick t566), but no jump is pressed inside a sequence; the release rolls Sonic into the wall for one tick (t567 xvel 250, later xvel -6, ST_ROLLING), a rolling tick is not blocked, so the due count is wiped and (gspeed 0 below the gate) the dash re-arms on that tick. v1's archived frames show the same rolling re-arm loop (t632 onward) after a blocked-tick entry (t601). Corrected in F1 fix round 1 (the first note said the count never reached its jump; it does).",
    "phase": 0,
    "policy_version": 2,
    "provenance": {

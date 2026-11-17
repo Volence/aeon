@@ -149,7 +149,7 @@ so the doc and the code cannot drift. Change one and the test fails until the ot
 5. **A "fits" call with a corrected margin under 3% of its budget (about 3.8k cycles of a frame) is not a verdict on Oracle alone.** It needs BlastEm agreement on lag and path for the same tick-keyed inputs, or it is reported NEEDS-WITNESS.
 6. A DMA past the blank is **not measurable** on Oracle (flat cost, finding 4). Report the flag, not a cost.
 
-**What the code subtracts.** Rule 3's two figures are the code's exact terms, not a rounded band (reworded 2026-11-17, owner-proxy ruling Q3; the rule used to say "2-4%"). `test_constants_match_hardware_limits_doc` derives both from the constants below, so a change on either side fails it.
+**What the code subtracts.** Rule 3's two figures are the code's exact terms, not a rounded band (reworded 2026-11-17, owner-proxy ruling Q3; the rule used to say "2-4%"). `test_doc_states_what_the_code_actually_subtracts` derives both from the constants below, so a change on either side fails it.
 
 **Rule 4 is not a second correction.** The "about 2% optimistic" of rule 4 is the empirical gap between Oracle
 and BlastEm over whole frames (one BlastEm lag frame where Oracle had 1.46% to spare; Oracle fitness finding 5,

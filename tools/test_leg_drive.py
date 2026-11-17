@@ -150,15 +150,35 @@ def test_topspeed_dash_waits_out_a_blocked_tick():
     assert p.held(st(30, xvel=0x100, gspeed=0x80)) == D
 
 
-def test_blocked_count_still_jumps_after_a_dash_that_meets_a_wall():
-    """A dash started while moving whose charge ticks are stationary (blocked): on the first
-    tick after the forced release, still blocked, the policy jumps -- it never dashes again."""
+@pytest.mark.parametrize("name", ["spindash", "diagfall"])
+@pytest.mark.parametrize("roll_xvel", [250, -6])
+def test_v2_known_loop_rolling_tick_after_release_redashes(name, roll_xvel):
+    """PINS THE KNOWN v2 LOOP -- this is the behaviour a policy v3 (owner's call) would change,
+    not a fix. The MEASURED px-1143 shape (s4 spindash p0 rows t536..t598): the dash starts on an
+    unblocked tick; its charge ticks stand at xvel 0, so the blocked count reaches BLOCK_TICKS
+    inside the sequence (no jump is pressed inside one) and stands at 30 on the forced release.
+    The release rolls Sonic into the wall for ONE tick (ST_ROLLING, xvel 250 on the first
+    release, -6 on later ones, gspeed 0): a rolling tick is not blocked, so the due count is
+    wiped and the dash re-arms on that tick. v1's archived frames show the same loop."""
+    p = ld.POLICIES[name](B, EQ)
+    got = [p.held(st(0, xvel=0x300, gspeed=0))]                    # landing tick: unblocked
+    got += [p.held(st(t, xvel=0, gspeed=0)) for t in range(1, 31)]  # charge + release, standing
+    assert got[:30] == spin_seq() and got[30] == R, name
+    assert p.run.blocked == 30 >= ld.BLOCK_TICKS, "the count is due at the release tick"
+    h = p.held(st(31, xvel=roll_xvel, gspeed=0, rolling=True))
+    assert p.run.blocked == 0, "the rolling post-release tick wipes the due count"
+    assert h == D, f"{name}: KNOWN v2 LOOP -- the rolling post-release tick re-dashes"
+
+
+def test_standing_post_release_tick_would_jump():
+    """Contrast (NOT the measured shape at px 1143, where the post-release tick rolls): if the
+    tick after the release stood still, the due count would survive and the policy would jump."""
     for name in ("spindash", "diagfall"):
         p = ld.POLICIES[name](B, EQ)
         got = [p.held(st(0, xvel=0xC0, gspeed=0xC0))]
         got += [p.held(st(t, xvel=0, gspeed=0)) for t in range(1, 31)]
         assert got[:30] == spin_seq() and got[30] == R, name
-        assert p.held(st(31, xvel=0, gspeed=0)) == R | C, f"{name}: still blocked -> jump"
+        assert p.held(st(31, xvel=0, gspeed=0)) == R | C, f"{name}: standing, still blocked -> jump"
 
 
 def test_policy_versions():

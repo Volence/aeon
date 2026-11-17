@@ -58,13 +58,26 @@ kept under `archive/policy-v1/` (MANIFEST rows marked `superseded`). topspeed's 
 byte-identical to v1. **Open:** (1) coverage under v2 (MEASURED, pinned oracle `dd09acb9`):
 DEBUG diagfall is COVERED and FINISHED (458/30; v1 stuck at px 503, now cleared by the blocked
 jump); release diagfall and release spindash are STUCK at px 1143 and DID NOT COVER (diagfall
-21/30; spindash 9 releases): each release rolls Sonic into the wall for one tick, a ROLLING tick
-is not blocked (fix round 2 standing-only rule) and gspeed 0 is below the gate, so the next dash
-starts at once and the blocked count never reaches its jump. DEBUG spindash FINISHES but DID NOT
-COVER (0 releases: its one dash trigger fired on a landing tick, gspeed 0 with xvel 1080, so DOWN
-rolled instead of charging). Per the ruling these are recorded, not tuned further: the
-rolling-tick-after-release interaction is the **owner's call** (e.g. counting a rolling tick
-at |xvel| < $80 right after a release as blocked would be a policy v3). (2) `topspeed` is byte-identical to
+21/30; spindash 9 releases). **Mechanism (corrected in F1 fix round 1; MEASURED rows t536-t598,
+re-simulated by the reviewer with 0 mismatches):** the dash starts on an UNBLOCKED tick (t536, a
+landing tick, xvel 768, gspeed 0). Its charge ticks stand at xvel 0, so the blocked count DOES
+reach its jump -- due at t575, 30 on the release tick t566 -- but no jump is pressed inside a
+sequence (fix round 1 rule). The release then rolls Sonic into the wall for one tick (t567: xvel
+250, ST_ROLLING; later releases xvel -6): a rolling tick is not blocked (fix round 2
+standing-only rule), so the due count is wiped to 0 and, gspeed 0 being below the gate, the dash
+re-arms on that tick. 9 cycles, no jump. **v1's loop was the same:** the archived v1 frames start
+it on a blocked tick (t601, xvel 0 -- the entry v2 removed) and then loop on the rolling
+post-release tick (t632 xvel 250, t663/694/... xvel -6, roll bit set). So v2 changed the entry,
+not the loop, and could not unstick px 1143. DEBUG spindash FINISHES but DID NOT COVER (0
+releases: its one dash trigger fired on a landing tick, gspeed 0 with xvel 1080, so DOWN rolled
+instead of charging). Per the ruling these are recorded, not tuned further. **Owner's call (a
+policy v3), against the real mechanism** -- each redefines an earlier ruling: (a) let a due
+blocked count survive the forced release and the one rolling tick after it; (b) abort the
+sequence (release, then jump) once the count is due inside it; (c) never start a dash on a
+rolling tick (would cover both the xvel 250 and xvel -6 releases; "a rolling tick at |xvel| <
+$80 counts as blocked" alone would miss the xvel 250 one). The loop is pinned by
+`tools/test_leg_drive.py::test_v2_known_loop_rolling_tick_after_release_redashes`, the red-first
+target for v3. (2) `topspeed` is byte-identical to
 `run` on both shapes (its slow-for-30-ticks dash never fires on this act), so it adds no
 behaviour today; the MANIFEST marks it `identical_to: "<shape>/run"`, computed from both
 sha256s. (3) oracle's `replay_runner` on `s4.debug.bin` (crc32 ce326232) is DESYNC at
@@ -75,6 +88,19 @@ MANIFEST, not repaired here. **Owner: the oracle lane** (the fixture is oracle's
 embedded fixture `games/sonic4/data/replays/ojz_fixture.bin` (the ROM's `Replay_OJZ_Fixture`),
 not in `docs/benchmarks/v1-reference/`. (4) The reference is FNV/raw for same-layout regression plus nine
 plain semantic fields; a v2 engine diffs on `--semantic`.
+
+## V2-F-STALE-PYC: a same-second mutate/restore can be graded through a stale `.pyc` (booked 2026-11-17, `feat/v2-step0-harness`)
+
+CPython validates `__pycache__/*.pyc` by source mtime (whole seconds) and size. An invariant-8
+proof that mutates a module's line to one of the SAME length and restores it within the same
+second leaves the mutant's `.pyc` valid for the restored source, so the "restored" run still
+grades the mutant (or the next mutation's run grades the previous one). MEASURED in F2's first
+proof pass: the doc-side mutation read the code-side mutant's `Z80_STALL_MAX_FRACTION` (4.2625%)
+after `git restore`. **Guard:** run every mutation proof with `PYTHONDONTWRITEBYTECODE=1` and
+`rm -rf tools/__pycache__` before each run (F1/F2 fix round 1 do). **Open:** earlier invariant-8
+proofs in the v2 step-0 plan (Tasks 1-10) that mutated and restored a `tools/*.py` module in quick
+succession were not re-audited for this; a red from the wrong mutant, or a restored run that
+was not, cannot be excluded from their logs alone.
 
 ## V2-C2-STRESS-OBJECTS: what the object-heavy shape leaves open (booked 2026-11-16, `feat/v2-step0-stress`)
 
