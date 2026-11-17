@@ -164,20 +164,30 @@ size = 0x10000
 kind = "object_bank"
 
 # The $8000-window phase bank the engine tables + Moving Trucks + the SFX block
-# share (LMA = the `sound_bank` anchor below, VMA $8000). DESCRIPTIVE ONLY, measured
-# 2026-08-26: no sigil consumer reads a `z80_bank` region (`RegionKind::Z80Bank` is
-# constructed by the map loader and matched by nothing; `region_for` considers `rom`
-# regions only) — the phase bank's placement authority is the `sound_bank` anchor.
-# Was `z80_moving_trucks_bank @ 0x60000`, a leftover from when the MT bank had its own
+# share (LMA = the `sound_bank` anchor below, VMA $8000). ENFORCED since sigil step-0
+# A2 (2026-11-16, paired with this row's `when`): every section whose first byte lies
+# in [lma_base, lma_base + size) must end inside it, so bank 1 can no longer run past
+# $C0000 and be read through the wrong Z80 window (the build refuses with
+# "overflows region `z80_sound_bank` (ends 0xC0000), over by N bytes"). A section
+# starting exactly at $C0000 (`SongBank2_Head`) is outside it. `when = "sound_on"`:
+# the window is in force only in the shapes that build the sound driver; in the
+# sound-off shapes nothing places there and ordinary code may flow through
+# $B8000-$BFFFF. The bank's placement authority is still the `sound_bank` anchor, and
+# lma_base MUST equal its `at`: that equality is how sigil ties the window to the
+# anchor, so an anchor overlay that moves `sound_bank` (an S2CLIP clip's anchors.toml)
+# moves this window with it (sigil `map_placement::move_bank_regions`).
+# History: before A2 no sigil consumer read a `z80_bank` region. It was
+# `z80_moving_trucks_bank @ 0x60000`, a leftover from when the MT bank had its own
 # $8000 window at $60000 (retired with the $58000 fold, see sigil golden/PROVENANCE.md);
-# by 2026-08-26 that LMA sat in the middle of `Map_Tails`, which nothing noticed —
-# the proof it is inert. Renamed + moved with the anchor so the map stops lying.
+# by 2026-08-26 that LMA sat in the middle of `Map_Tails`, which nothing noticed,
+# the proof it was inert then. Renamed + moved with the anchor so the map stops lying.
 [[region]]
 name = "z80_sound_bank"
 lma_base = 0xB8000
 size = 0x8000
 kind = "z80_bank"
 vma_base = 0x8000
+when = "sound_on"
 
 # ── Island anchors (replaces the ANCHOR_GAP inference for the declared ones; the
 #    inference stays as the [map.undeclared-island] lint) ──
