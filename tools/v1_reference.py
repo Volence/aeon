@@ -71,6 +71,11 @@ RAM_BLOCKS = {"obj_ram": ("Object_RAM", "Object_RAM_End"),
               "game_ram": ("Engine_RAM_End", "Game_RAM_End")}
 
 
+#: The only framebuffer digest a recording accepts: the raster the machine drew (the reply's
+#: other value, "stateRender", is a re-render from VDP state, not the emitted picture).
+FB_SOURCE = "raster"
+
+
 class DirtyTree(RuntimeError):
     """The aeon tree is dirty: no reference is written from it."""
 
@@ -140,6 +145,10 @@ def _legs_in(d: Path) -> set:
 
 def _first_divergence(a: list, b: list, fields, where: str):
     ia, ib = {r["tick"]: r for r in a}, {r["tick"]: r for r in b}
+    for rows, idx, side in ((a, ia, "reference"), (b, ib, "run")):
+        if len(idx) != len(rows):
+            raise ValueError(f"{where}: the {side} has {len(rows) - len(idx)} duplicate tick "
+                             "row(s): a tick is the only index, so it cannot be diffed")
     for t in sorted(set(ia) | set(ib)):
         ra, rb = ia.get(t), ib.get(t)
         if ra is None or rb is None:
@@ -208,6 +217,9 @@ async def _hashes(c, spans: dict) -> dict:
     if sh.get("displayMask") not in ([], None):
         raise ld.DriveError(f"state_hash under a display mask {sh['displayMask']}: the "
                             "framebuffer digest is not the machine's picture")
+    if sh.get("framebufferSource") != FB_SOURCE:
+        raise ld.DriveError(f"state_hash framebufferSource {sh.get('framebufferSource')!r} != "
+                            f"{FB_SOURCE!r}: the digest is not of the picture the machine drew")
     out = {"fb": sh["framebuffer"], "vdp": sh["combined"]}
     for name, (sym, addr, n) in spans.items():
         r = await c.call("emulator/memory_hash", {"symbol": sym, "len": n})
@@ -250,19 +262,58 @@ def _sha(p: Path) -> str:
     return hashlib.sha256(Path(p).read_bytes()).hexdigest()
 
 
-def _manifest_update(out: Path, key: str, entry: dict) -> None:
-    m = Path(out) / "MANIFEST.json"
-    doc = json.loads(m.read_text()) if m.is_file() else {}
-    doc.setdefault("schema", {
+def mark_identical(recs: dict) -> None:
+    """`identical_to` on every entry whose inputs AND frames sha256 equal those of an entry of
+    the SAME shape whose leg comes earlier in LEGS (so topspeed points at run, never the
+    reverse). Recomputed over the whole manifest on every write, so a re-recording can neither
+    leave a stale mark nor miss a new one."""
+    order = {leg: i for i, leg in enumerate(LEGS)}
+    for key, e in recs.items():
+        sh, _, leg = key.rpartition("/")
+        e.pop("identical_to", None)
+        for k2 in sorted((k for k in recs if k.rpartition("/")[0] == sh
+                          and order.get(k.rpartition("/")[2], 99) < order.get(leg, 99)),
+                         key=lambda k: order[k.rpartition("/")[2]]):
+            o = recs[k2]
+            if (o.get("inputs_sha256"), o.get("frames_sha256")) == (e.get("inputs_sha256"),
+                                                                    e.get("frames_sha256")):
+                e["identical_to"] = k2
+                break
+
+
+def _schema(status_bits: dict) -> dict:
+    return {
         "what": "v1 behaviour reference (Empyrean v2 E1), tools/v1_reference.py",
         "row_fields": list(ROW_FIELDS), "semantic": list(SEMANTIC),
         "raw_hashes": list(RAW_HASHES), "ram_blocks": RAM_BLOCKS,
-        "fb": "the framebuffer digest of the state_hash method with includeFramebuffer:true (FNV-1a-64 of RGB)",
+        "fb": "the framebuffer digest of the state_hash method with includeFramebuffer:true "
+              "(FNV-1a-64 of RGB); framebufferSource must be 'raster' on every row or the "
+              "recording is refused",
+        "framebuffer_source": FB_SOURCE,
         "vdp": "the combined digest of the state_hash method",
         "ram_hash": "the fnv1a64 of the memory_hash method over {symbol, len}",
+        "v2_comparable": "fb is the ONE raw hash a v2 engine can be compared on: it is the "
+                         "picture, independent of RAM and VRAM layout. vdp, obj_ram and "
+                         "game_ram are same-layout regression only; across layouts diff "
+                         "the SEMANTIC fields (--semantic), optionally plus fb",
+        "status": "the leader's SST status byte (raw); bit n is set when the named flag is",
+        "status_bits": status_bits,
+        "coverage": "leg_drive.coverage(leg, status, drive rows, listing equates) computed at "
+                    "record time from the drive's own rows (which carry gspeed and player "
+                    "state, not kept in the frame rows); met=false is DID NOT COVER",
+        "identical_to": "set when this entry's inputs and frames sha256 both equal an earlier "
+                        "leg's of the same shape (computed, never typed)",
         "tick": "Logic_Tick at the Input_Tick hit; held = the byte written at that hit",
-        "lag_before": "dFrame_Counter - dLogic_Tick into this tick"})
+        "lag_before": "dFrame_Counter - dLogic_Tick into this tick"}
+
+
+def _manifest_update(out: Path, key: str, entry: dict, status_bits: dict | None = None) -> None:
+    m = Path(out) / "MANIFEST.json"
+    doc = json.loads(m.read_text()) if m.is_file() else {}
+    if status_bits is not None or "schema" not in doc:
+        doc["schema"] = _schema(status_bits or {})
     doc.setdefault("recordings", {})[key] = entry
+    mark_identical(doc["recordings"])
     tmp = m.with_suffix(".tmp")
     tmp.write_text(json.dumps(doc, indent=1, sort_keys=True) + "\n")
     tmp.replace(m)
@@ -277,6 +328,13 @@ def record(rom, lst, leg: str, out: Path, inputs: ld.InputLog | None = None,
         raise ValueError(f"leg {leg!r} is not in the E1 scope {LEGS} (objheavy/sidekick/stream "
                          "are stress shapes, not v1 canonical)")
     rom, lst, out = Path(rom).resolve(), Path(lst).resolve(), Path(out)
+    if allow_dirty:
+        m = out / "MANIFEST.json"
+        held = [k for k, e in (json.loads(m.read_text()).get("recordings", {}).items()
+                               if m.is_file() else ()) if e.get("reference_grade")]
+        if held:
+            raise DirtyTree(f"--allow-dirty into {out}, which holds reference-grade "
+                            f"entries {held}: a proof run never writes beside a reference")
     syms = ld.resolve_syms(lst)
     spans = _ram_spans(syms)
     if inputs is None:
@@ -317,10 +375,17 @@ def record(rom, lst, leg: str, out: Path, inputs: ld.InputLog | None = None,
                      lag_frames=tr.lag_frames, wall_s=round(wall, 2), inputs_sha256=_sha(ip),
                      frames_sha256=_sha(fp), frames_bytes=fp.stat().st_size,
                      reference_grade=not prov["aeon"]["dirty"])
+    cov = ld.coverage(leg, tr.status, tr.rows, syms.equ)
+    bits = {k: v for k, v in syms.equ.items() if k.startswith("ST_")}
     _manifest_update(out, f"{shape}/{leg}", dict(asdict(st), phase=PHASE, notes=tr.notes,
+                                                 coverage=cov,
+                                                 covered="COVERED" if cov["met"]
+                                                 else "DID NOT COVER",
+                                                 framebuffer_source=FB_SOURCE,
                                                  provenance=prov,
                                                  date_utc=time.strftime("%Y-%m-%dT%H:%M:%SZ",
-                                                                        time.gmtime())))
+                                                                        time.gmtime())),
+                     status_bits=bits)
     return st
 
 

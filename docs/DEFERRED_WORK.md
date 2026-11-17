@@ -55,10 +55,14 @@ px 1143 (release) / px 503 (DEBUG) -- a deterministic behaviour reference, not c
 owner rules on the at-a-wall question (jump or dash at gspeed 0), those four recordings are
 re-recorded with `v1_reference.py record` and re-diffed. (2) `topspeed` is byte-identical to
 `run` on both shapes (its slow-for-30-ticks dash never fires on this act), so it adds no
-behaviour today. (3) oracle's `replay_runner` on `s4.debug.bin` (crc32 ce326232) is DESYNC at
+behaviour today; the MANIFEST marks it `identical_to: "<shape>/run"`, computed from both
+sha256s. (3) oracle's `replay_runner` on `s4.debug.bin` (crc32 ce326232) is DESYNC at
 Logic_Tick 1090; `--restamp` dry run: 10 of 27 embedded checkpoints stale (idx 17-26). That is
 the embedded `ojz_fixture` net (history: THE RESTAMP A/B RETURNED, below), recorded in the
-MANIFEST, not repaired here. (4) The reference is FNV/raw for same-layout regression plus nine
+MANIFEST, not repaired here. **Owner: the oracle lane** (the fixture is oracle's net, and
+`replay_runner --restamp` is its repair tool). Cross-reference: the stale checkpoints live in the
+embedded fixture `games/sonic4/data/replays/ojz_fixture.bin` (the ROM's `Replay_OJZ_Fixture`),
+not in `docs/benchmarks/v1-reference/`. (4) The reference is FNV/raw for same-layout regression plus nine
 plain semantic fields; a v2 engine diffs on `--semantic`.
 
 ## V2-B2-SPINDASH-GATE: the v2 step-0 plan's spindash trigger sits above the engine's spindash gate (BRIEF WORDING OPEN, booked 2026-11-16, `feat/v2-step0-harness`)

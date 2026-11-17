@@ -230,3 +230,101 @@ def test_replay_outside_the_log_is_loud():
         ld.Replay({"t0": 300, "held": [256]})
     with pytest.raises(ld.DriveError):
         ld.Replay({"held": []})
+
+
+# ---- the MANIFEST entry: coverage verdict + computed duplicate marking (fix round 1) -------
+
+EQU = {"PHYS_TOP_SPEED": 0x600, "PHYS_ROLL_START_MIN": 0x100, "PSTATE_SPINDASH": 4,
+       "ST_IN_AIR": 3, "ST_ROLLING": 4, "BUTTON_C": 0x20}
+
+
+def _clean_prov():
+    return {"oracle": {"commit": "dd09", "server_build_id": "dd09+profile=release",
+                       "source": "vcs", "dirty": False, "sha256": "ab"},
+            "aeon": {"commit": "c0ffee", "dirty": False, "dirty_count": 0, "branch": "b",
+                     "dirty_paths": []},
+            "rom": {"rom": "s4.bin", "crc32": "193507d9", "size": 1, "game": "sonic4",
+                    "debug": 0, "target": "x", "sigil_revision": "7630"},
+            "harness": {"tool_sha256": "cd"}}
+
+
+def _fake_record(monkeypatch, drives):
+    """record() with the emulator replaced: `drives[leg]` is (status, gs list, held list)."""
+    class Inst:
+        handshake = {}
+
+        def reap(self):
+            pass
+
+    monkeypatch.setattr(v1.ld, "resolve_syms",
+                        lambda lst: SimpleNamespace(buttons=B, equ=EQU, debug=False))
+    monkeypatch.setattr(v1, "_ram_spans", lambda syms: {})
+    monkeypatch.setattr(v1.lp, "spawn_pinned", lambda rom, lst: Inst())
+    monkeypatch.setattr(v1.lp, "load_pin", lambda: None)
+    monkeypatch.setattr(v1.lp, "provenance", lambda *a: _clean_prov())
+    leg_now = {}
+
+    async def drive(inst, syms, spans, policy, t0, cap):
+        status, gs, held = drives[leg_now["leg"]]
+        trows, frows = [], []
+        for k, (g, h) in enumerate(zip(gs, held)):
+            t = t0 + k
+            trows.append(dict(t=t, dfc=1, dlt=1, gs=g, cx=k, cy=0, yvel=0, ps=0, held=h))
+            s = ld.TickState(tick=t, frame_counter=t, px=k, py=0, xvel=g, yvel=0, gspeed=g,
+                             airborne=False, cx=k, cy=0, cx_max=5824)
+            frows.append(v1.frame_row(s, trows[-1], 0, dict(fb="f", vdp="v", obj_ram="o",
+                                                            game_ram="g")))
+        tr = SimpleNamespace(rows=trows, input_log={"t0": t0, "held": list(held)},
+                             status=status, reason="r", notes=[], lag_frames=0)
+        return tr, frows
+
+    monkeypatch.setattr(v1, "_drive", drive)
+    return leg_now
+
+
+def test_recorded_entry_carries_coverage_and_identical_inputs_get_identical_to(tmp_path,
+                                                                               monkeypatch):
+    fast = ([0x700] * 80, [0x08] * 80)
+    leg_now = _fake_record(monkeypatch, {"run": ("FINISHED",) + fast,
+                                         "topspeed": ("FINISHED",) + fast,
+                                         "spindash": ("STUCK", [0] * 80, [0x02] * 80)})
+    out = tmp_path / "ref"
+    for leg in ("topspeed", "run", "spindash"):     # topspeed FIRST: the mark is order-free
+        leg_now["leg"] = leg
+        v1.record(tmp_path / "s4.bin", tmp_path / "s4.lst", leg, out)
+    recs = json.loads((out / "MANIFEST.json").read_text())["recordings"]
+    assert recs["s4/run"]["coverage"]["met"] is True and recs["s4/run"]["covered"] == "COVERED"
+    assert recs["s4/topspeed"]["coverage"]["got"] == 80          # |gspeed| >= PHYS_TOP_SPEED
+    assert recs["s4/spindash"]["coverage"]["met"] is False
+    assert recs["s4/spindash"]["covered"] == "DID NOT COVER"
+    assert recs["s4/topspeed"]["identical_to"] == "s4/run"
+    assert "identical_to" not in recs["s4/run"] and "identical_to" not in recs["s4/spindash"]
+    schema = json.loads((out / "MANIFEST.json").read_text())["schema"]
+    assert schema["status_bits"] == {"ST_IN_AIR": 3, "ST_ROLLING": 4}
+    assert "fb" in schema["v2_comparable"]
+
+
+def test_mark_identical_needs_both_shas_and_the_same_shape():
+    recs = {"s4/run": dict(inputs_sha256="a", frames_sha256="b"),
+            "s4/topspeed": dict(inputs_sha256="a", frames_sha256="c", identical_to="stale"),
+            "s4.debug/topspeed": dict(inputs_sha256="a", frames_sha256="b")}
+    v1.mark_identical(recs)
+    assert "identical_to" not in recs["s4/topspeed"], "frames differ: not identical"
+    assert "identical_to" not in recs["s4.debug/topspeed"], "another shape is not a duplicate"
+
+
+def test_allow_dirty_refuses_an_out_holding_reference_entries(tmp_path):
+    out = tmp_path / "ref"
+    out.mkdir()
+    (out / "MANIFEST.json").write_text(json.dumps(
+        {"recordings": {"s4/run": {"reference_grade": True}}}))
+    with pytest.raises(v1.DirtyTree, match="reference-grade"):
+        v1.record(tmp_path / "s4.bin", tmp_path / "s4.lst", "run", out, allow_dirty=True)
+
+
+def test_diff_refuses_duplicate_tick_rows(tmp_path):
+    ref, run = _pair(tmp_path, legs=("run",), shapes=("s4",))
+    rows = _rows()
+    _put(run, "s4", "run", rows + [rows[3]])
+    with pytest.raises(ValueError, match="duplicate tick"):
+        v1.diff(ref, run)
