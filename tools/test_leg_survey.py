@@ -16,6 +16,8 @@ def _good_prov(leg="idle", shape="release"):
     pv["oracle"]["dirty"] = False
     pv["rom"]["rom"] = ls.LEG_ROM[(leg, shape)]
     pv["rom"]["crc32"] = "crc-" + ls.LEG_ROM[(leg, shape)]
+    if leg in ls.LEG_CLIP:                         # a clip-built cell names its clip (v2 C4)
+        pv["rom"]["rebake"] = {"clip": ls.LEG_CLIP[leg]}
     return pv
 
 
@@ -44,11 +46,24 @@ def write(out, leg, shape, ph, **over):
     _sync(out)
 
 
-def fill(out, skip=()):
+def fill(out, skip=(), companion=True):
+    """Every cell of the 48 (bar `skip`) and, with `companion`, the 6 companion cells OK."""
     for c in ls.expected_matrix():
         if c not in skip:
             write(out, *c)
     _sync(out)
+    if companion:
+        for _l, sh, ph in ls.companion_cells():
+            r = {"provenance": _good_prov("stream", sh), "leg": "stream", "phase": ph,
+                 "status": "FINISHED", "coverage": {"rule": "r", "got": 1, "need": 1,
+                                                    "met": True},
+                 "lag": {"frames": 3, "ticks": 90}, "dma": _dma()}
+            r["provenance"]["rom"]["rebake"] = {"clip": ls.STREAM_COMPANION_CLIP}
+            r["provenance"]["rom"]["crc32"] = "crc-companion-" + sh
+            p = ls.companion_path(out, sh, ph)
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text(json.dumps(r))
+        _sync_comp(out)
 
 
 def test_matrix_is_48():
@@ -378,6 +393,181 @@ def test_objheavy_runs_under_its_own_coverage_rule():
     is judged by the objheavy rule (v2 C2), and the cell's file is named for it."""
     assert ls.LEG_RUN_LEG["objheavy"] == "objheavy"
     assert ls.LEG_RUN_LEG["run"] == "run" and ls.LEG_RUN_LEG["sidekick"] == "sidekick"
-    assert ls.LEG_RUN_LEG["stream"] == "run"
+    assert ls.LEG_RUN_LEG["stream"] == "stream"          # v2 C4: its own rule
     assert ls.result_path(Path("/o"), "objheavy", "debug", 1).name == \
         "s4.stressobj.debug_objheavy_p1.json"
+
+
+# ---- the stream leg (v2 C4, Task 10) -------------------------------------------------------
+
+import leg_drive as ld  # noqa: E402
+
+STREAM_EQ = {"PAGECACHE_DIRECT_BOUNDED": 1}
+
+
+def _stream_rows(gens, dm=0, t0=300):
+    return [{"t": t0 + i, "eg": g, "dm": dm} for i, g in enumerate(gens)]
+
+
+def _stream_hits(decode=4, landings=6, pick=3):
+    return {"ZX0R_Decompress": decode, "PageIn_EnqueueLanding": landings,
+            "PageCache_PickVictim": pick}
+
+
+def _stream_result(out, shape, ph, status, cov, clip=None, sub=None):
+    clip = clip or ls.STREAM_CLIP
+    r = {"provenance": _good_prov("stream", shape), "leg": "stream", "phase": ph,
+         "status": status, "coverage": cov, "lag": {"frames": 3, "ticks": 90}, "dma": _dma(),
+         "reason": "progress stalled" if status == "STUCK" else ""}
+    r["provenance"]["rom"]["rebake"] = {"clip": clip}
+    p = (ls.companion_path(out, shape, ph) if sub else ls.result_path(out, "stream", shape, ph))
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(json.dumps(r))
+    return p
+
+
+def test_stream_leg_requires_decode_calls(tmp_path):
+    """A run that evicted and finished but never entered the decoder is DID NOT COVER."""
+    cov = ld.stream_coverage("FINISHED", _stream_rows([7, 8, 9, 10]), _stream_hits(decode=0))
+    assert cov["met"] is False and cov["got"]["decode_calls"] == 0
+    assert cov["got"]["evictions"] == 3
+    _stream_result(tmp_path, "release", 0, "FINISHED", cov)
+    assert ls._judge(ls.result_path(tmp_path, "stream", "release", 0),
+                     ("stream", "release", 0))[0] == "DID NOT COVER"
+
+
+def test_stream_leg_requires_evictions():
+    """The companion's shape: it finishes and decodes, but never evicts -> not covered."""
+    cov = ld.stream_coverage("FINISHED", _stream_rows([1, 1, 1], dm=1), _stream_hits(pick=0))
+    assert cov["met"] is False and cov["got"]["evictions"] == 0
+    assert cov["got"]["streamed"] is False and cov["got"]["decode_calls"] == 4
+
+
+def test_stream_leg_met_needs_finished_decode_and_evictions():
+    cov = ld.stream_coverage("FINISHED", _stream_rows([3, 4, 6]), _stream_hits())
+    assert cov["met"] is True and cov["got"]["streamed"] is True
+    assert cov["got"]["evictions"] == 3 and cov["got"]["no_victim"] == 0
+    stuck = ld.stream_coverage("STUCK", _stream_rows([3, 4, 6]), _stream_hits())
+    assert stuck["met"] is False and stuck["got"]["streamed"] is True
+
+
+def test_stream_evict_gen_wraps_mod_16_bits():
+    cov = ld.stream_coverage("FINISHED", _stream_rows([0xFFFF, 0, 1]), _stream_hits(pick=2))
+    assert cov["got"]["evictions"] == 2 and cov["met"] is True
+
+
+@pytest.mark.parametrize("rows,hits,why", [
+    (_stream_rows([3, 4, 6]), _stream_hits(pick=1), "PickVictim"),
+    (_stream_rows([3, 4, 6]), {"ZX0R_Decompress": 4, "PageIn_EnqueueLanding": 6}, "PickVictim"),
+    ([{"t": 300, "eg": 3, "dm": 0}, {"t": 301, "dm": 0}], _stream_hits(), "Page_Evict_Gen"),
+    ([], _stream_hits(), "no rows"),
+])
+def test_stream_unmeasurable_is_never_a_count(rows, hits, why):
+    cov = ld.stream_coverage("FINISHED", rows, hits)
+    assert cov["met"] is False and why in cov["got"]["unmeasurable"]
+
+
+def test_stream_unmeasurable_cell_is_failed(tmp_path):
+    cov = ld.stream_coverage("FINISHED", _stream_rows([3, 4, 6]), _stream_hits(pick=1))
+    _stream_result(tmp_path, "debug", 2, "FINISHED", cov)
+    s, d, _, _ = ls._judge(ls.result_path(tmp_path, "stream", "debug", 2), ("stream", "debug", 2))
+    assert s == "FAILED" and "UNMEASURABLE" in d
+
+
+def test_stream_stuck_cell_reads_stuck_with_its_counts(tmp_path):
+    """s2_woven: evicts, then sticks. The cell is STUCK (never OK) and the detail carries the
+    streaming counts as annotations."""
+    cov = ld.stream_coverage("STUCK", _stream_rows([3, 4, 5, 6]), _stream_hits())
+    _stream_result(tmp_path, "release", 1, "STUCK", cov)
+    s, d, _, _ = ls._judge(ls.result_path(tmp_path, "stream", "release", 1),
+                           ("stream", "release", 1))
+    assert s == "STUCK" and "evictions 3" in d and "decode calls 4" in d
+
+
+def test_stream_cell_from_the_wrong_clip_is_failed(tmp_path):
+    cov = ld.stream_coverage("FINISHED", _stream_rows([3, 4, 6]), _stream_hits())
+    _stream_result(tmp_path, "release", 0, "FINISHED", cov, clip=ls.STREAM_COMPANION_CLIP)
+    s, d, _, _ = ls._judge(ls.result_path(tmp_path, "stream", "release", 0),
+                           ("stream", "release", 0))
+    assert s == "FAILED" and ls.STREAM_COMPANION_CLIP in d and ls.STREAM_CLIP in d
+
+
+def test_stream_clips_are_pinned_and_the_matrix_stays_48():
+    assert ls.STREAM_CLIP == "s2_woven" and ls.STREAM_COMPANION_CLIP == "s2_ehz_cpz"
+    assert ls.LEG_RUN_LEG["stream"] == "stream" and ls.LEG_POLICY["stream"] == "run"
+    assert ld.POLICIES["stream"] is ld.Run
+    assert len(ls.expected_matrix()) == 48
+    comp = ls.companion_cells()
+    assert len(comp) == 6 and not set(comp) & set(ls.expected_matrix())
+    cp = {ls.companion_path(Path("/o"), sh, ph) for _l, sh, ph in comp}
+    sp = {ls.result_path(Path("/o"), *c) for c in ls.expected_matrix()}
+    assert len(cp) == 6 and not cp & sp
+
+
+def _fill_with_companion(out, comp_status="FINISHED", comp_cov=None, stream_status="STUCK"):
+    fill(out, skip=[c for c in ls.expected_matrix() if c[0] == "stream"], companion=False)
+    for sh in ls.SHAPES:
+        for ph in ls.PHASES:
+            cov = ld.stream_coverage(stream_status, _stream_rows([3, 4, 6]), _stream_hits())
+            _stream_result(out, sh, ph, stream_status, cov)
+            ccov = comp_cov or ld.stream_coverage(comp_status, _stream_rows([1, 1], dm=1),
+                                                  _stream_hits(pick=0))
+            _stream_result(out, sh, ph, comp_status, ccov, clip=ls.STREAM_COMPANION_CLIP,
+                           sub=True)
+    _sync(out)
+    _sync_comp(out)
+
+
+def _sync_comp(out):
+    """The companion's manifest as `leg_survey run --companion` leaves it."""
+    with open(ls.companion_dir(out) / "manifest.jsonl", "w") as f:
+        for _l, sh, ph in ls.companion_cells():
+            p = ls.companion_path(out, sh, ph)
+            rc = None if not p.is_file() else (0 if ls._judge(p)[0] == "OK" else 1)
+            f.write(json.dumps({"leg": "stream_companion", "shape": sh, "phase": ph,
+                                "rc": rc}) + "\n")
+
+
+def test_companion_finished_never_makes_the_stream_cell_ok(tmp_path, capsys):
+    _fill_with_companion(tmp_path)
+    summ, rc = ls.write_summary(tmp_path)
+    assert all(r.status == "STUCK" for r in summ.rows if r.leg == "stream")
+    assert summ.counts["OK"] == 42 and len(summ.rows) == 48
+    assert [r.status for r in summ.companion] == ["DID NOT COVER"] * 6
+    assert all(r.drive_status == "FINISHED" for r in summ.companion)
+    text = (tmp_path / "summary.md").read_text()
+    assert "NO single run both evicts and finishes" in text
+    assert "streaming sustained to the end of an act: **DID NOT COVER**" in text
+    assert "outside the 48" in text and rc == 1
+
+
+def test_companion_missing_is_did_not_run_and_loud(tmp_path, capsys):
+    fill(tmp_path, companion=False)
+    summ, rc = ls.write_summary(tmp_path)
+    assert summ.counts["OK"] == 48
+    assert [r.status for r in summ.companion] == ["DID NOT RUN"] * 6
+    assert rc == 2
+    assert "companion" in capsys.readouterr().err
+
+
+def test_companion_of_the_wrong_clip_is_failed(tmp_path):
+    _fill_with_companion(tmp_path)
+    cov = ld.stream_coverage("FINISHED", _stream_rows([1, 1], dm=1), _stream_hits(pick=0))
+    _stream_result(tmp_path, "debug", 0, "FINISHED", cov, clip=ls.STREAM_CLIP, sub=True)
+    summ = ls.summarise(tmp_path)
+    bad = [r for r in summ.companion if r.shape == "debug" and r.phase == 0][0]
+    assert bad.status == "FAILED" and ls.STREAM_CLIP in bad.detail
+
+
+def test_run_refuses_a_rom_of_the_wrong_clip(tmp_path, capsys):
+    """One s4.s2clip.bin exists per shape at a time (check_pair pins the ROM to the aeon
+    root). A stream cell over the companion's ROM is DID NOT RUN, naming both clips."""
+    rd = tmp_path / "roms"
+    rd.mkdir()
+    for n in ("s4.s2clip.bin", "s4.s2clip.lst"):
+        (rd / n).write_bytes(b"x")
+    (rd / "s4.s2clip.clip_anchors.json").write_text(json.dumps({"clip": "s2_ehz_cpz"}))
+    recs = ls.run(tmp_path / "out", only=["stream"], rom_dir=rd)
+    rel = [r for r in recs if r["shape"] == "release"]
+    assert rel and all(r["rc"] is None and "s2_ehz_cpz" in r["note"] and "s2_woven" in r["note"]
+                       for r in rel)

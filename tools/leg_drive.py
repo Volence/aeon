@@ -330,6 +330,7 @@ POLICIES: dict[str, Callable[[Buttons, dict], Policy]] = {
     # coverage rule (and, in leg_run, the per-tick instruments the rule reads).
     "objheavy": Run,
     "sidekick": Run,
+    "stream": Run,
 }
 
 
@@ -502,7 +503,77 @@ def coverage(leg: str, status: str, rows: list, equ: dict, ref: dict | None = No
     if leg == "sidekick":
         raise DriveError("the sidekick rule needs the DMA events and the drive start: call "
                          "sidekick_coverage(status, rows, equ, dma, start)")
-    raise DriveError(f"no coverage rule for leg {leg!r} (stream is Task 10)")
+    if leg == "stream":
+        raise DriveError("the stream rule needs the instrument's breakpoint counts: call "
+                         "stream_coverage(status, rows, hits)")
+    raise DriveError(f"no coverage rule for leg {leg!r}")
+
+
+#: stream (v2 C4, the S2CLIP leg; C1 note §3.3, owner-proxy ruling Q2 2026-11-17). Code entries
+#: the instrument counts with breakpoints over the drive window (from t0): the ZX0 decoder's
+#: entry (a fresh page decode; PageIn_Process enters it by `jbra`, so it has no profiler row
+#: -- a breakpoint sees it, a JSR-keyed profile cannot), every page landing (ZX0 or raw), and
+#: the victim pick (the eviction cross-check). RAM read per row: the eviction counter and the
+#: cache regime. All resolved from the listing; a missing one is COULD NOT RUN.
+STREAM_HIT_SYMS = ("ZX0R_Decompress", "PageIn_EnqueueLanding", "PageCache_PickVictim")
+STREAM_RAM_SYMS = ("Page_Evict_Gen", "PageCache_Direct_Map")
+STREAM_RULE = ("status == FINISHED and decode calls (ZX0R_Decompress entries) >= 1 and "
+               "evictions (delta Page_Evict_Gen over the drive window) >= 1")
+
+
+def stream_coverage(status: str, rows: list, hits: dict | None) -> dict:
+    """The stream leg's rule: the act must STREAM (the decoder runs and the page cache evicts)
+    AND the drive must FINISH. `got.streamed` is the streaming half alone, so a STUCK run that
+    evicted still says so (s2_woven) and a FINISHED run that never evicted says that
+    (s2_ehz_cpz); neither is `met`.
+
+    Evictions are Page_Evict_Gen(last row) - Page_Evict_Gen(first row), mod 2^16: the window
+    starts at the first drive tick, after load, so PageCache_Init's bump is outside it
+    (engine/level/page_cache.emp). Cross-check: PickVictim entries >= evictions (a pick may
+    find no victim and bump nothing, page_cache.emp `.no_frame`); fewer picks than evictions,
+    a missing count, or a row without the counter is UNMEASURABLE, never a number."""
+    need = {"status": "FINISHED", "decode_calls": 1, "evictions": 1}
+    why = []
+    if not rows:
+        why.append("no rows")
+    lacking = [r.get("t") for r in rows if r.get("eg") is None or r.get("dm") is None]
+    if lacking:
+        why.append(f"{len(lacking)} row(s) carry no Page_Evict_Gen / PageCache_Direct_Map "
+                   f"reading (first tick {lacking[0]})")
+    hits = hits or {}
+    nohit = [n for n in STREAM_HIT_SYMS if not isinstance(hits.get(n), int)]
+    if nohit:
+        why.append(f"no breakpoint count for {nohit} (PickVictim cross-check impossible)")
+    if not why:
+        ev = (rows[-1]["eg"] - rows[0]["eg"]) & 0xFFFF
+        pick = hits["PageCache_PickVictim"]
+        if pick < ev:
+            why.append(f"PageCache_PickVictim entered {pick} times < {ev} evictions: the window "
+                       f"or the breakpoint count is wrong")
+    if why:
+        return dict(rule=STREAM_RULE, need=need, met=False,
+                    got={"status": status, "unmeasurable": "UNMEASURABLE: " + "; ".join(why)})
+    dec, land = hits["ZX0R_Decompress"], hits["PageIn_EnqueueLanding"]
+    streamed = dec >= 1 and ev >= 1
+    steps = [(r["t"], r["eg"]) for a, r in zip(rows, rows[1:]) if r["eg"] != a["eg"]]
+    got = {"status": status, "decode_calls": dec, "landings": land, "evictions": ev,
+           "pick_victim_calls": pick, "no_victim": pick - ev, "streamed": streamed,
+           "evict_gen": [rows[0]["eg"], rows[-1]["eg"]], "evict_ticks": [t for t, _ in steps],
+           "direct_map_end": rows[-1]["dm"],
+           "direct_map_regimes": sorted({r["dm"] for r in rows})}
+    return dict(rule=STREAM_RULE, need=need, got=got, met=status == "FINISHED" and streamed)
+
+
+def stream_syms_missing(syms) -> list:
+    return [n for n in STREAM_HIT_SYMS + STREAM_RAM_SYMS if n not in syms.addr]
+
+
+async def read_stream(c, syms) -> dict:
+    """Page_Evict_Gen (u16) and PageCache_Direct_Map (u8) this tick, by symbol."""
+    a = syms.addr
+    eg = _be(await _rd(c, a["Page_Evict_Gen"], 2), 0, 2)
+    dm = (await _rd(c, a["PageCache_Direct_Map"], 1))[0]
+    return {"eg": eg, "dm": dm}
 
 
 def obj_dispatch_min(equ: dict) -> int:

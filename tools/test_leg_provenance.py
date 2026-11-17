@@ -276,9 +276,9 @@ def test_a_rebake_of_a_file_the_build_never_read_is_a_problem(tmp_path, monkeypa
 
 
 def test_only_the_declared_throwaway_shapes_rebake(tmp_path):
-    for name in ("s4.bin", "s4.debug.bin", "s4.s2clip.bin", "demo.bin"):
+    for name in ("s4.bin", "s4.debug.bin", "demo.bin", "demo.debug.bin"):
         assert lp.regenerate_rebake(Path(name), tmp_path) is None, name
-    assert set(lp.SHAPE_REBAKES) == {"s4.stressobj", "s4.sidekick"}
+    assert set(lp.SHAPE_REBAKES) == {"s4.stressobj", "s4.sidekick", "s4.s2clip"}
     assert lp._shape_stem(Path("s4.stressobj.debug.bin")) == "s4.stressobj"
 
 
@@ -314,3 +314,39 @@ def test_the_sidekick_rebake_regenerates_both_build_reads_from_committed_inputs(
         assert f.read_bytes() != (lp.AEON_ROOT / rel).read_bytes(), rel     # tree untouched
     assert rec["inputs"]["tools/stress/sidekick.patch"] == lp.sha256_file(
         lp.AEON_ROOT / "tools/stress/sidekick.patch")
+
+
+# ---- S2CLIP: the tree re-bake keyed by the build's clip (v2 C4, Task 10) ---------------------
+# The bake itself needs the gitignored donor trees, so the pre-build lane checks the
+# declaration and the refusals; the real re-bake is proved on a built pair (Task 10 report).
+
+def test_the_s2clip_rebake_is_a_tree_rebake_of_the_two_baked_trees():
+    spec = lp.SHAPE_REBAKES["s4.s2clip"]
+    import s2clip_rebake as sr
+    assert tuple(spec["trees"]) == sr.TREES
+    import clip_rom_bake as crb
+    assert tuple(spec["trees"]) == tuple(crb.RESTORE_PATHS)
+    assert "{clip}" in spec["argv"] and "{out}" in spec["argv"]
+    assert any("{clip}" in i for i in spec["inputs"])
+
+
+def test_an_s2clip_rom_without_its_clip_record_is_refused(tmp_path):
+    rom = tmp_path / "s4.s2clip.debug.bin"
+    rom.write_bytes(b"x")
+    with pytest.raises(lp.StalePair, match="clip_anchors.json"):
+        lp.regenerate_rebake(rom, tmp_path / "o")
+    rom.with_suffix(".clip_anchors.json").write_text(json.dumps({"clip": "../etc"}))
+    with pytest.raises(lp.StalePair, match="no usable clip"):
+        lp.regenerate_rebake(rom, tmp_path / "o")
+
+
+def test_an_s2clip_tree_rebake_needs_the_listing_and_a_read_under_the_trees(tmp_path):
+    ap, _rom, lst = _rebake_listing(tmp_path, b"OVERLAY-BAKE")
+    rom = tmp_path / "s4.s2clip.bin"
+    rom.write_bytes(b"x")
+    rom.with_suffix(".clip_anchors.json").write_text(json.dumps({"clip": "s2_woven"}))
+    with pytest.raises(lp.StalePair, match="no listing given"):
+        lp.regenerate_rebake(rom, tmp_path / "o")
+    with pytest.raises(lp.StalePair, match="no DIGEST-READ row under"):
+        lp.regenerate_rebake(rom, tmp_path / "o", lst=lst)       # its one read is gen/x.emp
+    assert lp._tree_reads(lst, ["gen"]) == ["gen/x.emp"]

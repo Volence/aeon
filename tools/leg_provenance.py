@@ -20,7 +20,9 @@ finding 1), measured against whatever .bin/.lst pair was lying around. Both are 
 from __future__ import annotations
 
 import hashlib
+import json
 import os
+import re
 import subprocess
 import sys
 import tomllib
@@ -139,6 +141,23 @@ SHAPE_REBAKES = {
                    "games/sonic4/vram.toml", "games/sonic4/config/constants.emp"],
         "argv": ["python3", "tools/stress_sidekick.py", "rebake", "--out", "{out}"],
     },
+    # S2CLIP (v2 C4, the stream leg's act): clip_rom_bake's whole in-place bake of the clip
+    # act into the OJZ slot. A TREE re-bake: `trees` are the directories the bake writes, the
+    # files checked are every DIGEST-READ row under them (the set depends on the clip: 49
+    # pages for s2_woven), and `{out}` is a directory the argv writes each one under at its
+    # repo path (tools/s2clip_rebake.py, in a private copy of the committed tree). `{clip}`
+    # is the clip the build's measurement record names (`<rom stem>.clip_anchors.json`): a
+    # HINT only -- a wrong one regenerates the wrong bytes and reads NOT FRESH.
+    "s4.s2clip": {
+        "trees": ["games/sonic4/data/generated/ojz/act1", "games/sonic4/data/collision"],
+        "clip_from": "clip_anchors",
+        "inputs": ["games/sonic4/data/clips/{clip}/clips.json", "tools/s2clip_rebake.py",
+                   "tools/clip_rom_bake.py", "tools/clip_act_bake.py", "tools/clip_manifest.py",
+                   "tools/ojz_strip_gen.py", "tools/ojz_block_gen.py",
+                   "games/sonic4/data/donors/*/*/*"],
+        "argv": ["python3", "tools/s2clip_rebake.py", "rebake", "--clip", "{clip}", "--out",
+                 "{out}"],
+    },
 }
 
 
@@ -147,11 +166,12 @@ def _shape_stem(rom: Path) -> str:
     return stem[:-len(".debug")] if stem.endswith(".debug") else stem
 
 
-def rebake_inputs(spec: dict, root: Path) -> dict:
+def rebake_inputs(spec: dict, root: Path, clip: str | None = None) -> dict:
     """{repo path: sha256} of every declared input; a glob matching nothing, or a missing
     file, is refused (the record must not quietly omit what the re-bake read)."""
     out = {}
     for pat in spec["inputs"]:
+        pat = pat.replace("{clip}", clip) if clip is not None else pat
         hits = sorted(Path(root).glob(pat))
         if not hits:
             raise StalePair(f"leg_provenance: re-bake input {pat!r} matches nothing under {root}")
@@ -160,23 +180,57 @@ def rebake_inputs(spec: dict, root: Path) -> dict:
     return out
 
 
-def regenerate_rebake(rom: Path, out_dir: Path, root: Path = AEON_ROOT):
+def rebake_clip(rom: Path) -> str:
+    """The clip an S2CLIP ROM's build names in its measurement record (tools/clip_anchors.py
+    writes `<rom stem>.clip_anchors.json` beside the ROM on every S2CLIP build)."""
+    rec = Path(rom).with_suffix(".clip_anchors.json")
+    try:
+        clip = json.loads(rec.read_text()).get("clip")
+    except (OSError, ValueError, AttributeError) as e:
+        raise StalePair(f"leg_provenance: {Path(rom).name} is an S2CLIP ROM but {rec.name} "
+                        f"cannot be read ({e}), so no clip to re-bake: rebuild the shape")
+    if not isinstance(clip, str) or not re.fullmatch(r"[A-Za-z0-9_]+", clip):
+        raise StalePair(f"leg_provenance: {rec.name} names no usable clip ({clip!r})")
+    return clip
+
+
+def _tree_reads(lst: Path, trees) -> list[str]:
+    pre = tuple(t.rstrip("/") + "/" for t in trees)
+    return sorted(r["path"] for r in read_digest(str(lst))["reads"]
+                  if r["root"] is None and r["path"].startswith(pre))
+
+
+def regenerate_rebake(rom: Path, out_dir: Path, root: Path = AEON_ROOT, lst: Path | None = None):
     """({path: file}, record) for a throwaway shape's re-bake, or None for any other ROM.
     A spec with `path` writes one file at `{out}`; one with `paths` writes each declared path
-    under the `{out}` directory at its repo path."""
+    under the `{out}` directory at its repo path; one with `trees` writes a directory and
+    every DIGEST-READ row of `lst` under those trees is checked against it."""
     spec = SHAPE_REBAKES.get(_shape_stem(rom))
     if spec is None:
         return None
-    multi = "paths" in spec
+    clip = rebake_clip(rom) if spec.get("clip_from") else None
+    multi = "paths" in spec or "trees" in spec
     out = Path(out_dir) / ("rebake" if multi else Path(spec["path"]).name)
-    argv = [a.replace("{out}", str(out)) for a in spec["argv"]]
+    argv = [a.replace("{out}", str(out)).replace("{clip}", clip or "{clip}")
+            for a in spec["argv"]]
+    if "trees" in spec:
+        if lst is None:
+            raise StalePair(f"leg_provenance: the {_shape_stem(rom)} re-bake checks the "
+                            f"listing's DIGEST-READ rows under {spec['trees']}; no listing given")
+        reads = _tree_reads(Path(lst), spec["trees"])
+        if not reads:
+            raise StalePair(f"leg_provenance: {Path(lst).name} has no DIGEST-READ row under "
+                            f"{spec['trees']}: not the bake this re-bake regenerates")
     p = subprocess.run(argv, cwd=root, capture_output=True, text=True)
-    files = ({rel: out / rel for rel in spec["paths"]} if multi else {spec["path"]: out})
+    files = ({rel: out / rel for rel in (reads if "trees" in spec else spec["paths"])} if multi
+             else {spec["path"]: out})
     if p.returncode != 0 or not all(f.is_file() for f in files.values()):
         raise StalePair(f"leg_provenance: the {_shape_stem(rom)} re-bake could not be "
                         f"regenerated ({' '.join(argv)} -> rc {p.returncode}): "
                         f"{(p.stdout + p.stderr)[-800:]}")
-    rec = {"argv": spec["argv"], "inputs": rebake_inputs(spec, root)}
+    rec = {"argv": spec["argv"], "inputs": rebake_inputs(spec, root, clip)}
+    if clip is not None:
+        rec["clip"] = clip
     if multi:
         rec["paths"] = {rel: sha256_file(f) for rel, f in files.items()}
     else:
@@ -191,7 +245,8 @@ def rom_provenance(rom: Path, lst: Path, root: Path | None = None) -> dict:
     import tempfile
     rom, lst = Path(rom), Path(lst)
     with tempfile.TemporaryDirectory(prefix="leg_rebake.") as td:
-        rb = regenerate_rebake(rom, Path(td), Path(root) if root is not None else AEON_ROOT)
+        rb = regenerate_rebake(rom, Path(td), Path(root) if root is not None else AEON_ROOT,
+                               lst=lst)
         v = check_pair(str(rom), str(lst), root=None if root is None else str(root),
                        rebaked=None if rb is None else {k: str(f) for k, f in rb[0].items()})
     if not v.fresh:

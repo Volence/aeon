@@ -198,7 +198,7 @@ def test_idle_is_zero():
     p = ld.POLICIES["idle"](B, EQ)
     assert {p.held(st(t)) for t in range(50)} == {0}
     assert set(ld.POLICIES) == {"idle", "run", "topspeed", "diagfall", "spindash", "objheavy",
-                                 "sidekick"}
+                                 "sidekick", "stream"}
 
 
 class _Script:

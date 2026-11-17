@@ -46,7 +46,7 @@ DRIVE_FAILURES = (ld.DriveError, BusError, ConnectionError, EOFError,
                   asyncio.IncompleteReadError, TimeoutError, OSError)
 
 DEFAULT_CAP = {"idle": ld.IDLE_NEED_TICKS, "run": 3000, "topspeed": 3000, "diagfall": 3000,
-               "spindash": 3000, "objheavy": 3000, "sidekick": 3000}
+               "spindash": 3000, "objheavy": 3000, "sidekick": 3000, "stream": 3000}
 
 #: objheavy's path witness: the canonical `run` leg's per-tick P1 path, per shape/phase
 #: (tools/stress_objects_overlay.py fixture). Committed next to the overlay it shaped.
@@ -135,6 +135,39 @@ class SidekickLoad(ObjLoad):
         got = await ld.read_sidekick(c, self.syms)
         row.update(p2c=got["p2c"], p2x=got["p2x"], p2y=got["p2y"], p2art=got["p2art"], cyc=None)
         self.open = (row, got["mclk"])
+
+
+class StreamLoad:
+    """stream's instruments (v2 C4) on the drive's own client: one breakpoint per
+    `leg_drive.STREAM_HIT_SYMS` entry, counted from the first drive tick (so boot and level
+    load -- PageCache_Init, the DEBUG compression self-test's ZX0R call -- are outside the
+    window), and Page_Evict_Gen / PageCache_Direct_Map read on every row. A breakpoint stop
+    is a pause, not a cycle: the machine's timing is untouched."""
+
+    def __init__(self, syms):
+        self.syms, self.bps = syms, []
+        self.by_pc = {syms.addr[n] & 0xFFFFFF: n for n in ld.STREAM_HIT_SYMS}
+        self.hits = {n: 0 for n in ld.STREAM_HIT_SYMS}
+        self.closed = 0                    # ObjLoad's interface (unused: no cycle window)
+
+    async def arm(self, c):
+        for n in ld.STREAM_HIT_SYMS:
+            self.bps.append((await c.call("emulator/breakpoint_add", {"symbol": n}))["breakpoint"])
+
+    async def disarm(self, c):
+        for bp in self.bps:
+            await c.call("emulator/breakpoint_clear", {"breakpoint": bp})
+        self.bps = []
+
+    async def on_tick(self, c, s, row):
+        row.update(await ld.read_stream(c, self.syms))
+
+    async def on_break(self, c, pc, reply) -> bool:
+        n = self.by_pc.get(pc)
+        if n is None:
+            return False
+        self.hits[n] += 1
+        return True
 
 
 def sidekick_block(tr, syms, result_profile, cost_ref) -> dict:
@@ -283,6 +316,12 @@ def main(argv=None) -> int:
             except ValueError as e:
                 print(f"leg_run: COULD NOT RUN — --cost-ref: {e}", file=sys.stderr)
                 return 2
+    if a.leg == "stream":
+        miss = ld.stream_syms_missing(syms)
+        if miss:
+            print(f"leg_run: COULD NOT RUN — {lst}: stream needs {miss}", file=sys.stderr)
+            return 2
+        obj = StreamLoad(syms)
     probe = None
     if a.dma_probe:
         try:
@@ -322,7 +361,9 @@ def main(argv=None) -> int:
     wall = time.monotonic() - wall0
     tr = got["trace"]
     dma_res = probe.result() if probe is not None else _did_not_run("--dma-probe not given")
-    if a.leg == "sidekick":
+    if a.leg == "stream":
+        cov = ld.stream_coverage(tr.status, tr.rows, obj.hits)
+    elif a.leg == "sidekick":
         cov = ld.sidekick_coverage(tr.status, tr.rows, syms.equ, dma_res,
                                    tr.policy_from if tr.policy_from is not None else got["t0"])
     else:
@@ -346,7 +387,10 @@ def main(argv=None) -> int:
                 "loadavg_start": load0, "loadavg_end": open("/proc/loadavg").read().split()[:3],
                 "date_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())},
     }
-    if a.leg == "sidekick":
+    if a.leg == "stream":
+        result["stream"] = {"hits": dict(obj.hits), "rule": ld.STREAM_RULE,
+                            "label": "MEASURED (Oracle): breakpoint entries + RAM reads"}
+    elif a.leg == "sidekick":
         result["sidekick"] = sidekick_block(tr, syms, got["profile"], cost_ref)
         result["sidekick"]["ticks_with_cycles"] = obj.closed
     elif obj is not None:
@@ -370,7 +414,9 @@ def main(argv=None) -> int:
           f"; wall {wall:.1f}s -> {path}")
     for n in tr.notes:
         print(f"  note: {n}")
-    if a.leg == "sidekick":
+    if a.leg == "stream":
+        print(f"  stream: {cov['got']}")
+    elif a.leg == "sidekick":
         print(f"  sidekick: {cov['got']}")
         for k, v in result["sidekick"].items():
             if isinstance(v, dict):
