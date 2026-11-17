@@ -145,14 +145,20 @@ interpretation is in its `findings.md`). Every item is OPEN. None of them change
    - **Fix.** Annotate a non-OK cell's detail with its overrun count (and/or count overruns separately in the header).
    - Related: a STUCK row's rule-4 FITS judges only the stretch driven, and `summary.md` does not say so.
 6. **The wipe chunk is admitted by bytes, not by line (an engine hazard, not tooling).** Measured in Task 11:
-   - **The burst.** Crossing the DEBUG-only tall-BG region (`OJZ_TALL_X0 = 5120`, `act_descriptor.emp`) arms
-     `BG_Stream_Update`'s 64-row Plane B wipe. It goes out as 1792 B Deferrable chunks (`BG_WIPE_DMA_ROWS` 14, from
-     `BG_OVERWRITE_CHUNK_BYTES` 1824), each 8.77 lines long.
-   - **The overrun.** The chunks start at lines 251-255 and end at 260-264 on all 18 moving DEBUG cells.
+   - **The burst.** The camera centre crossing x 5120 into the DEBUG-only tall-BG region (`OJZ_TALL_X0`,
+     `act_descriptor.emp:854-862`) arms `BG_Stream_Update`'s 64-row Plane B wipe.
+     - It goes out as 6 Deferrable transfers of 14 / 12 / 14 / 7 / 14 / 3 rows (`BG_WIPE_DMA_ROWS` 14, from
+       `BG_OVERWRITE_CHUNK_BYTES` 1824, cut at the ring wrap and at the seam).
+     - In queue order the destinations are `$F300`, `$FA00`, `$E000`, `$E700`, `$EA80` and `$F180`.
+   - **The overrun.** The full 1792 B chunks run 8.77 lines. On the crossing frame the first one starts at lines
+     251-255 and ends at 260-264, on all 18 moving DEBUG cells. DEBUG's heavier VBlank, which starts about 4.5-5
+     lines later than release, contributes to that late start.
    - **The derivation.** `BG_OVERWRITE_CHUNK_BYTES` is derived against a byte budget (`DMA_BUDGET_NTSC`, in
      `tools/test_bg_overwrite_chunk_budget.py`), and the budgeted drain does not check the start line.
-   - **Release.** Release has no region with `rg_bg_layout != 0` on OJZ act 1, so it never wipes. Any shipped region
-     with its own background would reproduce the overrun in release.
+   - **Release.** Release has no region with `rg_bg_layout != 0` on OJZ act 1, so it never wipes. A shipped region
+     with its own background **can** overrun in release whenever the chunk starts past about line 251.
+     - Release reaches that start line on 5-14 of 1099 frames per cell (MEASURED).
+     - The same crossing in release would probably fit, since it starts about 4.5-5 lines earlier (ESTIMATED).
    - **Who decides.** The owner, at G2: shrink the chunk, gate admission on the line, or accept it.
 
 ## V2-C2-STRESS-OBJECTS: what the object-heavy shape leaves open (booked 2026-11-16, `feat/v2-step0-stress`)

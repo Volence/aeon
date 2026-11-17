@@ -16,27 +16,37 @@ every phase. That is 20 overrun events in all. Each one is:
 - at the `Drain_Budgeted_Queue` trigger site (`$2080` in the DEBUG listings);
 - exactly **8.77 lines** long.
 
-**The burst.** Every overrun lies in a burst of 5 such 8.77-line transfers on 5 consecutive ticks. In
-`s4.sidekick.debug` the probe decodes the destinations: `$E000`, `$E700`, `$EA80`, `$F300` and `$FA00`. That is
-**Plane B** (`VRAM_PLANE_B = $E000`). Each full chunk is 14 rows × 128 B = 1792 B (`$700`).
+**The burst.** Every overrun lies in a burst of **6** drain transfers on 6 consecutive ticks, all to
+**Plane B** (`VRAM_PLANE_B = $E000`). `.wipe_spend` cuts each run at `BG_WIPE_DMA_ROWS` (14), at the ring wrap and
+at the window seam, so the 64 rows go out as 14 / 12 / 14 / 7 / 14 / 3 rows: 1792 / 1536 / 1792 / 896 / 1792 /
+384 B, or 8.77 / 7.52 / 8.77 / 4.40 / 8.77 / 1.90 lines.
+
+- **Queue order.** `s4.sidekick.debug` p0, ticks 1114-1119, writes `$F300`, `$FA00`, `$E000`, `$E700`, `$EA80` and
+  `$F180`. Every DEBUG moving cell shows the same pattern of durations.
+- **Which transfers overrun.** Only full 1792 B chunks: the first, on the crossing frame, in every cell, and the
+  fifth (`$EA80`) as well in sidekick DEBUG.
 
 **What queues it.** The burst is `BG_Stream_Update`'s crossing wipe (`engine/level/bg.emp`, `.wipe_spend`). When
 the resolved region's background layout differs from the one on the plane, it re-sweeps all 64 Plane B rows. It
 does this as one Deferrable DMA per frame of `BG_WIPE_DMA_ROWS = BG_OVERWRITE_CHUNK_BYTES 1824 / 128 = 14` rows.
 
-**What triggers it on this act.** The act contains a **DEBUG-only** region, `OJZ_TALL_BG_ROWS`
+**What triggers it on this act.** The act contains two **DEBUG-only** regions with their own background:
+`OJZ_SHOWCASE_BG_ROWS` (x 1024..2047, y 2048..4095), which no leg entered, and `OJZ_TALL_BG_ROWS`
 (`games/sonic4/data/levels/ojz/act1/act_descriptor.emp`):
 
-- it covers x ≥ `OJZ_TALL_X0 = 5120`, y 2048..6143;
+- it covers x ≥ `OJZ_TALL_X0 = 5120`, y 2048..6143 (`act_descriptor.emp:854-862`);
 - its background is `OJZ_Act1_BG_Layout_Tall`;
 - it is a test fixture for the tall-background step, carved out of rows 5 and 8 only when `DEBUG == 1`.
 
 In the release table (`games/sonic4/data/generated/ojz/act1/regions.emp`, 10 rows) every row has `rg_bg_layout: 0`.
-So on OJZ act 1 a release ROM has no crossing that can arm the wipe.
+So on OJZ act 1 a release ROM has no crossing that can arm the wipe. The region is resolved from the **camera
+centre** (`Parallax_CheckBoundary`, `engine/level/parallax.emp`: `Camera_X + CAM_SCREEN_HALF_W`), not from P1. On
+these legs the centre x equals P1 x. The burst shows one tick before the first row with px ≥ 5120 because each row
+is sampled before that tick's camera update.
 
 **The correlation is exact in all 48 cells:**
 
-| cells | wipe burst starts | tick P1 first reaches x ≥ 5120 | P1 y at that crossing |
+| cells | wipe burst starts | first row with px (= camera centre x) ≥ 5120 | P1 y at that crossing |
 |---|---|---|---|
 | DEBUG run, topspeed, objheavy, sidekick | ticks 1114 / 1121 / 1133 (p0 / p1 / p2), px 5117 | the next tick | 5750 |
 | DEBUG diagfall, spindash | ticks 1136 / 1143 / 1155, px 5114 | the next tick | 5795 |
@@ -45,22 +55,33 @@ So on OJZ act 1 a release ROM has no crossing that can arm the wipe.
 
 **Corrected explanation.**
 
-- **Not shape overhead.** Release crosses the same x 5120 line, inside the same y band, and starts its own drain
-  transfers just as late: up to line 253 + 2655 (run) and 254 + 1910 (objheavy). It does not overrun only because
-  its region table has no second background layout there. So the overrun does not come from DEBUG's extra VBlank
-  work.
+- **The wipe is the trigger, and DEBUG overhead adds the late start.** Release crosses the same x 5120 line,
+  inside the same y band, and never wipes, because its region table has no second background layout there.
+  - **How much later DEBUG is.** DEBUG enters each VBlank's DMA about 4.5-5 lines later than release: the median end
+    of the last DMA per VBlank is 245.1 in DEBUG against 240.4 in release.
+  - **Why the crossing frame is late.** It is heavier still: the Critical queue starts later, there are extra
+    Critical transfers, and the FG drain is full. That is why the first 1792 B chunk starts at line 251-255 and ends
+    past 260.
+  - **So DEBUG overhead is not the discriminator,** but it contributes to the late start.
 - **Not the route.** The DEBUG and release routes do differ (DEBUG starts in free flight at (256, 256), release on
   the ground at (256, 573), and DEBUG reaches x 5120 about 140 ticks sooner). But the route is not the
   discriminator: release's route enters the same rectangle.
-- **The cause.** It is a content fixture present only in DEBUG. Crossing it queues 1792-byte Deferrable chunks, each
-  8.77 lines long, that start at lines 251-255 of the VBlank and so end past line 260.
+- **The cause.** It is a content fixture present only in DEBUG. Crossing it queues the 6-transfer wipe, and its
+  full 1792 B chunks (8.77 lines each) overrun when they start at line 251-255.
 
 **Hazard (ESTIMATED from source).** `BG_OVERWRITE_CHUNK_BYTES` is derived as a **byte** budget against
 `DMA_BUDGET_NTSC` (after the FG peak, the Critical peak and the player DPLC peak). Admission into the budgeted
-drain does not check the line the transfer will start on. Here the earlier VBlank work already reaches line
-251-255, so a 1792 B chunk cannot finish by line 260. **Any shipped region with its own background layout would
-reproduce this in release.** "Release never overruns" holds only for release content on the routes driven. It is
-not a property of the shape.
+drain does not check the line the transfer will start on. So a shipped region with its own background layout
+**can** overrun in release whenever the chunk starts past about line 251.
+
+- **Release's late frames (MEASURED).** Release reaches that start line on 5-14 frames per cell, out of 1099:
+  - 5-7 frames in each run, topspeed and objheavy cell;
+  - 10-14 frames in each sidekick cell;
+  - 0 in diagfall and spindash, which cover only 531 ticks.
+- **The same crossing in release (ESTIMATED).** It would start the chunk about 4.5-5 lines earlier than DEBUG did,
+  so it would probably fit, ending near line 257.
+- **Shape or content.** "Release never overruns" holds only for release content on the routes driven. It is not a
+  property of the shape.
 
 **Severity (M2).**
 
