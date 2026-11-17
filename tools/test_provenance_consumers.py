@@ -71,6 +71,12 @@ GATES = {
     "fg_page_order": ([], False),
 }
 
+#: build.sh `--built-after "${SIGIL_T0}"` call sites that are NOT --lst/--rom consumers of the
+#: primitive, each with why. needs_build_lane (v2 C3 fix 1: the STRESS_SIDEKICK must-run check)
+#: forwards the threshold to tools/conftest.py as --artifacts-built-after; that lane is graded
+#: by tools/test_needs_build_lane.py, which drives a copy of the shipping conftest + primitive.
+NOT_GATES = {"needs_build_lane": "a lane runner: conftest's freshness rule, test_needs_build_lane.py"}
+
 #: A gate whose CLI takes a MODE first (a MODES dispatch table refuses anything else in
 #: argv[1]): the mode build.sh passes, put before --lst/--rom/--built-after.
 LEAD = {"fg_page_order": ["rom-window"]}
@@ -150,5 +156,8 @@ def test_the_population_is_build_sh_s():
         if "--built-after" in m.group(2):
             calls.add(m.group(1))
     assert calls, "found no --built-after call in build.sh; the parse drifted"
+    assert set(NOT_GATES) <= calls, ("NOT_GATES names %s, which build.sh no longer calls with "
+                                     "--built-after: drop the row" % sorted(set(NOT_GATES) - calls))
+    calls -= set(NOT_GATES)
     assert calls == set(GATES), ("build.sh's --built-after gates %s != this table %s"
                                  % (sorted(calls), sorted(GATES)))
