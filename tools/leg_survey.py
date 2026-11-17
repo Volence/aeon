@@ -8,7 +8,7 @@ Every leg x shape x phase cell (8 x 2 x 3 = 48) goes through `leg_run --dma-prob
 subprocess per cell, with `rc` appended to DIR/manifest.jsonl. `summarise` judges ONLY the
 result files on disk (never the manifest, never "the run finished"): a cell with no result
 file is DID NOT RUN, with the cell named. Cell status is one of
-    OK             FINISHED and coverage met and the DMA probe measured
+    OK             the leg's own coverage rule met (idle: CAP at its tick count; others: FINISHED) and the DMA probe measured
     STUCK          the leg's progress stalled
     DID NOT COVER  ran, but hit the cap or never met its coverage condition
     DID NOT RUN    no result file (a missing ROM/listing, a refused or crashed run, not yet run)
@@ -145,7 +145,10 @@ def _judge_loaded(r, path):
     cov = r.get("coverage") or {}
     if st == "STUCK":
         return "STUCK", str(r.get("reason") or "progress stalled"), dma, lag
-    if st != "FINISHED" or cov.get("met") is not True:
+    if st == "FAILED":
+        return "FAILED", str(r.get("reason") or "leg driver FAILED"), dma, lag
+    # coverage.met is the leg's own rule (idle is a fixed-tick leg: CAP + met is its OK)
+    if cov.get("met") is not True:
         return ("DID NOT COVER", f"status {st}, coverage met={cov.get('met')} "
                 f"(got={cov.get('got')} need={cov.get('need')})", dma, lag)
     if not isinstance(dma, dict) or dma.get("status") not in ("MEASURED",) or dma.get(

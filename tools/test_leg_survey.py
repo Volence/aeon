@@ -89,7 +89,8 @@ def test_unreadable_result_is_failed(tmp_path):
 
 @pytest.mark.parametrize("over,want", [
     ({"status": "STUCK", "reason": "x"}, "STUCK"),
-    ({"status": "CAP"}, "DID NOT COVER"),
+    ({"status": "CAP", "coverage": {"rule": "r", "got": "CAP", "need": "FINISHED", "met": False}},
+     "DID NOT COVER"),
     ({"coverage": {"rule": "r", "got": 0, "need": 1, "met": False}}, "DID NOT COVER"),
     ({"dma": {"status": "UNMEASURABLE", "unmeasurable": "no sites", "worst_end": None}}, "FAILED"),
 ])
@@ -100,6 +101,21 @@ def test_stuck_and_uncovered_are_not_ok(tmp_path, over, want):
     row = [x for x in summ.rows if (x.leg, x.phase, x.shape) == ("diagfall", 1, "release")][0]
     assert row.status == want and rc == 1
     assert summ.counts["OK"] == 47
+
+
+def test_idle_cap_with_coverage_met_is_ok(tmp_path):
+    """idle never FINISHES (it is a fixed-tick leg): CAP + coverage met is its OK."""
+    fill(tmp_path)
+    write(tmp_path, "idle", "release", 0, status="CAP",
+          coverage={"rule": "ticks driven >= 600", "got": 600, "need": 600, "met": True})
+    summ, rc = ls.write_summary(tmp_path)
+    assert summ.counts["OK"] == 48 and rc == 0
+
+
+def test_failed_status_is_failed(tmp_path):
+    fill(tmp_path)
+    write(tmp_path, "run", "debug", 2, status="FAILED")
+    assert ls.summarise(tmp_path).counts["FAILED"] == 1
 
 
 def test_run_names_missing_rom_and_does_not_crash(tmp_path, capsys):
