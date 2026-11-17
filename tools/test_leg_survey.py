@@ -16,6 +16,7 @@ def _good_prov(leg="idle", shape="release"):
     pv["oracle"]["dirty"] = False
     pv["rom"]["rom"] = ls.LEG_ROM[(leg, shape)]
     pv["rom"]["crc32"] = "crc-" + ls.LEG_ROM[(leg, shape)]
+    pv["rom"]["debug"] = 1 if shape == "debug" else 0    # as leg_provenance writes it (M3)
     if leg in ls.LEG_CLIP:                         # a clip-built cell names its clip (v2 C4)
         pv["rom"]["rebake"] = {"clip": ls.LEG_CLIP[leg]}
     return pv
@@ -631,3 +632,72 @@ def test_sustained_is_failed_and_cites_no_refused_evidence(tmp_path):
 def test_sustained_covered_outranks_a_missing_cell(tmp_path):
     v, _ = _sus_dir(tmp_path, stream="FINISHED", skip_comp={("release", 0)})
     assert v == "COVERED"
+
+
+# ---- final review M1-M4 (2026-11-17): the survey trusts a cell's digest, not its file name
+
+
+def _edit(out, cell, fn):
+    p = ls.result_path(out, *cell)
+    r = json.loads(p.read_text())
+    fn(r)
+    p.write_text(json.dumps(r))
+
+
+def _row(summ, cell):
+    return [x for x in summ.rows if (x.leg, x.shape, x.phase) == cell][0]
+
+
+def test_m1_two_builds_of_one_rom_file_across_legs_is_failed(tmp_path):
+    """run/release is internally consistent but its s4.bin is not idle/release's s4.bin."""
+    fill(tmp_path)
+    for ph in ls.PHASES:
+        _edit(tmp_path, ("run", "release", ph),
+              lambda r: r["provenance"]["rom"].__setitem__("crc32", "crc-other-s4.bin"))
+    summ = ls.summarise(tmp_path)
+    row = _row(summ, ("run", "release", 0))
+    assert row.status == "FAILED" and "one crc per ROM file" in row.detail and "s4.bin" in row.detail
+
+
+def test_m1_the_companion_is_its_own_rom_group(tmp_path):
+    """The companion bakes another clip into the same s4.s2clip name: not a mismatch."""
+    fill(tmp_path)
+    summ = ls.summarise(tmp_path)
+    assert all(r.status == "OK" for r in summ.rows + summ.companion), \
+        [(r.leg, r.shape, r.phase, r.detail) for r in summ.rows + summ.companion if r.status != "OK"]
+
+
+@pytest.mark.parametrize("block,leaf,field", [
+    ("harness", "tool_sha256", "harness.tool_sha256"),
+    ("harness", "leg_drive_sha256", "harness.leg_drive_sha256"),
+    ("rom", "sigil_revision", "rom.sigil_revision")])
+def test_m2_a_harness_or_assembler_change_mid_survey_is_failed(tmp_path, block, leaf, field):
+    fill(tmp_path)
+    _edit(tmp_path, ("sidekick", "debug", 1),
+          lambda r: r["provenance"][block].__setitem__(leaf, "changed"))
+    row = _row(ls.summarise(tmp_path), ("sidekick", "debug", 1))
+    assert row.status == "FAILED" and field in row.detail
+
+
+def test_m2_the_printed_tuple_is_unchanged(tmp_path):
+    fill(tmp_path)
+    summ = ls.summarise(tmp_path)
+    assert set(summ.prov["survey"]) == {"aeon.commit", "aeon.dirty", "oracle.server_build_id",
+                                        "oracle.source", "oracle.dirty", "oracle.sha256"}
+
+
+@pytest.mark.parametrize("cell,dbg", [(("objheavy", "debug", 0), 0), (("run", "release", 2), 1),
+                                      (("run", "debug", 1), "1"), (("idle", "debug", 0), True)])
+def test_m3_a_digest_of_the_other_shape_is_failed(tmp_path, cell, dbg):
+    fill(tmp_path)
+    _edit(tmp_path, cell, lambda r: r["provenance"]["rom"].__setitem__("debug", dbg))
+    row = _row(ls.summarise(tmp_path), cell)
+    assert row.status == "FAILED" and "provenance.rom.debug" in row.detail
+
+
+@pytest.mark.parametrize("cov", [None, {}, {"rule": "r", "got": 1, "need": 1}, "met"])
+def test_m4_a_result_without_a_coverage_verdict_is_failed_not_did_not_cover(tmp_path, cov):
+    fill(tmp_path)
+    _edit(tmp_path, ("topspeed", "release", 0), lambda r: r.__setitem__("coverage", cov))
+    row = _row(ls.summarise(tmp_path), ("topspeed", "release", 0))
+    assert row.status == "FAILED" and "no coverage verdict" in row.detail

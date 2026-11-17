@@ -66,12 +66,14 @@ LEG_POLICY = {leg: (leg if leg in ("idle", "run", "topspeed", "diagfall", "spind
               for leg in LEGS}
 
 #: The `leg_run --leg` each survey leg is run as (and the `leg` its result carries). A stress
-#: leg leg_run knows by name (objheavy, Task 8; sidekick, Task 9) drives LEG_POLICY's policy
-#: under its OWN coverage rule; one it does not know yet (stream) still runs as its policy.
+#: leg leg_run knows by name (objheavy, Task 8; sidekick, Task 9; stream, Task 10) drives
+#: LEG_POLICY's policy under its OWN coverage rule; a leg not in ld.POLICIES would run as its
+#: policy (none today: every survey leg is in ld.POLICIES).
 LEG_RUN_LEG = {leg: (leg if leg in ld.POLICIES else LEG_POLICY[leg]) for leg in LEGS}
 
 #: The stream leg's act (v2 C4, owner-proxy ruling Q2 2026-11-17): the S2CLIP clip that EVICTS
-#: (C1 note §3.1: 3 evictions, then STUCK at x 2230). It stays the `stream` cell of the 48 and
+#: (3 evictions, then STUCK at x 2550 under the run policy: the step-0 survey, all 6 cells; the
+#: C1 note §3.1's x 2230 was its probe's minimum jump, DEFERRED_WORK V2-C4 (2)). It stays the `stream` cell of the 48 and
 #: is graded on leg_drive.stream_coverage; its STUCK is reported, never tuned away.
 STREAM_CLIP = "s2_woven"
 #: The finishing companion: the S2CLIP clip that FINISHES but never evicts (C1 note §3.1). It
@@ -303,6 +305,14 @@ def _judge_loaded(r, path, cell=None, clip=None):
             if got[k] != want[k]:
                 return ("FAILED", f"result does not match its cell: {k} is {got[k]!r}, "
                         f"expected {want[k]!r}", None, None)
+        # The shape is tied to the DIGEST, not only to the file name (final review M3): for an
+        # off-canonical name check_pair has no expected shape, so a release digest under a
+        # `.debug` name would otherwise be graded as the DEBUG cell.
+        want_dbg = 1 if shape == "debug" else 0
+        got_dbg = r["provenance"]["rom"].get("debug")
+        if type(got_dbg) is not int or got_dbg != want_dbg:
+            return ("FAILED", f"result does not match its cell: provenance.rom.debug is "
+                    f"{got_dbg!r}, the {shape} cell needs {want_dbg}", None, None)
         clip = clip or LEG_CLIP.get(leg)
     if clip is not None:
         rb = r["provenance"]["rom"].get("rebake")
@@ -323,6 +333,12 @@ def _judge_loaded(r, path, cell=None, clip=None):
             f"; {note}" if note else ""), dma, lag
     if st == "FAILED":
         return "FAILED", str(r.get("reason") or "leg driver FAILED"), dma, lag
+    # A result with no coverage verdict is malformed, not a legitimate DID NOT COVER (final
+    # review M4): leg_run always writes `coverage{rule,got,need,met}`, so its absence is a
+    # writer defect and must not read as an outcome.
+    if not isinstance(r.get("coverage"), dict) or not isinstance(cov.get("met"), bool):
+        return ("FAILED", f"result has no coverage verdict (coverage is "
+                f"{r.get('coverage')!r}): malformed, not DID NOT COVER", dma, lag)
     # coverage.met is the leg's own rule (idle is a fixed-tick leg: CAP + met is its OK)
     if cov.get("met") is not True:
         if note:
@@ -351,6 +367,20 @@ def _tuple_of(r: dict, shape: str) -> dict:
             "oracle.sha256": pv["oracle"]["sha256"]}
 
 
+def _checked_of(r: dict, shape: str) -> dict:
+    """The printed tuple plus what the survey must also hold constant but does not print
+    (final review M2): the assembler revision and every harness hash. On a tree already dirty
+    when the survey started, `aeon.dirty` stays True across a mid-survey edit of leg_drive.py,
+    so only these hashes can see it."""
+    pv = r["provenance"]
+    t = dict(_tuple_of(r, shape))
+    t["rom.sigil_revision"] = pv["rom"]["sigil_revision"]
+    for k, v in sorted(pv["harness"].items()):
+        if k.endswith("_sha256"):
+            t["harness." + k] = v
+    return t
+
+
 def _judge_cells(cells, man, path_of, judge_of):
     """Rows for `cells`, each believed only when the manifest confirms this run wrote it."""
     rows, loaded = [], {}
@@ -374,7 +404,8 @@ def _judge_cells(cells, man, path_of, judge_of):
                     s, d = "FAILED", (f"rc disagrees with file: manifest "
                                       f"{'has no record' if rec is None else 'rc=' + repr(rc)}, "
                                       f"result file is {s}" + (f" ({d})" if d else ""))
-        g = ((j or {}).get("coverage") or {}).get("got") if isinstance(j, dict) else None
+        cv = j.get("coverage") if isinstance(j, dict) else None
+        g = cv.get("got") if isinstance(cv, dict) else None
         rows.append(Row(leg, shape, ph, s, d, lag, dma,
                         drive_status=j.get("status") if isinstance(j, dict) else None,
                         stream=g if isinstance(g, dict) and "decode_calls" in g else None))
@@ -397,26 +428,43 @@ def summarise(out_dir) -> Summary:
     # one pinned oracle; G0 is judged on the survey as a whole), one ROM crc32 per leg x shape.
     # The first readable cell sets the reference; every deviant is FAILED naming the field and
     # both values.
-    ref, crc = {}, {}
-    every = [(r, loaded) for r in rows] + [(r, comp_loaded) for r in comp]
-    for r, src in every:
+    # The crc is ALSO held constant per ROM FILE within a run (final review M1): the five
+    # canonical legs share s4.bin, and two different s4.bin builds at one commit + dirty flag
+    # (a gitignored input such as engine/sound/generated/, which aeon.dirty cannot see) would
+    # each pass a per-(leg, shape) check. Keyed by group too: the companion is a different
+    # clip baked into the same file name.
+    ref, crc, crc_rom = {}, {}, {}
+    every = [(r, loaded, "48") for r in rows] + [(r, comp_loaded, "companion") for r in comp]
+    for r, src, grp in every:
         j = src.get((r.leg, r.shape, r.phase))
-        if j is None or r.status == "DID NOT RUN" or "no provenance" in r.detail:
+        # A cell already refused as not this cell's ROM (or its own shape's digest) neither
+        # sets nor is judged against the references: it is somebody else's evidence.
+        if j is None or r.status == "DID NOT RUN" or "no provenance" in r.detail \
+                or r.detail.startswith("result does not match its cell"):
             continue
         try:
-            t = _tuple_of(j, r.shape)
+            t = _checked_of(j, r.shape)
             c = j["provenance"]["rom"]["crc32"]
-        except (KeyError, TypeError):
+            rom = j["provenance"]["rom"]["rom"]
+        except (KeyError, TypeError, AttributeError):
             continue
         bad = None
         if ref:
-            for k, v in t.items():
-                if ref["t"][k] != v:
-                    bad = (f"provenance mismatch: {k} is {v!r} here but {ref['t'][k]!r} in "
-                           f"{ref['cell']} (one tuple across the survey)")
+            for k in sorted(set(ref["t"]) | set(t)):
+                if ref["t"].get(k) != t.get(k):
+                    bad = (f"provenance mismatch: {k} is {t.get(k)!r} here but "
+                           f"{ref['t'].get(k)!r} in {ref['cell']} (one tuple across the survey)")
                     break
         else:
-            ref = {"t": t, "cell": f"{r.leg}/{r.shape}/p{r.phase}"}
+            ref = {"t": t, "printed": _tuple_of(j, r.shape),
+                   "cell": f"{r.leg}/{r.shape}/p{r.phase}"}
+        if bad is None:
+            seen = crc_rom.get((grp, rom))
+            if seen is not None and seen[0] != c:
+                bad = (f"provenance mismatch: rom.crc32 of {rom} is {c!r} here but {seen[0]!r} "
+                       f"in {seen[1]} (one crc per ROM file)")
+            elif seen is None:
+                crc_rom[(grp, rom)] = (c, f"{r.leg}/{r.shape}/p{r.phase}")
         if bad is None:
             if (r.leg, r.shape) in crc and crc[(r.leg, r.shape)] != c:
                 bad = (f"provenance mismatch: rom.crc32 is {c!r}, {r.leg}/{r.shape} "
@@ -425,7 +473,7 @@ def summarise(out_dir) -> Summary:
                 crc.setdefault((r.leg, r.shape), c)
         if bad:
             r.status, r.detail = "FAILED", bad
-    prov = {"survey": ref.get("t", {}), "crc": {f"{l}/{sh}": c for (l, sh), c in crc.items()}}
+    prov = {"survey": ref.get("printed", {}), "crc": {f"{l}/{sh}": c for (l, sh), c in crc.items()}}
     counts = {s: 0 for s in STATUSES}
     counts.update(Counter(r.status for r in rows))
     ccounts = Counter(r.status for r in comp)
