@@ -73,7 +73,24 @@ The differential-twin `ensure` this entry used to require is therefore a belt-an
 measure rather than the only surface — but the flat-accumulator rule above is unchanged, and
 it is still what prevents the fold instead of catching it.
 
-## 2. Comptime-helper imports don't travel to call sites
+## 2. ~~Comptime-helper imports don't travel to call sites~~ — RETIRED by sigil step-0 A4
+
+**RETIRED 2026-11-17 (sigil `parcel/step0-soundness`, A4 "one name environment per
+declaration", paired with this branch).** An imported comptime item (struct, enum,
+bitfield, newtype, comptime fn, context, `vars` overlay, const) now resolves its free names
+in its DEFINING module: its own items (private included) and its own `use` imports, with
+each dependency injected under a hidden, unspellable name and resolved the same way in ITS
+defining module. A `pub comptime fn` may call its private helpers and name its imported
+constants; the call site's names no longer reach into the body. A name the defining module
+does not bind but a caller does is refused, `[name.unbound-at-definition] `X` in `f` is not
+bound in module `m`; add a `use` there` (`palette_dsl`'s `PalCycleScript1/2` were the two
+corpus cases; imported in this pair). Measured with `sigil build --report name-env`, all 7
+shapes: 0 names whose meaning changed. The literal-inlining pins and the scene import tax
+this section prescribed are now removable; they are left for aeon to retire. Still out of
+scope: an `ensure`/`raise` message's `{name}` interpolation is a string, resolved where it
+is evaluated; procs and data resolve through the link. An `equ` READ AS A VALUE binds like
+a const (its own link symbol is unchanged). The original text is kept below for history.
+
 
 **Trap:** a `comptime fn`'s free names resolve at its **call site**, not in its defining
 module. In a `COMPTIME_HELPERS` module (raster_dsl, palette_dsl, vdp, …):
@@ -207,7 +224,14 @@ regardless, and it is what keeps the tree clear of the hole.
 When an effect "fires but nothing changes," disassemble the built ROM bytes (capstone)
 before trusting the source.
 
-## 8. A struct declaration is re-elaborated in every module that IMPORTS it
+## 8. ~~A struct declaration is re-elaborated in every module that IMPORTS it~~ — RETIRED by sigil step-0 A4
+
+**RETIRED 2026-11-17 (sigil A4, see §2).** A struct's size annotation, array lengths and
+field types now resolve in the module that DECLARES it, so an importer needs only the struct
+name; a helper the declaration names (`sizeof(other)`, an extension struct, a count const)
+travels with it under a hidden name. The importer's own same-named items still mean
+themselves in its own code. The original text is kept below for history.
+
 
 **Trap:** importing a struct pulls its *declaration* into the importing module's name
 environment, so every name in its size annotation and in its array lengths must resolve

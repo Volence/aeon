@@ -12,13 +12,13 @@
 // site's scope, not this one.
 module engine.effects.palette_dsl
 
-// Bound-pinning only — never named inside a constructor body (a body's free names
-// resolve at the CALL site). The two CONSTANTS are real pins: the module-level
-// ensures below read them. The two STRUCT names are documented intent, not pins —
-// measured inert (dropping either leaves the build green), because a param/return
-// type annotation is not resolved here. They record which wire-format types this
-// module's constructors build, and which a call site must therefore have in scope.
-use engine.effects.palette.{PAL_MAX_VARIANTS, PAL_CYCLE_MAX_CHANNELS, pal_variant, pal_cycle_channel}
+// The two CONSTANTS are pins: the module-level ensures below read them. The four
+// STRUCT names are the wire-format types this module's constructors build; the
+// cycle-script wrappers name PalCycleScript1/PalCycleScript2 in their bodies. Under
+// sigil's one-name-environment rule (step-0 A4) a comptime fn's free names resolve
+// HERE, in its defining module, and a name bound only at the call site is refused
+// (`[name.unbound-at-definition]`), so every type a body names is imported here.
+use engine.effects.palette.{PAL_MAX_VARIANTS, PAL_CYCLE_MAX_CHANNELS, pal_variant, pal_cycle_channel, PalCycleScript1, PalCycleScript2}
 
 // ===========================================================================
 // VARIANTS — authorable per-channel transforms

@@ -1196,6 +1196,7 @@ section sound_sequencer (cpu: z80) {
     // ======================================================================
 
     // $E0 MEV_VOL  + vv : set channel volume (linear 0..127), zero tick
+    @allow("clobbers.computed-dispatch", "reached only through SeqOpcodeTable's ex (sp),hl dispatch")
     pub proc Seq_Op_Vol () clobbers(af, bc, de, hl) {
         ld      a, (hl)
         inc     hl                      // consume operand
@@ -1214,6 +1215,7 @@ section sound_sequencer (cpu: z80) {
 
     // $ED MEV_NOTEFILL + master : set per-channel note-fill (frames keyed from attack),
     // zero tick. 0 = legato/off. The countdown + early key-off run in ModUpdate.
+    @allow("clobbers.computed-dispatch", "reached only through SeqOpcodeTable's ex (sp),hl dispatch")
     pub proc Seq_Op_NoteFill () clobbers(af, hl) {
         ld      a, (hl)
         inc     hl                      // consume operand (master)
@@ -1224,6 +1226,7 @@ section sound_sequencer (cpu: z80) {
     // $EB MEV_PSGENV + env_id : set the channel's PSG volume-envelope id (1-based;
     // 0=none), reset the cursor to 0. Zero-tick state setter. sc_psgenv* live at
     // +39/+40 on BOTH music and SFX SeqChannels.
+    @allow("clobbers.computed-dispatch", "reached only through SeqOpcodeTable's ex (sp),hl dispatch")
     pub proc Seq_Op_PsgEnv () clobbers(af, hl) {
         ld      a, (hl)
         inc     hl                      // consume operand
@@ -1236,6 +1239,7 @@ section sound_sequencer (cpu: z80) {
     // sc_mod_ptr = Snd_SongBase + offset; mark active; reset to the body start.
     // Zero-tick. The offset is BIG-ENDIAN, rebased to an absolute Z80 address exactly
     // like the loader's mod_ptr parse and TAG_MAC_LOOP.
+    @allow("clobbers.computed-dispatch", "reached only through SeqOpcodeTable's ex (sp),hl dispatch")
     pub proc Seq_Op_Macro () clobbers(af, de, hl) {
         ld      d, (hl)
         inc     hl                      // d = offset hi (big-endian)
@@ -1272,6 +1276,7 @@ section sound_sequencer (cpu: z80) {
     // The SFX arm also skips the SCF_SFX_OVERRIDE gate, which is meaningless on an SFX
     // slot (that bit marks a MUSIC channel an SFX has stolen).
     // Snd_ChanClass returns ix in hl, so hl — the live stream pointer — is bracketed.
+    @allow("clobbers.computed-dispatch", "reached only through SeqOpcodeTable's ex (sp),hl dispatch")
     pub proc Seq_Op_PsgNoise () clobbers(af, hl) {
         push    hl                      // Snd_ChanClass returns ix in hl; save the stream ptr
         call    Snd_ChanClass           // CARRY set => ix below the SFX page => MUSIC
@@ -1299,6 +1304,7 @@ section sound_sequencer (cpu: z80) {
     // Snd_ParkDac re-selects $2A here (the $22-specific case; not the generally-redundant
     // repark). Fm_YmWrite (part I) + Snd_ParkDac both preserve hl (the live stream ptr).
     // Zero-tick.
+    @allow("clobbers.computed-dispatch", "reached only through SeqOpcodeTable's ex (sp),hl dispatch")
     pub proc Seq_Op_Lfo () clobbers(af, bc, hl) {
         ld      c, (hl)                 // c = operand ($22 value: enable|rate)
         inc     hl                      // consume operand
@@ -1311,6 +1317,7 @@ section sound_sequencer (cpu: z80) {
 
     // $F6 MEV_DETUNE + dd : set the channel's signed fine-pitch detune (applied at the
     // NEXT note-on, folded into sc_base_freq so vibrato/porta inherit it). Zero-tick.
+    @allow("clobbers.computed-dispatch", "reached only through SeqOpcodeTable's ex (sp),hl dispatch")
     pub proc Seq_Op_Detune () clobbers(af, hl) {
         ld      a, (hl)
         inc     hl                      // consume operand (signed detune)
@@ -1323,6 +1330,7 @@ section sound_sequencer (cpu: z80) {
     // 68k-visible via Sound_GetComm). Zero-tick, any route. Unknown sub-op ->
     // Seq_BadOpcode: a NEW sub-op requires a driver update by construction —
     // payload lengths are unknown, so skipping silently would desync the stream.
+    @allow("clobbers.computed-dispatch", "reached only through SeqOpcodeTable's ex (sp),hl dispatch")
     pub proc Seq_Op_Ext () clobbers(af, hl) {
         ld      a, (hl)
         inc     hl                      // consume the sub-op byte
@@ -1337,6 +1345,7 @@ section sound_sequencer (cpu: z80) {
     // $F5 MEV_PORTA + dd : set the persistent portamento glide-rate magnitude (the
     // per-frame fnum/divisor step; 0 = off -> notes snap). Zero-tick. The rate is a
     // byte (high byte forced 0) — Porta_Apply assumes hi==0.
+    @allow("clobbers.computed-dispatch", "reached only through SeqOpcodeTable's ex (sp),hl dispatch")
     pub proc Seq_Op_Porta () clobbers(af, hl) {
         ld      a, (hl)
         inc     hl                      // consume operand (rate)
@@ -1348,6 +1357,7 @@ section sound_sequencer (cpu: z80) {
     // $F3 MEV_TEMPO + dd : set the GLOBAL tempo mod (S3K TempoWait units; 0 = full
     // speed, BIGGER = SLOWER). Snaps base+cur+target and writes through to every
     // channel's sc_tempo_mod. Zero-tick; Tempo_WriteChanMods preserves hl.
+    @allow("clobbers.computed-dispatch", "reached only through SeqOpcodeTable's ex (sp),hl dispatch")
     pub proc Seq_Op_Tempo () clobbers(af, bc, de, hl) {
         ld      a, (hl)
         inc     hl                      // consume operand (mod value)
@@ -1363,6 +1373,7 @@ section sound_sequencer (cpu: z80) {
     // (all-zero = mod off — the smpsModSet 0,0,0,0 idiom). ALL FOUR raw operands are
     // latched as per-note reload sources; the actual per-note re-arm happens at the
     // next key-on (Mod_ReArm). Music + SFX channels both write sc_mod_*.
+    @allow("clobbers.computed-dispatch", "reached only through SeqOpcodeTable's ex (sp),hl dispatch")
     pub proc Seq_Op_ModSet () clobbers(af, bc, de, hl) {
         // --- read all 4 operands into b,c,d,e (wait/speed/delta/step) ---
         ld      a, (hl)
@@ -1403,6 +1414,7 @@ section sound_sequencer (cpu: z80) {
     // channel's sc_transpose, cap the transpose at exactly $10, else increment the
     // global. Zero-tick. We BORROW hl to point at Snd_SpindashRev, so PUSH/POP hl around
     // the handler to keep the live stream ptr intact.
+    @allow("clobbers.computed-dispatch", "reached only through SeqOpcodeTable's ex (sp),hl dispatch")
     pub proc Seq_Op_SpinRev () clobbers(af, hl) {
         push    hl                      // save the live stream ptr (we borrow hl for the global)
         ld      hl, Snd_SpindashRev
@@ -1418,6 +1430,7 @@ section sound_sequencer (cpu: z80) {
     }
 
     // $E1 MEV_PATCH + pp : set FM patch index, zero tick
+    @allow("clobbers.computed-dispatch", "reached only through SeqOpcodeTable's ex (sp),hl dispatch")
     pub proc Seq_Op_Patch () clobbers(af, bc, de, hl) {
         ld      a, (hl)
         inc     hl
@@ -1436,6 +1449,7 @@ section sound_sequencer (cpu: z80) {
 
     // $E2 MEV_DAC  + ss : DAC trigger (sample id in operand), zero tick. It fires the
     // DAC trigger hook and continues the fetch loop; a following SetDur/Rest paces it.
+    @allow("clobbers.computed-dispatch", "reached only through SeqOpcodeTable's ex (sp),hl dispatch")
     pub proc Seq_Op_Dac () clobbers(af, bc, de, hl) {
         ld      a, (hl)
         inc     hl
@@ -1453,6 +1467,7 @@ section sound_sequencer (cpu: z80) {
     }
 
     // $E3 MEV_NOTE_DUR + nn dd : note nn with explicit duration dd (advances time)
+    @allow("clobbers.computed-dispatch", "reached only through SeqOpcodeTable's ex (sp),hl dispatch")
     pub proc Seq_Op_NoteDur () clobbers(af, bc, de, hl) {
         ld      a, (hl)
         inc     hl                      // a = pitch operand (bit 7 = no-attack flag)
@@ -1479,6 +1494,7 @@ section sound_sequencer (cpu: z80) {
     // $E7 MEV_NOTE_RAW + a4 a0 dd : key an FM note at a RAW frequency word (the exact
     // $A4/$A0 bytes) for duration dd, bypassing FmPitchTableZ. FM-only: a non-FM route
     // still consumes the 3 operands and advances time. Advances time (like NOTE_DUR).
+    @allow("clobbers.computed-dispatch", "reached only through SeqOpcodeTable's ex (sp),hl dispatch")
     pub proc Seq_Op_NoteRaw () clobbers(af, bc, de, hl) {
         ld      a, (hl)
         inc     hl                      // a = $A4 value (block|fnumHi)
@@ -1520,6 +1536,7 @@ section sound_sequencer (cpu: z80) {
     // fix). count>=2: leave the arm for ModUpdate's per-frame trill/arp renderer. FM-only
     // by packer guarantee. Clobbers af,bc,de,hl. Commits hl -> sc_stream_ptr then ret.
     // `count` is trusted from the stream (packer guarantees 1..5).
+    @allow("clobbers.computed-dispatch", "reached only through SeqOpcodeTable's ex (sp),hl dispatch")
     pub proc Seq_Op_PitchEnv () clobbers(af, bc, de, hl) {
         ld      a, (hl)
         inc     hl                      // a = count (1..5); hl past the count byte
@@ -1569,6 +1586,7 @@ section sound_sequencer (cpu: z80) {
     // Coordination SETTER (ZERO TICK): stores the operand into sc_pan and continues.
     // Does NOT write the YM here — ModUpdate renders sc_pan to $B4+chan write-on-change.
     // Clobbers: af, hl (advanced past the operand, kept live). Uses ix.
+    @allow("clobbers.computed-dispatch", "reached only through SeqOpcodeTable's ex (sp),hl dispatch")
     pub proc Seq_Op_Pan () clobbers(af, hl) {
         ld      a, (hl)
         inc     hl                      // consume the $B4 operand byte
@@ -1585,6 +1603,7 @@ section sound_sequencer (cpu: z80) {
     // patch load / note (Fm_PatchLoad). Calls NO writer hook, so hl stays the live stream
     // ptr. `op` is trusted from the stream (packer guarantees 0..3).
     // Clobbers: af, bc (the op index math), hl (stream ptr, advanced for the loop). Uses ix.
+    @allow("clobbers.computed-dispatch", "reached only through SeqOpcodeTable's ex (sp),hl dispatch")
     pub proc Seq_Op_OpBias () clobbers(af, bc, hl) {
         ld      a, (hl)
         inc     hl                      // a = op index (0..3)
@@ -1614,6 +1633,7 @@ section sound_sequencer (cpu: z80) {
     // minimal-register-delta primitive. Does NOT write $28 and does NOT set SCF_REKEY (a
     // voice-step never re-keys). Direct-write (Fm_RegDelta) keeps ModUpdate stream-
     // agnostic. Coordination SETTER (ZERO TICK). FM-only. Clobbers: af, bc, de, hl.
+    @allow("clobbers.computed-dispatch", "reached only through SeqOpcodeTable's ex (sp),hl dispatch")
     pub proc Seq_Op_RegDelta () clobbers(af, bc, de, hl) {
         ld      a, (hl)
         inc     hl                      // a = count; hl past the count byte
@@ -1652,6 +1672,7 @@ section sound_sequencer (cpu: z80) {
     // data/enable) and reg $24-$27 (the timer block) are SKIPPED so a song can never
     // clobber the DAC stream or stop Timer A. After the write, Snd_ParkDac re-selects
     // $2A. Clobbers: af, bc, e (the reg), hl (advanced past the operands, kept live). Uses ix.
+    @allow("clobbers.computed-dispatch", "reached only through SeqOpcodeTable's ex (sp),hl dispatch")
     pub proc Seq_Op_RegWrite () clobbers(af, bc, e, hl) {
         ld      a, (hl)
         inc     hl                      // a = part (0/1); hl past part byte
@@ -1689,6 +1710,7 @@ section sound_sequencer (cpu: z80) {
     // every TEXTUAL block starts fresh. Zero tick. Single-level (the transcoder emits
     // FLAT repeats).
     // Clobbers: af (DEBUG trace only). Manipulates: hl (kept live). Uses ix.
+    @allow("clobbers.computed-dispatch", "reached only through SeqOpcodeTable's ex (sp),hl dispatch")
     pub proc Seq_Op_RepeatStart () clobbers(af) {
         ld      (ix+sc_repeat_ptr), l
         ld      (ix+(sc_repeat_ptr+1)), h // save body-start ptr (post-opcode)
@@ -1713,6 +1735,7 @@ section sound_sequencer (cpu: z80) {
     // remaining" state machine (0 = fresh-OR-done): fresh -> set count = nn; dec count;
     // >0 -> reload hl from sc_repeat_ptr (jump to body start); ==0 -> fall through past
     // the operand. Zero tick, calls NO writer hook. Clobbers: af, b, hl.
+    @allow("clobbers.computed-dispatch", "reached only through SeqOpcodeTable's ex (sp),hl dispatch")
     pub proc Seq_Op_RepeatEnd () clobbers(af, b, hl) {
         ld      a, (hl)
         inc     hl                      // a = nn (operand); hl now PAST the operand
@@ -1757,6 +1780,7 @@ section sound_sequencer (cpu: z80) {
     }
 
     // $EE MEV_LOOP_POINT : save the current (post-opcode) ptr as the loop target
+    @allow("clobbers.computed-dispatch", "reached only through SeqOpcodeTable's ex (sp),hl dispatch")
     pub proc Seq_Op_LoopPoint () clobbers(af) {
         ld      (ix+sc_loop_ptr), l
         ld      (ix+(sc_loop_ptr+1)), h
@@ -1770,6 +1794,7 @@ section sound_sequencer (cpu: z80) {
     }
 
     // $EF MEV_JUMP : jump to the saved loop point
+    @allow("clobbers.computed-dispatch", "reached only through SeqOpcodeTable's ex (sp),hl dispatch")
     pub proc Seq_Op_Jump () clobbers(af, hl) {
         // Stage C: a continuous SFX slot that ran out of pings (sx_extend == 0FFh) ENDS
         // here instead of re-looping. Guard on SFX class FIRST — music channels have no
@@ -1793,6 +1818,7 @@ section sound_sequencer (cpu: z80) {
     }
 
     // $FF MEV_END : clear SCF_ACTIVE, store ptr, stop this channel (no time advance)
+    @allow("clobbers.computed-dispatch", "reached only through SeqOpcodeTable's ex (sp),hl dispatch")
     pub proc Seq_Op_End () clobbers(af) {
         res     SCF_ACTIVE_B, (ix+sc_flags) // clear SCF_ACTIVE
         ld      (ix+sc_stream_ptr), l
@@ -1822,6 +1848,7 @@ section sound_sequencer (cpu: z80) {
     // resume the fetch loop with hl = stream ptr. Every out-of-range handler `jp`s
     // Sequencer_NextOpcode.fetch directly (same 3 bytes, no double jump), so this
     // trampoline exists purely to let those four pay 2 bytes instead of 3.
+    @allow("clobbers.computed-dispatch", "loop re-entry of SeqOpcodeTable's ex (sp),hl dispatch: jumped to only by the dispatched handlers, never called")
     pub proc Seq_ContinueFetch () clobbers() {
         jp      Sequencer_NextOpcode.fetch
     }
