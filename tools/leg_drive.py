@@ -590,6 +590,12 @@ def _window_ticks(events, base_tile: int, tiles: int) -> set:
 SK_FIELDS = ("p2c", "p2x", "p2y", "p2art")
 
 
+def _d16(a: int, b: int) -> int:
+    """a - b for 16-bit coordinates read unsigned: a player above the act top has y < 0,
+    which reads as ~65535 (MEASURED, s4.sidekick run p0: P1 y 65533 while P2 y 80)."""
+    return ((a - b + 0x8000) & 0xFFFF) - 0x8000
+
+
 def sidekick_coverage(status, rows, equ, dma, start, delay=None):
     """The STRESS_SIDEKICK leg rule (C1 note §2.7; brief: Player_2 live on >= 90% of drive
     ticks and its DPLC transfers in the DMA probe's events). `dma` is leg_run's probe result
@@ -626,7 +632,7 @@ def sidekick_coverage(status, rows, equ, dma, start, delay=None):
     n = len(rows)
     pct = lambda c: round(100.0 * c / n, 2)  # noqa: E731
     live = sum(1 for r in rows if r["p2c"] != 0)
-    sep = [abs(r["p2x"] - r["px"]) + abs(r["p2y"] - r["py"]) for r in rows]
+    sep = [abs(_d16(r["p2x"], r["px"])) + abs(_d16(r["p2y"], r["py"])) for r in rows]
     near = sum(1 for r, d in zip(rows, sep) if r["p2c"] != 0 and d <= SK_SEP_MAX)
     art = sum(1 for r in rows if r["p2art"] & 0x7FF == equ["VRAM_STRESS_SIDEKICK"])
     by_t = {r["t"]: r for r in rows}

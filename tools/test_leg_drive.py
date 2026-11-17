@@ -882,3 +882,13 @@ def test_sidekick_dplc_delta_missing_row_is_unmeasurable():
                                   500)["status"] == "UNMEASURABLE"
     assert ld.sidekick_dplc_delta(prof, {"status": "DID NOT RUN"}, 0x1234, 1)["status"] == \
         "UNMEASURABLE"
+
+
+def test_sidekick_separation_is_wrap_aware_above_the_act_top():
+    """y above the act top reads ~65535 unsigned; the separation must not read 65 k px."""
+    rows = sk_rows()
+    for r in rows[50:80]:
+        r["py"] = 65530
+        r["p2y"] = 60
+    cov = ld.sidekick_coverage("FINISHED", rows, SK_EQ, sk_dma(rows), 300, K)
+    assert cov["got"]["sep_max"] < 512 and cov["got"]["sep_pct"] == 100
