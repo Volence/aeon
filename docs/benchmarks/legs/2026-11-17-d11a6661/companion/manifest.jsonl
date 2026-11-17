@@ -1,0 +1,6 @@
+{"leg": "stream_companion", "shape": "release", "phase": 0, "rom": "s4.s2clip.bin", "rc": 1}
+{"leg": "stream_companion", "shape": "release", "phase": 1, "rom": "s4.s2clip.bin", "rc": 1}
+{"leg": "stream_companion", "shape": "release", "phase": 2, "rom": "s4.s2clip.bin", "rc": 1}
+{"leg": "stream_companion", "shape": "debug", "phase": 0, "rom": "s4.s2clip.debug.bin", "rc": 1}
+{"leg": "stream_companion", "shape": "debug", "phase": 1, "rom": "s4.s2clip.debug.bin", "rc": 1}
+{"leg": "stream_companion", "shape": "debug", "phase": 2, "rom": "s4.s2clip.debug.bin", "rc": 1}
