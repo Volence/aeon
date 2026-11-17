@@ -517,8 +517,13 @@ def coverage(leg: str, status: str, rows: list, equ: dict, ref: dict | None = No
 #: cache regime. All resolved from the listing; a missing one is COULD NOT RUN.
 STREAM_HIT_SYMS = ("ZX0R_Decompress", "PageIn_EnqueueLanding", "PageCache_PickVictim")
 STREAM_RAM_SYMS = ("Page_Evict_Gen", "PageCache_Direct_Map")
+#: `met` is the brief's counts rule (decode >= 1 and evictions >= 1, reported alone as
+#: `got.streamed`) PLUS status FINISHED, as every moving leg requires (spindash, objheavy):
+#: a STUCK run that evicted is `streamed` but not `met` (fix 1, M2). leg_run's "coverage NOT
+#: MET" on s2_woven therefore means "did not finish", not "did not stream".
 STREAM_RULE = ("status == FINISHED and decode calls (ZX0R_Decompress entries) >= 1 and "
-               "evictions (delta Page_Evict_Gen over the drive window) >= 1")
+               "evictions (delta Page_Evict_Gen over the drive window) >= 1; the counts "
+               "half alone is got.streamed")
 
 
 def stream_coverage(status: str, rows: list, hits: dict | None) -> dict:

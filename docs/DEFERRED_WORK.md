@@ -146,6 +146,16 @@ other clip (`<rom stem>.clip_anchors.json`), and `summarise` FAILS a result whos
 needs the gitignored donor trees (`python3 tools/s2_zone_convert.py convert --all-six`) and
 `tools/bin/salvador`; without them every stream cell is COULD NOT RUN (NOT FRESH), never a
 result. The pre-build lane tests only the declaration and refusals (the bake needs donors).
+(5) LANE-ORDER HAZARD (fix 1, M7; MEASURED in Task 10): running the bare pre-build lane
+(`pytest tools -m "not needs_build"`) AFTER an S2CLIP build and BEFORE its legs rewrites the
+gitignored `engine/sound/generated/*` to the canonical sound blob (`sigil build --check` in
+`test_extern_guard_reachability`), so (a) `test_check_does_not_perturb_generated_sound_artifacts`
+goes red once, and (b) the S2CLIP pair reads NOT FRESH (its DIGEST-READ rows include those
+blobs) and every stream cell is COULD NOT RUN until a rebuild. Refusing direction only (no
+false-fresh path); the fix is ordering: build, run the stream/companion legs, then any lane.
+(6) The stream rule's `met` adds status FINISHED to the brief's counts rule; the counts half
+alone is `got.streamed` (fix 1, M2), so a STUCK woven run prints "coverage NOT MET" while
+`streamed=True`.
 
 ## V2-B2-SPINDASH-GATE: the v2 step-0 plan's spindash trigger sits above the engine's spindash gate (BRIEF WORDING OPEN, booked 2026-11-16, `feat/v2-step0-harness`)
 

@@ -583,6 +583,26 @@ the engine's collision agrees with the data: the stick is no v1 collision bug, a
 nothing in it depends on streaming (the last eviction lands at tick 463-498, 176 ticks before P1
 reaches the x 2240 step, on every cell).
 
+The collision behind both stops (fix 1, M6), plane A of `clip_manifest.collision_grids` on
+the woven act, 8 px cells (`.` air, `#` solid on all sides, `^` top-solid, `s` other); the
+column header is (x / 8) mod 10, so x 2400..2712. Reproduce with
+`a = clip_manifest.load("games/sonic4/data/clips/s2_woven/clips.json");
+pa, _ = clip_manifest.collision_grids(a)` and print `pa[y // 8, x // 8]`:
+
+```
+x:    0123456789012345678901234567890123456789      x >= 2560 (col 0 of the right half)
+ 2488 ........................................      is the ehz_to_mtz corridor body
+ 2496 ^^^^^^^^^^^^^^^^^^^^####################      (dst 2560, 2240, 608, 512) and the
+ ...                                                 fill below it: solid from y 2496 down.
+ 2856 ....................####################
+ 2880 ^^^^^^^^^^^^^^^^^^^^####################      <- EHZ low floor (P1 feet 2861 + 19)
+ 2912 ....................####################
+ 2944 ########################################      <- the act's fill row
+```
+
+and at x 2160..2312 (column 0 = x 2160): `2880 ..........####^^^^^^` (the 64 px step's
+solid block starts at x 2240), `2944 ####################` (the fill top P1 runs on).
+
 **No candidate meets the brief's Step 3** (FINISH, plus decode ≥ 1). `s2_ehz_cpz`
 finishes but never pages. `s2_woven` pages but does not finish.
 

@@ -154,6 +154,12 @@ SHAPE_REBAKES = {
         "inputs": ["games/sonic4/data/clips/{clip}/clips.json", "tools/s2clip_rebake.py",
                    "tools/clip_rom_bake.py", "tools/clip_act_bake.py", "tools/clip_manifest.py",
                    "tools/ojz_strip_gen.py", "tools/ojz_block_gen.py",
+                   # fix 1, M3: what the sandbox also reads -- every tools module (the bake's
+                   # transitive imports: act_grid, the generators, ...) and the gitignored
+                   # ZX0 compressor copied in as built. Hashed from the WORKING tree while
+                   # the sandbox is HEAD: on a dirty tree they can differ, which reads NOT
+                   # FRESH (fail-safe) and is flagged by aeon.dirty.
+                   "tools/*.py", "tools/bin/salvador",
                    "games/sonic4/data/donors/*/*/*"],
         "argv": ["python3", "tools/s2clip_rebake.py", "rebake", "--clip", "{clip}", "--out",
                  "{out}"],
