@@ -102,6 +102,59 @@ proofs in the v2 step-0 plan (Tasks 1-10) that mutated and restored a `tools/*.p
 succession were not re-audited for this; a red from the wrong mutant, or a restored run that
 was not, cannot be excluded from their logs alone.
 
+## V2-T11-SURVEY-TOOLING: gaps the 48-cell leg survey exposed (booked 2026-11-17, `feat/v2-step0-harness`)
+
+Found running Task 11. The survey is at `docs/benchmarks/legs/2026-11-17-d11a6661/` (`2553163b`; the
+interpretation is in its `findings.md`). Every item is OPEN. None of them changed a number in that survey.
+
+1. **A witness cannot move a verdict.**
+   - `tools/leg_survey.py` never reads `*.blastem.json`: `grep -n blastem tools/leg_survey.py` finds nothing.
+   - `dma_verdict` calls `lc.classify(budget - elapsed, budget, elapsed, True)` with no `witness=`, so it can only
+     return FITS / OVER / NEEDS-WITNESS.
+   - So the plan's Task 11 Step 3 ("run `blastem_witness.py`, re-run `summarise`") cannot change a verdict.
+   - **Fix.** Load `<result>.blastem.json` per phase and pass its `WitnessResult` to `classify`. This is a gate
+     change: it needs invariant 8, red-first.
+2. **An S2CLIP build re-anchors the sound banks and rewrites the shared generated sound files.**
+   - MEASURED after `S2CLIP=s2_woven ./build.sh` at d11a6661: `engine/sound/generated/dac_sample_tab.bin`
+     92bd9b86→1495beee, `z80_sound_blob.bin` 2d6cd679→416c0e12, and `z80_sound_blob_debug.bin` likewise.
+   - Every canonical and STRESS_* pair on disk then reads NOT FRESH in `artifact_provenance`, until a canonical
+     rebuild.
+   - The directory is git-ignored (`.gitignore:43`), so `aeon.dirty` cannot see it. Only the listing-freshness
+     refusal catches it, and it did.
+   - So "build all shapes, then run all legs" is impossible. Task 11 had to order its builds as: stream legs, the
+     clip companion, a canonical rebuild, then the rest.
+   - **Fix.** S2CLIP's EXIT trap regenerates or restores `engine/sound/generated/` for the canonical anchors, or the
+     clip writes shape-suffixed blobs.
+3. **Committed results cannot be re-graded in place.**
+   - The plan commits result JSONs gzipped (Task 11 "48 result JSONs gzipped"), but `summarise` and `_judge` read
+     `*.json` only.
+   - Re-grading needs a gunzip into scratch. Done once: it reproduced `summary.md` byte-identically.
+   - **Fix.** `_judge` falls back to `<name>.json.gz`.
+4. **Re-bakes go to /tmp, which is RAM on this host.**
+   - `tools/leg_provenance.py` `rom_provenance` uses `tempfile.TemporaryDirectory(prefix="leg_rebake.")` for every
+     STRESS_* or clip cell's provenance re-bake.
+   - This conflicts with the owner's RAM note (2026-11-16).
+   - **Fix.** Use a run-unique on-disk directory under `tools/.cache/` (gitignored), as `s2clip_rebake.py` already does
+     for its sandbox.
+5. **An overrun hidden under DID NOT COVER or STUCK.**
+   - `_judge_loaded` checks coverage before the DMA probe, so a cell that both missed coverage and overran reads DID
+     NOT COVER.
+   - Here all 3 DEBUG spindash cells overran (260+1973..2045) and read DID NOT COVER. FAILED shows 15 while 18 cells
+     overran.
+   - The leg x shape row still prints OVER.
+   - **Fix.** Annotate a non-OK cell's detail with its overrun count (and/or count overruns separately in the header).
+   - Related: a STUCK row's rule-4 FITS judges only the stretch driven, and `summary.md` does not say so.
+6. **The wipe chunk is admitted by bytes, not by line (an engine hazard, not tooling).** Measured in Task 11:
+   - **The burst.** Crossing the DEBUG-only tall-BG region (`OJZ_TALL_X0 = 5120`, `act_descriptor.emp`) arms
+     `BG_Stream_Update`'s 64-row Plane B wipe. It goes out as 1792 B Deferrable chunks (`BG_WIPE_DMA_ROWS` 14, from
+     `BG_OVERWRITE_CHUNK_BYTES` 1824), each 8.77 lines long.
+   - **The overrun.** The chunks start at lines 251-255 and end at 260-264 on all 18 moving DEBUG cells.
+   - **The derivation.** `BG_OVERWRITE_CHUNK_BYTES` is derived against a byte budget (`DMA_BUDGET_NTSC`, in
+     `tools/test_bg_overwrite_chunk_budget.py`), and the budgeted drain does not check the start line.
+   - **Release.** Release has no region with `rg_bg_layout != 0` on OJZ act 1, so it never wipes. Any shipped region
+     with its own background would reproduce the overrun in release.
+   - **Who decides.** The owner, at G2: shrink the chunk, gate admission on the line, or accept it.
+
 ## V2-C2-STRESS-OBJECTS: what the object-heavy shape leaves open (booked 2026-11-16, `feat/v2-step0-stress`)
 
 `STRESS_OBJECTS=1 ./build.sh` (+ `DEBUG=1`) builds `s4.stressobj[.debug]` with 239 overlay
