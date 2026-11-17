@@ -1848,7 +1848,7 @@ section sound_sequencer (cpu: z80) {
     // resume the fetch loop with hl = stream ptr. Every out-of-range handler `jp`s
     // Sequencer_NextOpcode.fetch directly (same 3 bytes, no double jump), so this
     // trampoline exists purely to let those four pay 2 bytes instead of 3.
-    @allow("clobbers.computed-dispatch", "reached only through SeqOpcodeTable's ex (sp),hl dispatch")
+    @allow("clobbers.computed-dispatch", "loop re-entry of SeqOpcodeTable's ex (sp),hl dispatch: jumped to only by the dispatched handlers, never called")
     pub proc Seq_ContinueFetch () clobbers() {
         jp      Sequencer_NextOpcode.fetch
     }
