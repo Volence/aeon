@@ -65,6 +65,27 @@ embedded fixture `games/sonic4/data/replays/ojz_fixture.bin` (the ROM's `Replay_
 not in `docs/benchmarks/v1-reference/`. (4) The reference is FNV/raw for same-layout regression plus nine
 plain semantic fields; a v2 engine diffs on `--semantic`.
 
+## V2-C2-STRESS-OBJECTS: what the object-heavy shape leaves open (booked 2026-11-16, `feat/v2-step0-stress`)
+
+`STRESS_OBJECTS=1 ./build.sh` (+ `DEBUG=1`) builds `s4.stressobj[.debug]` with 239 overlay
+objects (`games/sonic4/test/fixtures/stress_objects.overlay.json`, from
+`tools/stress_objects_overlay.py`) merged into OJZ act 1 by a throwaway re-bake of
+`entity_data.emp` under an EXIT trap. The objheavy leg (`leg_run.py --leg objheavy`) is
+FINISHED and COVERS on both shapes, phases 0-2 (task-8 report). **Open:** (1) the path
+fixture (`games/sonic4/test/fixtures/stress_objects.path.json`) is the canonical `run` leg at
+aeon d60c5ee6; any change to the canonical route (physics, policy, act) makes the objheavy
+path witness read < 95 % and the leg DID NOT COVER, by design. Re-record with
+`leg_run.py --leg run` on all 6 cells, `stress_objects_overlay.py fixture ...`, then
+`generate --lst s4.lst`, and commit both files. (2) The per-object cost is fitted on cycles
+that include interrupt time inside the tick window (VInt on lag ticks): unpaired r2 is
+0.35 release / 0.44 DEBUG; the paired fit against the instrumented canonical run (same
+ticks, same route) is 1138 +- 26 cyc/live object, r2 0.63 (release) and 1312 +- 31, r2 0.66
+(DEBUG). A per-tick interrupt-exclusive figure needs the per-frame profiler ring keyed to
+ticks (oracle `perFrame`, 120 frames deep) and is not built. (3) A throwaway shape is graded
+through `leg_provenance.SHAPE_REBAKES` (the re-bake regenerated from committed inputs and
+checked against the digest's DIGEST-READ row). Only `s4.stressobj` is declared; S2CLIP's
+stream leg (Task 10) needs its own row (its bake writes many files and needs donors).
+
 ## V2-B2-SPINDASH-GATE: the v2 step-0 plan's spindash trigger sits above the engine's spindash gate (BRIEF WORDING OPEN, booked 2026-11-16, `feat/v2-step0-harness`)
 
 `docs/superpowers/plans/2026-11-16-measurement-harness-and-stress.md:102` says the `spindash`
