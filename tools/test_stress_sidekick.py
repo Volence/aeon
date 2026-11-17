@@ -146,28 +146,32 @@ SK_TICKS = 300
 SK_NEAR_PX = 256
 
 
-async def _p2_after(rom: Path, lst: Path):
+def _p2_after(rom: Path, lst: Path):
+    """Spawn the pinned oracle (outside any event loop: spawn_pinned runs its own), drive
+    SK_TICKS ticks of the run policy, read Player_2 and Player_1."""
     import leg_provenance as lp
     from suite_paths import add_client_path
     add_client_path()
     from aether import BusClient
-    syms = ld.resolve_syms(lst)
+    syms = ld.resolve_syms(lst, aeon=AEON)
     inst = lp.spawn_pinned(rom, lst)
     try:
-        c = BusClient(socket_path=inst.socket_path, client_id=f"sk-gate-{os.getpid()}",
-                      client_name="test_sidekick_slot_live")
-        await c.connect()
-        try:
-            await c.call("emulator/reset", {})
-            pol = ld.POLICIES["sidekick"](syms.buttons, syms.equ)
-            tr = await ld.drive_leg(c, syms, pol, t0=ld.T0, cap_ticks=SK_TICKS)
-            p2 = await ld.read_sidekick(c, syms)
-            s, _ps, _lag = await ld.read_tick_state(c, syms)
-        finally:
-            await c.close()
+        async def go():
+            c = BusClient(socket_path=inst.socket_path, client_id=f"sk-gate-{os.getpid()}",
+                          client_name="test_sidekick_slot_live")
+            await c.connect()
+            try:
+                await c.call("emulator/reset", {})
+                pol = ld.POLICIES["sidekick"](syms.buttons, syms.equ)
+                tr = await ld.drive_leg(c, syms, pol, t0=ld.T0, cap_ticks=SK_TICKS)
+                p2 = await ld.read_sidekick(c, syms)
+                s, _ps, _lag = await ld.read_tick_state(c, syms)
+                return tr, p2, s
+            finally:
+                await c.close()
+        return asyncio.run(go())
     finally:
         inst.reap()
-    return tr, p2, s
 
 
 @pytest.mark.parametrize("rom,lst", [
@@ -180,7 +184,7 @@ async def _p2_after(rom: Path, lst: Path):
 def test_sidekick_slot_live(rom, lst):
     """Boot, drive 300 ticks of the run policy: Player_2's code word is non-zero and its x is
     within 256 px of Player_1's."""
-    tr, p2, s = asyncio.run(_p2_after(AEON / rom, AEON / lst))
+    tr, p2, s = _p2_after(AEON / rom, AEON / lst)
     assert len(tr.rows) >= SK_TICKS - 1, (tr.status, tr.reason, len(tr.rows))
     assert p2["p2c"] != 0, f"Player_2's code word is 0 after {len(tr.rows)} ticks: no sidekick"
     assert abs(p2["p2x"] - s.px) <= SK_NEAR_PX, (p2, s.px, s.py)
