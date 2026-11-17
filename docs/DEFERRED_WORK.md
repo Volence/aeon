@@ -102,16 +102,25 @@ of it. `leg_run.py --leg sidekick` (the survey's `sidekick` leg) is FINISHED and
 shapes, phases 0-2 (task-9 report). **Open:** (1) the patch can rot when
 `games/sonic4/test/ojz_scroll_test.emp` changes near its two hunks: the pre-build lane's
 `test_the_patch_applies_to_the_committed_tree` goes red first, and the shape refuses by name;
-fix by re-diffing the two hunks. (2) The nightly does not build the shape: its needs_build
-lane EXEMPTS the `s4.sidekick*` pairs (`--shapes-built`, derived), and
-`test_sidekick_slot_live` runs only in a STRESS_SIDEKICK build's own post-sigil lane. A nightly
-STRESS_SIDEKICK leg (after the needs_build lane, like STRESS_EVICT/STRESS_ART) is not built.
+fix by re-diffing the two hunks. (2) RESOLVED by C3 fix 1 (2026-11-17): the nightly builds both shapes in two
+STRESS_SIDEKICK legs after the needs_build lane (like STRESS_EVICT/STRESS_ART), whose
+post-sigil lane must RUN `test_sidekick_slot_live` on its own pair (build.sh refuses a
+deferral); the needs_build lane's exemption of the `s4.sidekick*` pairs is pinned to exactly
+those four artifacts by `tools/test_landing_lane_shapes.py` (`NIGHTLY_GRADED_EXEMPT`).
 (3) The pointer swap (`Player_Chardef` around P2's calls) is a stress-shape device; a shipped
 CPU Tails needs per-slot `cd_vrambase` (C1 note Q2, owner item). (4) Risks R1-R5 of the C1 note
 stand (shared `Camera_Hold_Frames`, `Player_Death_Pending`, ring count, the insta-shield window,
 P2 running after RunObjects). (5) The DMA probe's destination decode is opt-in
 (`probe_for(decode_dest=True)`, the sidekick leg only); every other leg's events carry
-`dest: null`.
+`dest: null`. (6) COVERAGE SWAP vs the C1 note §2.7: the sidekick leg GATES on the DMA-window
+witness (VRAM-write DMA ticks into P2's window >= 0.9 x P1's), because the survey runs
+`--dma-probe` only; the note's profiler `Perform_DPLC` call delta is REPORTED only
+(`result.sidekick.dplc`, needs `--profile` + `--cost-ref`). Survey cells therefore carry
+`sidekick.dplc` / `.cost` / `.lag_vs_ref` as DID NOT RUN unless run with `--profile
+--cost-ref <canonical sidekick-leg result>`. (7) The three DEBUG cells (p0-p2) exit 1 on the
+VBlank-overrun check (2/2/1 DMAs end past line 260; canonical DEBUG run p0 already has 1, a
+v1 finding on the board) while coverage is MET. (8) The cost's `stderr` assumes independent
+ticks and is optimistic; quote `stderr_block` (32-tick batch means), added in fix 1.
 
 ## V2-B2-SPINDASH-GATE: the v2 step-0 plan's spindash trigger sits above the engine's spindash gate (BRIEF WORDING OPEN, booked 2026-11-16, `feat/v2-step0-harness`)
 
