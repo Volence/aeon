@@ -74,16 +74,21 @@ objects (`games/sonic4/test/fixtures/stress_objects.overlay.json`, from
 FINISHED and COVERS on both shapes, phases 0-2 (task-8 report). **Open:** (1) the path
 fixture (`games/sonic4/test/fixtures/stress_objects.path.json`) is the canonical `run` leg at
 aeon d60c5ee6; any change to the canonical route (physics, policy, act) makes the objheavy
-path witness read < 95 % and the leg DID NOT COVER, by design. Re-record with
+path witness read < 95 % and the leg DID NOT COVER, by design (the DID NOT COVER note names the fixture's source commit and this item). Re-record with
 `leg_run.py --leg run` on all 6 cells, `stress_objects_overlay.py fixture ...`, then
 `generate --lst s4.lst`, and commit both files. (2) The per-object cost is fitted on cycles
-that include interrupt time inside the tick window (VInt on lag ticks): unpaired r2 is
-0.35 release / 0.44 DEBUG; the paired fit against the instrumented canonical run (same
-ticks, same route) is 1138 +- 26 cyc/live object, r2 0.63 (release) and 1312 +- 31, r2 0.66
-(DEBUG). A per-tick interrupt-exclusive figure needs the per-frame profiler ring keyed to
+that include interrupt time inside the tick window (VInt on lag ticks): the result's
+`obj_cost.per_object` is `leg_drive.obj_cost_paired`, the fit against the instrumented
+canonical run passed as `leg_run --cost-ref` (same tick, same P1 position): 1138 +- 26
+cyc/live object, r2 0.63 (release) and 1312 +- 31, r2 0.66 (DEBUG). Without `--cost-ref` it
+reads DID NOT RUN, and `obj_cost.unpaired` (r2 0.35 / 0.44) is labelled as confounded with
+route work, never as the per-object cost. A per-tick interrupt-exclusive figure needs the per-frame profiler ring keyed to
 ticks (oracle `perFrame`, 120 frames deep) and is not built. (3) A throwaway shape is graded
 through `leg_provenance.SHAPE_REBAKES` (the re-bake regenerated from committed inputs and
-checked against the digest's DIGEST-READ row). Only `s4.stressobj` is declared; S2CLIP's
+checked against the digest's DIGEST-READ row; the record's `inputs` hash the overlay, the
+generator, `project.json`, the object library and the act's editor JSONs). A canonical build
+refuses an `entity_data.emp` carrying the overlay header (`stress_objects_overlay.py guard`,
+before any work), which covers a stress build killed by SIGKILL. Only `s4.stressobj` is declared; S2CLIP's
 stream leg (Task 10) needs its own row (its bake writes many files and needs donors).
 
 ## V2-B2-SPINDASH-GATE: the v2 step-0 plan's spindash trigger sits above the engine's spindash gate (BRIEF WORDING OPEN, booked 2026-11-16, `feat/v2-step0-harness`)

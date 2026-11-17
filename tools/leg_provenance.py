@@ -116,7 +116,14 @@ def verify_pin(pin: OraclePin, handshake: dict) -> None:
 SHAPE_REBAKES = {
     "s4.stressobj": {
         "path": "games/sonic4/data/generated/ojz/act1/entity_data.emp",
-        "inputs": ["games/sonic4/test/fixtures/stress_objects.overlay.json"],
+        # Everything the re-bake reads (globs, expanded sorted): the overlay, the generator,
+        # the project file it resolves the act through, the object library, and the act's
+        # editor JSONs.
+        "inputs": ["games/sonic4/test/fixtures/stress_objects.overlay.json",
+                   "tools/ojz_entity_gen.py", "project.json",
+                   "games/sonic4/data/editor/objects.json",
+                   "games/sonic4/data/editor/ojz/act1/section_*.objects.json",
+                   "games/sonic4/data/editor/ojz/act1/section_*.rings.json"],
         "argv": ["python3", "tools/ojz_entity_gen.py", "generate", "--overlay",
                  "games/sonic4/test/fixtures/stress_objects.overlay.json", "--out", "{out}"],
     },
@@ -126,6 +133,19 @@ SHAPE_REBAKES = {
 def _shape_stem(rom: Path) -> str:
     stem = Path(rom).name[:-len(".bin")] if Path(rom).name.endswith(".bin") else Path(rom).stem
     return stem[:-len(".debug")] if stem.endswith(".debug") else stem
+
+
+def rebake_inputs(spec: dict, root: Path) -> dict:
+    """{repo path: sha256} of every declared input; a glob matching nothing, or a missing
+    file, is refused (the record must not quietly omit what the re-bake read)."""
+    out = {}
+    for pat in spec["inputs"]:
+        hits = sorted(Path(root).glob(pat))
+        if not hits:
+            raise StalePair(f"leg_provenance: re-bake input {pat!r} matches nothing under {root}")
+        for h in hits:
+            out[h.relative_to(root).as_posix()] = sha256_file(h)
+    return out
 
 
 def regenerate_rebake(rom: Path, out_dir: Path, root: Path = AEON_ROOT):
@@ -141,7 +161,7 @@ def regenerate_rebake(rom: Path, out_dir: Path, root: Path = AEON_ROOT):
                         f"regenerated ({' '.join(argv)} -> rc {p.returncode}): "
                         f"{(p.stdout + p.stderr)[-800:]}")
     rec = {"path": spec["path"], "argv": spec["argv"], "sha256": sha256_file(out),
-           "inputs": {i: sha256_file(Path(root) / i) for i in spec["inputs"]}}
+           "inputs": rebake_inputs(spec, root)}
     return spec["path"], out, rec
 
 

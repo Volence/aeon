@@ -54,16 +54,38 @@ PATH_FIXTURE = TOOLS.parent / "games" / "sonic4" / "test" / "fixtures" / "stress
 
 
 def path_ref(fixture: Path, debug: bool, phase: int):
-    """{tick: (px, py)} for this shape/phase, or None when the fixture does not carry it (the
-    coverage rule then reads UNMEASURABLE, never met)."""
+    """({tick: (px, py)}, source text) for this shape/phase, or (None, None) when the fixture
+    does not carry it (the coverage rule then reads UNMEASURABLE, never met)."""
     try:
         fx = json.loads(Path(fixture).read_text())
     except (OSError, ValueError):
-        return None
+        return None, None
     e = fx.get("paths", {}).get(f"{'debug' if debug else 'release'}/{phase}")
     if not e:
-        return None
-    return {e["t0"] + i: (x, y) for i, (x, y) in enumerate(zip(e["px"], e["py"]))}
+        return None, None
+    src = e.get("source", {})
+    text = (f"{Path(fixture).name} {'debug' if debug else 'release'}/{phase}: aeon "
+            f"{str(src.get('aeon_commit'))[:12]}, {src.get('rom')} {src.get('crc32')}")
+    return {e["t0"] + i: (x, y) for i, (x, y) in enumerate(zip(e["px"], e["py"]))}, text
+
+
+def load_cost_ref(path: Path, debug: bool, phase: int) -> dict:
+    """The canonical instrumented run the paired cost differences against. Refused (ValueError)
+    unless it is an objheavy result on a CANONICAL ROM of the same shape and phase, with
+    cycle readings."""
+    try:
+        r = json.loads(Path(path).read_text())
+    except (OSError, ValueError) as e:
+        raise ValueError(f"{path}: unreadable ({e})")
+    rom = r.get("provenance", {}).get("rom", {})
+    want = "s4.debug.bin" if debug else "s4.bin"
+    if r.get("leg") != "objheavy" or rom.get("rom") != want or r.get("phase") != phase:
+        raise ValueError(f"{path}: leg {r.get('leg')!r} rom {rom.get('rom')!r} phase "
+                         f"{r.get('phase')!r}; need an objheavy result on {want}, phase {phase}")
+    if not any(x.get("cyc") is not None for x in r.get("rows", [])):
+        raise ValueError(f"{path}: no row carries a cycle reading")
+    return {"rows": r["rows"], "source": f"{Path(path).name} ({want} {rom.get('crc32')}, "
+                                         f"aeon {str(r['provenance']['aeon']['commit'])[:12]})"}
 
 
 class ObjLoad:
@@ -188,6 +210,9 @@ def main(argv=None) -> int:
     ap.add_argument("--profile", action="store_true")
     ap.add_argument("--dma-probe", action="store_true")
     ap.add_argument("--cap", type=int, default=None)
+    ap.add_argument("--cost-ref", default=None,
+                    help="objheavy: a canonical `leg_run --leg objheavy` result (same shape and "
+                         "phase) for the paired per-object cost")
     ap.add_argument("--path-ref", default=str(PATH_FIXTURE),
                     help="objheavy: the canonical run-leg path fixture (default: committed)")
     a = ap.parse_args(argv)
@@ -199,14 +224,20 @@ def main(argv=None) -> int:
     except ld.DriveError as e:
         print(f"leg_run: COULD NOT RUN — {e}", file=sys.stderr)
         return 2
-    obj = ref = None
+    obj = ref = ref_source = cost_ref = None
     if a.leg == "objheavy":
         miss = ld.obj_syms_missing(syms)
         if miss:
             print(f"leg_run: COULD NOT RUN — {lst}: objheavy needs {miss}", file=sys.stderr)
             return 2
         obj = ObjLoad(syms)
-        ref = path_ref(Path(a.path_ref), syms.debug, a.phase)
+        ref, ref_source = path_ref(Path(a.path_ref), syms.debug, a.phase)
+        if a.cost_ref is not None:
+            try:
+                cost_ref = load_cost_ref(Path(a.cost_ref), syms.debug, a.phase)
+            except ValueError as e:
+                print(f"leg_run: COULD NOT RUN — --cost-ref: {e}", file=sys.stderr)
+                return 2
     probe = None
     if a.dma_probe:
         try:
@@ -244,7 +275,7 @@ def main(argv=None) -> int:
         inst.reap()
     wall = time.monotonic() - wall0
     tr = got["trace"]
-    cov = ld.coverage(a.leg, tr.status, tr.rows, syms.equ, ref=ref)
+    cov = ld.coverage(a.leg, tr.status, tr.rows, syms.equ, ref=ref, ref_source=ref_source)
     lag = {"frames": tr.lag_frames, "ticks": tr.lag_ticks}
     if syms.debug:
         lag["lag_frame_count_delta"] = tr.lag_frame_count_delta
@@ -269,12 +300,8 @@ def main(argv=None) -> int:
                               if Path(a.path_ref).is_file() else None,
                               "key": f"{'debug' if syms.debug else 'release'}/{a.phase}",
                               "ticks": None if ref is None else len(ref)}
-        result["obj_cost"] = {
-            "what": "least-squares fit of main-loop CPU cycles per tick (Input_Tick -> next "
-                    "VSync_Wait entry, mclk / 7) against the live and the dispatched object "
-                    "count; slope = CPU cycles per object (MEASURED)",
-            "ticks_with_cycles": obj.closed,
-            "live": ld.obj_cost_fit(tr.rows, "live"), "disp": ld.obj_cost_fit(tr.rows, "disp")}
+        result["obj_cost"] = ld.obj_cost_block(tr.rows, cost_ref)
+        result["obj_cost"]["ticks_with_cycles"] = obj.closed
     lp.require_provenance(result["provenance"])
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
@@ -292,11 +319,18 @@ def main(argv=None) -> int:
     if obj is not None:
         g = cov["got"]
         print(f"  objheavy: {g}")
-        for k in ("live", "disp"):
-            f = result["obj_cost"][k]
-            print(f"  obj_cost vs {k}: " + (f"{f['slope']:.1f} cyc/object (intercept "
-                  f"{f['intercept']:.0f}, r2 {f['r2']:.3f}, n {f['n']}, x {f['x_min']}..{f['x_max']})"
-                  if f["status"] == "MEASURED" else f"UNMEASURABLE ({f['reason']})"))
+        oc = result["obj_cost"]
+        for tag, blk in (("per-object (paired)", oc["per_object"]),
+                         ("UNPAIRED, confounded", oc["unpaired"])):
+            if blk.get("status") == "DID NOT RUN":
+                print(f"  obj_cost {tag}: DID NOT RUN ({blk['reason']})")
+                continue
+            for k in ("live", "disp"):
+                f = blk[k]
+                print(f"  obj_cost {tag} vs {k}: " + (
+                    f"{f['slope']:.1f} +- {f['slope_stderr']:.1f} cyc/object (intercept "
+                    f"{f['intercept']:.0f}, r2 {f['r2']:.3f}, n {f['n']})"
+                    if f["status"] == "MEASURED" else f"UNMEASURABLE ({f['reason']})"))
     dma_ok = True
     if probe is not None:
         d = result["dma"]

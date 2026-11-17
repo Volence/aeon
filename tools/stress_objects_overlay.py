@@ -415,6 +415,33 @@ def fixture_from_results(paths) -> dict:
             "paths": dict(sorted(out.items()))}
 
 
+# ---- canonical guard ----------------------------------------------------------------------
+
+#: The generated file the STRESS_OBJECTS re-bake rewrites in place.
+ENTITY_DATA = AEON / "games/sonic4/data/generated/ojz/act1/entity_data.emp"
+#: The header line `ojz_entity_gen.py generate --overlay` writes; no canonical bake has it.
+OVERLAY_HEADER = "STRESS_OBJECTS OVERLAY"
+
+
+def guard(path: Path) -> int:
+    """0 the file carries no overlay header; 1 it does (a STRESS_OBJECTS re-bake that its
+    EXIT trap never restored — SIGKILL, power loss); 2 the file cannot be read."""
+    try:
+        text = Path(path).read_text()
+    except OSError as e:
+        print(f"stress_objects_overlay: UNMEASURABLE — cannot read {path}: {e}", file=sys.stderr)
+        return 2
+    if OVERLAY_HEADER in text:
+        line = next(l for l in text.splitlines() if OVERLAY_HEADER in l)
+        print(f"stress_objects_overlay: FAIL — {path} holds a STRESS_OBJECTS overlay bake\n"
+              f"  ({line.strip()})\n  A stress build was killed before its EXIT trap could "
+              "restore the committed file, so this build would ship the overlay objects. "
+              "Restore it:\n    git checkout -- games/sonic4/data/generated/ojz/act1",
+              file=sys.stderr)
+        return 1
+    return 0
+
+
 # ---- CLI ----------------------------------------------------------------------------------
 
 def main(argv=None) -> int:
@@ -432,7 +459,12 @@ def main(argv=None) -> int:
     c.add_argument("--entity-data", required=True)
     c.add_argument("--path", default=str(PATH_FIXTURE))
     c.add_argument("--overlay", default=str(OVERLAY))
+    gd = sub.add_parser("guard", help="refuse an entity_data.emp that carries the overlay "
+                                      "header (a stress re-bake that outlived its build)")
+    gd.add_argument("--entity-data", default=str(ENTITY_DATA))
     a = ap.parse_args(argv)
+    if a.cmd == "guard":
+        return guard(Path(a.entity_data))
     try:
         if a.cmd == "fixture":
             fx = fixture_from_results(a.results)

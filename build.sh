@@ -673,6 +673,16 @@ if [[ "$FAST" == "1" ]]; then
     NO_LINT=1
 fi
 
+# STRESS_OBJECTS leftover guard (every shape, before any work): the STRESS_OBJECTS re-bake
+# rewrites entity_data.emp in place and an EXIT trap restores it — but SIGKILL (or power
+# loss) runs no trap, and the next build would then assemble the overlay objects into a ROM
+# named s4.bin. The overlay bake carries a header line no canonical bake has, so refuse it
+# here. (A STRESS_OBJECTS build also refuses a dirty generated tree, below; this one covers
+# the canonical shapes, whose level-staleness gate reads only the editor tree.)
+gate strict "stress_objects_overlay.py guard (no leftover overlay bake)" \
+    python3 tools/stress_objects_overlay.py guard \
+    --entity-data games/sonic4/data/generated/ojz/act1/entity_data.emp
+
 # The sigil build binary — THE assembler now. No asl fallback: a missing/failed sigil
 # is a HARD ERROR (mirrors the seam-1 SIGIL_EMIT dependency).
 SIGIL_BUILD="${SIGIL_BUILD:-}"

@@ -213,3 +213,27 @@ def test_stress_objects_alone_passes_the_refusals():
 def test_stress_objects_rom_names_are_standalone_literals():
     import gate_cut_shape as gcs
     assert {"s4.stressobj.lst", "s4.stressobj.debug.lst"} <= gcs.off_canonical_listings()
+
+
+# ---- fix round 1: a canonical build refuses a leftover overlay bake ------------------------
+
+def test_guard_refuses_an_entity_data_carrying_the_overlay_header(tmp_path):
+    import ojz_entity_gen as eg
+    baked = tmp_path / "entity_data.emp"
+    eg.main(["generate", "--overlay", str(so.OVERLAY), "--out", str(baked)])
+    assert so.main(["guard", "--entity-data", str(baked)]) == 1
+    clean = tmp_path / "clean.emp"
+    eg.main(["generate", "--out", str(clean)])
+    assert so.main(["guard", "--entity-data", str(clean)]) == 0
+    assert so.main(["guard", "--entity-data", str(tmp_path / "absent.emp")]) == 2
+
+
+def test_build_sh_runs_the_guard_on_the_committed_entity_data_before_any_work():
+    """The guard sits above the sigil-binary check: every shape (canonical included) runs it,
+    and on the committed tree it passes (positive control: the run reaches the sigil check)."""
+    text = (AEON_DIR / "build.sh").read_text()
+    i_guard = text.index("python3 tools/stress_objects_overlay.py guard")
+    assert i_guard < text.index('SIGIL_BUILD="${SIGIL_BUILD:-}"')
+    rc, out = _build_sh()
+    assert rc == 1 and "needs the sigil build binary" in out, out[-2000:]
+    assert "STRESS_OBJECTS OVERLAY" not in out

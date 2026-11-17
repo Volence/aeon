@@ -463,7 +463,8 @@ def spindash_releases(rows, pstate_spindash: int) -> int:
                if a["ps"] == pstate_spindash and b["ps"] != pstate_spindash)
 
 
-def coverage(leg: str, status: str, rows: list, equ: dict, ref: dict | None = None) -> dict:
+def coverage(leg: str, status: str, rows: list, equ: dict, ref: dict | None = None,
+             ref_source: str | None = None) -> dict:
     """{rule, got, need, met}. Thresholds the engine owns come from listing equates. `ref` is
     the objheavy leg's canonical path, {tick: (px, py)} (ignored by every other leg)."""
     if leg == "idle":
@@ -489,7 +490,7 @@ def coverage(leg: str, status: str, rows: list, equ: dict, ref: dict | None = No
                                                                  "releases": 1},
                     met=status == "FINISHED" and n >= 1)
     if leg == "objheavy":
-        return _objheavy_coverage(status, rows, equ, ref)
+        return _objheavy_coverage(status, rows, equ, ref, ref_source)
     raise DriveError(f"no coverage rule for leg {leg!r} (sidekick/stream are Tasks 9-10)")
 
 
@@ -508,7 +509,13 @@ def first_divergence(rows: list, ref: dict):
     return None
 
 
-def _objheavy_coverage(status, rows, equ, ref):
+#: Where the objheavy path fixture's re-record recipe lives.
+PATH_FIXTURE_RECIPE = ("docs/DEFERRED_WORK.md V2-C2-STRESS-OBJECTS item 1: re-record "
+                       "`leg_run.py --leg run` on all 6 cells, `stress_objects_overlay.py "
+                       "fixture ...`, then `generate --lst s4.lst`, and commit both files")
+
+
+def _objheavy_coverage(status, rows, equ, ref, ref_source=None):
     nd = equ.get("NUM_DYNAMIC")
     rule = (f"status == FINISHED and >= {OBJ_COVER_TICKS} ticks with dispatched >= 3/4 NUM_DYNAMIC"
             f" and live <= NUM_DYNAMIC every tick and P1 (x, y) == canonical run leg on >= "
@@ -543,9 +550,73 @@ def _objheavy_coverage(status, rows, equ, ref):
            "live_max": max(r["live"] for r in rows), "disp_max": max(r["disp"] for r in rows),
            "ticks_pending": sum(1 for r in rows if r["pend"] > 0),
            "ref_ticks_missing": sum(1 for r in rows if r["t"] not in ref)}
+    if pct < OBJ_PATH_PCT:
+        got["note"] = (f"path witness {pct}% < {OBJ_PATH_PCT}%: P1's route differs from the "
+                       f"canonical run leg the path fixture recorded ({ref_source or 'source not given'})"
+                       f", first at tick {got['first_divergence']}. If the canonical route "
+                       f"changed on purpose, re-record the fixture: {PATH_FIXTURE_RECIPE}")
     met = (status == "FINISHED" and loaded >= OBJ_COVER_TICKS and over == 0
            and pct >= OBJ_PATH_PCT)
     return dict(rule=rule, got=got, need=need, met=met)
+
+
+UNPAIRED_WHAT = (
+    "UNPAIRED least-squares fit of main-loop CPU cycles per tick (Input_Tick -> next "
+    "VSync_Wait entry, mclk / 7, interrupt time inside the window included) against the live "
+    "and the dispatched object count of THIS run alone. Its slope is confounded with route work "
+    "(streaming, camera, player) that varies with where the objects are; it is NOT the "
+    "per-object cost. See `per_object` (paired against a canonical run, --cost-ref).")
+
+PAIRED_METHOD = (
+    "paired least-squares fit: for each tick present in both runs with the same P1 (px, py) "
+    "(same tick, same route), dy = stress cyc - canonical cyc and dx = stress count - canonical "
+    "count; slope = CPU cycles per extra object. The canonical run carries the route's own "
+    "work, so the difference removes it. Cycles = mclk / 7 from Input_Tick to the next "
+    "VSync_Wait entry (interrupt time inside the window included). Emulator: the pinned "
+    "oracle-aether.")
+
+
+def obj_cost_paired(rows: list, ref_rows: list, x_key: str = "live") -> dict:
+    """The per-object cost: `obj_cost_fit` over per-tick DIFFERENCES between this run and a
+    canonical run instrumented the same way (`leg_run --leg objheavy` on the canonical ROM),
+    on ticks where both have a cycle reading and P1 is at the same (px, py)."""
+    ref = {r["t"]: r for r in ref_rows}
+    diff, off = [], 0
+    for r in rows:
+        q = ref.get(r["t"])
+        if q is None or r.get("cyc") is None or q.get("cyc") is None:
+            continue
+        if (r["px"], r["py"]) != (q["px"], q["py"]):
+            off += 1
+            continue
+        if r.get(x_key) is None or q.get(x_key) is None:
+            continue
+        diff.append({x_key: r[x_key] - q[x_key], "cyc": r["cyc"] - q["cyc"]})
+    f = obj_cost_fit(diff, x_key)
+    f.update(method=PAIRED_METHOD, ticks_off_route=off)
+    if f["status"] == "MEASURED":
+        f["label"] = "MEASURED (Oracle)"
+    else:
+        f["reason"] = f"paired: {f.get('reason')}"
+    return f
+
+
+def obj_cost_block(rows: list, cost_ref: dict | None) -> dict:
+    """leg_run's `obj_cost`: `per_object` is the paired cost when a canonical reference
+    ({rows, source}) is given, else DID NOT RUN; `unpaired` is always the confounded fit,
+    labelled as such."""
+    un = {"what": UNPAIRED_WHAT, "live": obj_cost_fit(rows, "live"),
+          "disp": obj_cost_fit(rows, "disp")}
+    if cost_ref is None:
+        per = {"status": "DID NOT RUN",
+               "reason": "no --cost-ref: the per-object cost needs a canonical run "
+                         "instrumented the same way (leg_run --leg objheavy on the canonical "
+                         "ROM, same shape and phase)"}
+    else:
+        live = obj_cost_paired(rows, cost_ref["rows"], "live")
+        per = {"status": live["status"], "ref": cost_ref.get("source"), "method": PAIRED_METHOD,
+               "live": live, "disp": obj_cost_paired(rows, cost_ref["rows"], "disp")}
+    return {"per_object": per, "unpaired": un}
 
 
 def obj_cost_fit(rows: list, x_key: str = "live") -> dict:

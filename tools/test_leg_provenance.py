@@ -287,3 +287,14 @@ def test_the_stressobj_rebake_regenerates_from_committed_inputs(tmp_path):
     assert path == "games/sonic4/data/generated/ojz/act1/entity_data.emp"
     assert "STRESS_OBJECTS OVERLAY" in out.read_text()
     assert rec["sha256"] == lp.sha256_file(out) and rec["inputs"]
+    ins = rec["inputs"]
+    for need in ("tools/ojz_entity_gen.py", "project.json", "games/sonic4/data/editor/objects.json",
+                 "games/sonic4/test/fixtures/stress_objects.overlay.json",
+                 "games/sonic4/data/editor/ojz/act1/section_0.objects.json"):
+        assert ins[need] == lp.sha256_file(lp.AEON_ROOT / need), need
+    assert sum(k.endswith(".objects.json") and "/act1/section_" in k for k in ins) >= 2
+
+
+def test_a_rebake_input_that_matches_nothing_is_refused(tmp_path):
+    with pytest.raises(lp.StalePair, match="matches nothing"):
+        lp.rebake_inputs({"inputs": ["no/such/*.json"]}, tmp_path)

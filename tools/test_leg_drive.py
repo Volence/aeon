@@ -685,3 +685,73 @@ def test_read_obj_load_counts_dispatched_skips_zero_entries_and_bounds_reads():
     got = asyncio.run(ld.read_obj_load(c, syms, cx=900, cy=400))
     assert got == {"live": 4, "pend": 1, "disp": 2, "zero": 1, "mclk": 777}
     assert all(n <= ld.READ_MAX for _a, n in c.calls)
+
+
+# ---- fix round 1: the paired per-object cost, the unpaired label, the re-record note -------
+
+def _paired_rows(n=60, slope=1100, route=lambda i: 40000 + (i * 7919) % 30000):
+    """Stress and canonical rows on the same ticks and route: the canonical run carries the
+    route's own work (`route`, wildly varying); the stress run adds `slope` per extra object."""
+    canon, stress = [], []
+    for i in range(n):
+        t = 300 + i
+        cl = i % 4
+        sl = cl + 5 + (i * 13) % 30
+        canon.append(dict(t=t, px=100 + i, py=50, live=cl, disp=cl, cyc=route(i)))
+        stress.append(dict(t=t, px=100 + i, py=50, live=sl, disp=sl,
+                           cyc=route(i) + slope * (sl - cl) + 250))
+    return stress, canon
+
+
+def test_obj_cost_paired_recovers_a_known_slope_despite_route_work():
+    stress, canon = _paired_rows()
+    un = ld.obj_cost_fit(stress, "live")
+    assert un["r2"] < 0.9                          # the route work confounds the unpaired fit
+    f = ld.obj_cost_paired(stress, canon, "live")
+    assert f["status"] == "MEASURED" and f["label"] == "MEASURED (Oracle)"
+    assert f["slope"] == pytest.approx(1100.0) and f["intercept"] == pytest.approx(250.0)
+    assert f["r2"] == pytest.approx(1.0) and f["n"] == 60 and f["slope_stderr"] is not None
+    assert "paired" in f["method"] and "same tick" in f["method"]
+
+
+def test_obj_cost_paired_uses_only_ticks_on_the_same_route():
+    stress, canon = _paired_rows()
+    for r in stress[:10]:
+        r["px"] += 1                               # off the canonical route: not paired
+    f = ld.obj_cost_paired(stress, canon, "live")
+    assert f["n"] == 50 and f["ticks_off_route"] == 10
+
+
+def test_obj_cost_paired_without_shared_ticks_is_unmeasurable():
+    stress, canon = _paired_rows()
+    for r in canon:
+        r["t"] += 10000
+    assert ld.obj_cost_paired(stress, canon, "live")["status"] == "UNMEASURABLE"
+
+
+def test_obj_cost_block_without_a_reference_says_unpaired_and_confounded():
+    stress, _canon = _paired_rows()
+    blk = ld.obj_cost_block(stress, None)
+    assert blk["per_object"]["status"] == "DID NOT RUN"
+    assert "UNPAIRED" in blk["unpaired"]["what"] and "confounded" in blk["unpaired"]["what"]
+    assert "NOT the per-object cost" in blk["unpaired"]["what"]
+    assert "cost per object" not in blk["unpaired"]["what"].lower().replace("not the per-object cost", "")
+
+
+def test_obj_cost_block_with_a_reference_reports_the_paired_cost():
+    stress, canon = _paired_rows()
+    blk = ld.obj_cost_block(stress, {"rows": canon, "source": "x.json"})
+    assert blk["per_object"]["live"]["slope"] == pytest.approx(1100.0)
+    assert blk["per_object"]["ref"] == "x.json"
+    assert "UNPAIRED" in blk["unpaired"]["what"]
+
+
+def test_objheavy_path_shortfall_names_the_fixture_commit_and_the_recipe():
+    rows = _oh_rows(100)
+    cov = ld.coverage("objheavy", "FINISHED", rows, OEQ, ref=_ref(rows, shift_from=310),
+                      ref_source="aeon d60c5ee6 (s4.bin 193507d9)")
+    assert not cov["met"]
+    note = cov["got"]["note"]
+    assert "d60c5ee6" in note and "V2-C2-STRESS-OBJECTS" in note and "re-record" in note
+    ok = ld.coverage("objheavy", "FINISHED", rows, OEQ, ref=_ref(rows), ref_source="x")
+    assert "note" not in ok["got"]
