@@ -17,8 +17,37 @@
   "status": "MEASURED"
  },
  "determinism": {
-  "note": "re-measured after the policy-v2 re-record; see the next commit",
-  "status": "PENDING"
+  "at": "aeon 27c221b3 (the v2 re-record commit; replays reference-grade, clean tree)",
+  "cross_version_check": "diff --ref archive/policy-v1 --run . reports POLICY VERSIONS DIFFER on all 6 superseded entries and exits 1 (MEASURED)",
+  "date_utc": "2026-11-17",
+  "method": "each recording replayed open-loop from its own <shape>/<leg>.inputs.json (leg_drive.Replay; the replay entry records the reference entry's policy_version) into a second directory, then `v1_reference.py diff --ref <ref> --run <replay>` and cmp of every frames file",
+  "note": "replays of STUCK legs end by CAP at the recorded length (a replay never judges stuck); status differs by design, frames do not",
+  "per_leg": {
+   "s4.debug/diagfall": "identical",
+   "s4.debug/idle": "identical",
+   "s4.debug/run": "identical",
+   "s4.debug/spindash": "identical",
+   "s4.debug/topspeed": "identical",
+   "s4/diagfall": "identical",
+   "s4/idle": "identical",
+   "s4/run": "identical",
+   "s4/spindash": "identical",
+   "s4/topspeed": "identical"
+  },
+  "replay_policy_versions": {
+   "s4.debug/diagfall": 2,
+   "s4.debug/idle": 1,
+   "s4.debug/run": 1,
+   "s4.debug/spindash": 2,
+   "s4.debug/topspeed": 2,
+   "s4/diagfall": 2,
+   "s4/idle": 1,
+   "s4/run": 1,
+   "s4/spindash": 2,
+   "s4/topspeed": 2
+  },
+  "result": "10/10 identical over all 13 fields (diff exit 0); 10/10 replay frames files byte-identical to their reference (cmp)",
+  "status": "MEASURED"
  },
  "policy_versions": {
   "backfill": "idle and run entries were recorded before versions existed; they carry policy_version 1 because their policies (Idle, Run) are v1 and unchanged: re-driven closed-loop on 2026-11-17 (aeon 2c446c22, the policy-v2 commit; scratch out under .aeon-v2-harness-out/tF/scratch-v2) their inputs and frames sha256 equal these entries' (MEASURED)",
