@@ -171,9 +171,12 @@ def main(argv=None) -> int:
         if args.cmd == "apply":
             apply(Path(args.root))
             return 0
-        for rel, p in rebake(Path(args.out), Path(args.root)).items():
-            print(f"{rel} -> {p}")
-        return 0
+        if args.cmd == "rebake":
+            for rel, p in rebake(Path(args.out), Path(args.root)).items():
+                print(f"{rel} -> {p}")
+            return 0
+        print(f"stress_sidekick: unknown mode {args.cmd!r}", file=sys.stderr)
+        return 2
     except Refused as e:
         print(f"ERROR: stress_sidekick {args.cmd}: {e}", file=sys.stderr)
         return 1

@@ -430,6 +430,7 @@ _ROSTER = {
     "layer_lines.py": "refuses: MODES table, unknown/missing mode -> usage + exit 1 (LINES-EVERYWHERE, 2026-09-26, born in the fixed form; `emit` WRITES the committed generated layer-line module the descriptor compiles, so the dispatch running before any handler is the property)",
     "clip_reachability.py": "refuses: MODES table, unknown/missing mode -> usage + exit 1 (S2-COMPRESSED-ACT parcel 7, 2026-09-17, born in the fixed form; `check` is READ-ONLY -- the act-wide reachability build gate for the S2CLIP shape. It is in _FIXED despite writing nothing because it runs as `gate strict`: a typo'd mode that reached a handler and exited 0 would be a build lane that had stopped measuring, which is this gate's own subject)",
     "verify_level_bin.py": "refuses: unknown argv token -> usage + exit 2 (it grew --project/--bank on 2026-09-17 so a clip act's tree could be verified by the same ten lanes; it WRITES NOTHING at any mode, and an unparsed flag is refused by name rather than ignored)",
+    "stress_sidekick.py": "refuses: argparse subparsers(required=True) reject an unknown/missing mode -> exit 2 before any handler, and the ladder ends `else: exit 2` (v2 C3, 2026-11-17, born in the fixed form; `apply` WRITES the patched tree, so no subprocess row: on a regression that row's failure IS the write)",
     "s4lz.py": "refuses: `else: parser.print_help(); sys.exit(1)` -- the exemplar",
     "sfx_transcode.py": "refuses: single mode, exact match, else usage + exit 1",
     "state_ram.py": "refuses: no mode SET -- a typo'd `test` becomes a state path -> unhandled FileNotFoundError, exit 1",
@@ -475,12 +476,13 @@ def test_the_ladder_population_is_still_the_roster():
     # (clip_rom_bake.py, verify_level_bin.py) entered the population without a line
     # here. The number is what the rows grade; the commentary is not, and it had drifted.
     # 26 since LINES-EVERYWHERE (2026-09-26) added layer_lines.py.
-    assert len(found) == 26, (
+    assert len(found) == 27, (
         "expected the 2026-09-10 census's 12 CLI string dispatches plus CTRL-3's "
         "land_gate.py, M-B's megaact_window_pageset.py and STITCHED-ACT-PAGE-ORDER's "
         "megaact_page_order.py, FG-CACHE-10-RESEARCH's megaact_fg_cache10.py, the "
         "STITCHED-ACT-PAGE-ORDER wiring's fg_page_order.py, CACHE-WINDOW-HOLD-MEASURE's "
         "cache_hold_probe.py, S2-COMPRESSED-ACT row 3's clip_manifest.py + "
         "clip_act_bake.py, row 4's import_s2_collision.py, parcel 7's clip_reachability.py and "
-        "parcel 9's act_grid.py and LINES-EVERYWHERE's layer_lines.py, found %d: %s"
+        "parcel 9's act_grid.py and LINES-EVERYWHERE's layer_lines.py and v2 C3's "
+        "stress_sidekick.py, found %d: %s"
         % (len(found), sorted(found)))
