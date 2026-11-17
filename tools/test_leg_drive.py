@@ -497,3 +497,62 @@ def test_real_drive_is_tick_keyed():
     assert tr.input_log["t0"] == 300 and len(tr.input_log["held"]) == 120
     assert tr.lag_frames == sum(r["dfc"] for r in tr.rows) - 120
     assert any(r["px"] != tr.rows[0]["px"] for r in tr.rows), "holding right moved nothing"
+
+
+# ---- drive_leg: other breakpoints on the same client (B3) ---------------------------------
+
+class _Bus:
+    """A fake bus for drive_leg's I/O loop: `run_frames` replays a pc script; an Input_Tick
+    stop advances Logic_Tick and Frame_Counter; everything else in RAM reads as zero."""
+
+    def __init__(self, syms, pcs):
+        self.a, self.pcs = syms.addr, list(pcs)
+        self.tick, self.fc = 0, 0
+        self.bp_added = self.bp_cleared = 0
+
+    async def call(self, method, params):
+        if method == "emulator/breakpoint_add":
+            self.bp_added += 1
+            return {"breakpoint": "b0"}
+        if method == "emulator/breakpoint_clear":
+            self.bp_cleared += 1
+            return {}
+        if method == "emulator/run_frames":
+            pc = self.pcs.pop(0)
+            if pc == self.a["Input_Tick"]:
+                self.tick += 1
+                self.fc += 1
+            return {"pc": hex(pc), "mclk": 0}
+        if method == "emulator/read_memory":
+            addr, n = int(params["addr"], 16), params["len"]
+            val = {self.a["Logic_Tick"]: self.tick, self.a["Frame_Counter"]: self.fc}.get(addr, 0)
+            return {"bytes": "0x" + val.to_bytes(n, "big").hex()}
+        if method == "emulator/write_memory":
+            return {}
+        raise AssertionError(method)
+
+
+def _fake_syms():
+    addr = {n: 0xFF8000 + 0x10 * i for i, n in enumerate(ld.ADDR_SYMS)}
+    addr["Input_Tick"] = 0x2674
+    return ld.Syms(addr=addr, equ=EQ, off={}, buttons=B, debug=False)
+
+
+def test_drive_routes_other_breaks_to_on_break():
+    """A DMA-site stop on the shared client goes to `on_break` and is neither a tick nor a
+    miss; a stop nobody claims is still a miss (never silently a tick)."""
+    syms = _fake_syms()
+    IT, SITE, OTHER = 0x2674, 0x202E, 0x5000
+    bus = _Bus(syms, [IT, SITE, SITE, IT, OTHER, IT, SITE, IT])
+    seen = []
+
+    async def on_break(client, pc, reply):
+        seen.append(pc)
+        return pc == SITE
+
+    tr = asyncio.run(ld.drive_leg(bus, syms, ld.Idle(B, EQ), t0=2, cap_ticks=3,
+                                  on_break=on_break))
+    assert [r["t"] for r in tr.rows] == [2, 3, 4]
+    assert seen == [SITE, SITE, OTHER, SITE]
+    assert tr.misses == 1 and tr.hits == 4 and tr.breaks == 3
+    assert bus.bp_added == bus.bp_cleared == 1

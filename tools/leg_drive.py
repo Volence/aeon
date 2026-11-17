@@ -224,8 +224,9 @@ class _Moving:
     1): the run rule's blocked jump, a spindash sequence, and right otherwise.
 
     Order each tick: the blocked counter is updated, STANDING ticks only (fix round 2: a
-    ROLLING tick -- ST_ROLLING set, which the engine also sets while charging -- is not
-    blocked, because a jump from a roll is a roll-jump with no air control); a
+    ROLLING tick -- ST_ROLLING set -- is not blocked, because a jump from a roll is a
+    roll-jump with no air control; charging a spindash is PSTATE_SPINDASH, not ST_ROLLING,
+    games/sonic4/player/player_ground.emp:595-598); a
     sequence in progress runs to its forced release, and no jump is pressed inside it; then a
     due blocked jump; then the policy's own dash trigger (always below the engine gate)."""
     progress = True
@@ -586,6 +587,7 @@ class LegTrace:
     policy_from: int | None = None
     hits: int = 0
     misses: int = 0
+    breaks: int = 0
 
 
 def _unhex(s: str) -> str:
@@ -650,22 +652,31 @@ RUN_CHUNK = 4              # frames per run_frames; a breakpoint halts it early
 
 
 async def drive_leg(client, syms: Syms, policy, t0: int, cap_ticks: int, on_tick=None,
-                    stuck: ProgressStuck | None = None) -> LegTrace:
+                    stuck: ProgressStuck | None = None, on_break=None) -> LegTrace:
     """Drive one leg from the machine's current state. `on_tick(state, row)` (sync or async) is
-    called on every row (tick >= t0), after the input is written."""
+    called on every row (tick >= t0), after the input is written.
+
+    `on_break(client, pc, reply) -> bool` (async) is offered every stop that is NOT
+    Input_Tick: other instruments (B3's DMA probe) share this client and its breakpoints. A
+    stop it claims (True) is neither a tick nor a miss (`LegTrace.breaks`); one nobody claims
+    is a miss, exactly as before."""
     core = LegCore(policy, t0=t0, cap_ticks=cap_ticks, debug=syms.debug, buttons=syms.buttons,
                    stuck=stuck)
     it = syms.addr["Input_Tick"]
     bp = (await client.call("emulator/breakpoint_add", {"symbol": "Input_Tick"}))["breakpoint"]
-    hits = misses = 0
+    hits = misses = breaks = 0
     lag0 = None
     try:
         while core.status is None:
             missed = 0
             while True:
                 r = await client.call("emulator/run_frames", {"frames": RUN_CHUNK})
-                if int(_unhex(r["pc"]), 16) & 0xFFFFFF == it:
+                pc = int(_unhex(r["pc"]), 16) & 0xFFFFFF
+                if pc == it:
                     break
+                if on_break is not None and await on_break(client, pc, r):
+                    breaks += 1
+                    continue
                 missed += 1
                 misses += 1
                 if missed * RUN_CHUNK > MAX_MISS_FRAMES:
@@ -691,5 +702,5 @@ async def drive_leg(client, syms: Syms, policy, t0: int, cap_ticks: int, on_tick
     return LegTrace(rows=core.rows, input_log=core.input_log(), status=core.status,
                     lag_frames=core.lag_frames, lag_ticks=core.lag_ticks, reason=core.reason,
                     notes=core.notes, lag_frame_count_delta=lfc, policy_from=core.policy_from,
-                    hits=hits, misses=misses)
+                    hits=hits, misses=misses, breaks=breaks)
 

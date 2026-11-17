@@ -12,10 +12,12 @@ Writes DIR/<rom-stem>_<leg>_p<phase>.json with keys
 (`require_provenance`) before it is written if any provenance leaf is missing.
 
 A section that was not asked for is recorded as {"status": "DID NOT RUN", "reason": ...},
-never as null or zero. `--dma-probe` is Task 3 (B3) and refuses until that lands.
+never as null or zero. `--dma-probe` arms tools/vblank_dma_probe.py (B3) over the drive window
+(from t0) on the same client: `dma = {sites, events, worst_end, overruns, unmeasurable, ...}`.
 
-Exit: 0 written and coverage met; 1 written but coverage not met (STUCK / CAP / FAILED / a
-rule unmet); 2 could not run (nothing written).
+Exit: 0 written and coverage met (and, with --dma-probe, the probe measured and no DMA ended
+past DMA_END_LIMIT_LINE + 0); 1 written but not met (STUCK / CAP / FAILED / a rule unmet / the
+probe unmeasurable / an overrun); 2 could not run (nothing written).
 """
 from __future__ import annotations
 
@@ -31,6 +33,7 @@ TOOLS = Path(__file__).resolve().parent
 sys.path.insert(0, str(TOOLS))
 import leg_drive as ld  # noqa: E402
 import leg_provenance as lp  # noqa: E402
+import vblank_dma_probe as vdp  # noqa: E402
 from suite_paths import add_client_path  # noqa: E402
 
 add_client_path()
@@ -75,7 +78,7 @@ async def _profile_read(c, ticks: int, top: int = 512) -> dict:
                 depthExceeded=pf.get("depthExceeded"), interrupts=pf["interrupts"], items=items)
 
 
-async def run_leg(a, inst, syms) -> dict:
+async def run_leg(a, inst, syms, probe=None) -> dict:
     from aether import BusClient
     c = BusClient(socket_path=inst.socket_path, client_id=f"leg-run-{os.getpid()}",
                   client_name="leg_run")
@@ -90,11 +93,19 @@ async def run_leg(a, inst, syms) -> dict:
         armed = {"at": None}
 
         async def on_tick(s, row):
-            if a.profile and armed["at"] is None:      # arm over the drive window (from t0)
-                await c.call("emulator/set_profiler", {"enabled": True, "callers": True})
+            if probe is not None:
+                probe.tick = s.tick
+            if armed["at"] is None:                     # arm over the drive window (from t0)
+                if a.profile:
+                    await c.call("emulator/set_profiler", {"enabled": True, "callers": True})
+                if probe is not None:
+                    await probe.arm(c)
                 armed["at"] = s.tick
 
-        tr = await ld.drive_leg(c, syms, policy, t0=t0, cap_ticks=a.cap, on_tick=on_tick)
+        tr = await ld.drive_leg(c, syms, policy, t0=t0, cap_ticks=a.cap, on_tick=on_tick,
+                                on_break=None if probe is None else probe.on_break)
+        if probe is not None:
+            await probe.disarm(c)
         prof = (await _profile_read(c, tr.rows[-1]["t"] - armed["at"]) if a.profile
                 else _did_not_run("--profile not given"))
     finally:
@@ -115,16 +126,20 @@ def main(argv=None) -> int:
     a = ap.parse_args(argv)
     if a.cap is None:
         a.cap = DEFAULT_CAP[a.leg]
-    if a.dma_probe:
-        print("leg_run: COULD NOT RUN — --dma-probe is Task 3 (B3) and is not wired yet",
-              file=sys.stderr)
-        return 2
     rom, lst = Path(a.rom).resolve(), Path(a.lst).resolve()
     try:
         syms = ld.resolve_syms(lst)
     except ld.DriveError as e:
         print(f"leg_run: COULD NOT RUN — {e}", file=sys.stderr)
         return 2
+    probe = None
+    if a.dma_probe:
+        try:
+            lst_text, rom_bytes = lst.read_text(errors="replace"), rom.read_bytes()
+        except OSError as e:
+            print(f"leg_run: COULD NOT RUN — {e}", file=sys.stderr)
+            return 2
+        probe = vdp.probe_for(lst_text, syms.addr, syms.equ, rom_bytes)
     wall0 = time.monotonic()
     load0 = open("/proc/loadavg").read().split()[:3]
     try:
@@ -140,8 +155,12 @@ def main(argv=None) -> int:
             return 2
         prov["harness"]["leg_drive_sha256"] = lp.sha256_file(TOOLS / "leg_drive.py")
         prov["harness"]["leg_run_sha256"] = lp.sha256_file(Path(__file__).resolve())
+        if probe is not None:
+            prov["harness"]["vblank_dma_probe_sha256"] = lp.sha256_file(TOOLS /
+                                                                        "vblank_dma_probe.py")
+            prov["harness"]["leg_correction_sha256"] = lp.sha256_file(TOOLS / "leg_correction.py")
         try:
-            got = asyncio.run(run_leg(a, inst, syms))
+            got = asyncio.run(run_leg(a, inst, syms, probe))
         except DRIVE_FAILURES as e:
             print(f"leg_run: COULD NOT RUN {type(e).__name__}: {e} (nothing written)",
                   file=sys.stderr)
@@ -159,11 +178,13 @@ def main(argv=None) -> int:
     result = {
         "provenance": prov, "leg": a.leg, "phase": a.phase, "status": tr.status,
         "coverage": cov, "lag": lag, "rows": tr.rows, "input_log": tr.input_log,
-        "profile": got["profile"], "dma": _did_not_run("--dma-probe is Task 3 (B3)"),
+        "profile": got["profile"],
+        "dma": probe.result() if probe is not None else _did_not_run("--dma-probe not given"),
         "reason": tr.reason, "notes": tr.notes,
         "end": {k: last.get(k) for k in ("t", "px", "py", "cx", "cy", "cxm")},
         "run": {"t0": got["t0"], "cap_ticks": a.cap, "policy_from": tr.policy_from,
-                "hits": tr.hits, "run_frames_misses": tr.misses, "wall_s": round(wall, 2),
+                "hits": tr.hits, "run_frames_misses": tr.misses, "probe_breaks": tr.breaks,
+                "wall_s": round(wall, 2),
                 "loadavg_start": load0, "loadavg_end": open("/proc/loadavg").read().split()[:3],
                 "date_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())},
     }
@@ -181,7 +202,21 @@ def main(argv=None) -> int:
           f"; wall {wall:.1f}s -> {path}")
     for n in tr.notes:
         print(f"  note: {n}")
-    return 0 if cov["met"] else 1
+    dma_ok = True
+    if probe is not None:
+        d = result["dma"]
+        if d["unmeasurable"]:
+            dma_ok = False
+            print(f"  dma: UNMEASURABLE — {d['unmeasurable']}")
+        else:
+            w = d["worst_end"]
+            where = ("no DMA in the window" if w["status"] == "NO DMA" else
+                     f"worst last-DMA end line {w['line']} + {w['off']} mclk (tick {w['tick']})")
+            dma_ok = not d["overruns"]
+            print(f"  dma: {len(d['vblanks'])} VBlanks, {len(d['events'])} DMAs, {where}; "
+                  f"{len(d['overruns'])} past line {d['limit']['line']} + 0"
+                  + ("" if dma_ok else " — OVERRUN"))
+    return 0 if cov["met"] and dma_ok else 1
 
 
 if __name__ == "__main__":
