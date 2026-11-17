@@ -137,6 +137,11 @@ RULES: tuple = (
      "test_capture_settle as the regression fixture for the 2026-09-16 `buf` defect: the "
      "night verdicts must stay unchanged and the day controls must stop being refused. "
      "Editing the report changes what the test replays"),
+    ("docs/audits/Hardware limits.md", CHECKED, ("tools/test_leg_correction.py",),
+     "section 9, \"Correcting Oracle's numbers\", IS the correction rule's prose twin: "
+     "test_constants_match_hardware_limits_doc parses its constant table and rule text and "
+     "asserts they equal tools/leg_correction.py (v2 B4), so a push editing the doc must run "
+     "the test that reads it"),
     ("docs/generated/", CHECKED, ("tools/test_gen_vram_map.py", "tools/test_fg_working_set.py"),
      "the generated VRAM maps must equal their generator's output and agree with the "
      "pool ceiling; a prefix because the generator writes one file per game"),
