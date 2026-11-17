@@ -1186,7 +1186,7 @@ fi
 
 # STRESS_OBJECTS throwaway re-bake: rewrite entity_data.emp IN PLACE with the committed
 # overlay merged in, under an EXIT trap that restores the committed generated tree from git
-# (success, failure and a signal alike: the TERM/INT handlers below `exit`, which runs it).
+# (success, failure and a signal alike; MEASURED with a SIGTERM mid-build, task-8 report).
 # Placed after the pre-build pytest lane, so every pure test reads the committed tree.
 STRESSOBJ_OVERLAY="games/sonic4/test/fixtures/stress_objects.overlay.json"
 STRESSOBJ_GEN_TREE="games/sonic4/data/generated/ojz/act1"
@@ -1209,7 +1209,10 @@ if [[ "${STRESS_OBJECTS:-0}" == "1" ]]; then
         fi
     }
     trap _restore_stressobj_tree EXIT
-    # A signal must reach the EXIT trap: `exit` from a TERM/INT handler runs it.
+    # SIGTERM/SIGINT: bash runs the EXIT trap on either signal even without these (MEASURED,
+    # task-8 report), but then exits at once and leaves the foreground child (sigil) running
+    # against the restored tree. With them bash first waits for that child, then exits
+    # through the trap: nothing outlives the restore.
     trap 'exit 143' TERM
     trap 'exit 130' INT
     echo "STRESS_OBJECTS: throwaway re-bake of entity_data.emp with ${STRESSOBJ_OVERLAY}..."
