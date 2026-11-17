@@ -41,6 +41,7 @@ TOOLS = Path(__file__).resolve().parent
 AEON = TOOLS.parent
 sys.path.insert(0, str(TOOLS))
 import leg_correction as lc  # noqa: E402
+import leg_drive as ld  # noqa: E402
 import leg_provenance as lp  # noqa: E402
 
 LEGS = ("idle", "run", "topspeed", "diagfall", "spindash", "objheavy", "sidekick", "stream")
@@ -59,15 +60,20 @@ LEG_ROM = {(leg, shape): _STEM[leg] + (".debug" if shape == "debug" else "") + "
 LEG_POLICY = {leg: (leg if leg in ("idle", "run", "topspeed", "diagfall", "spindash") else "run")
               for leg in LEGS}
 
+#: The `leg_run --leg` each survey leg is run as (and the `leg` its result carries). A stress
+#: leg leg_run knows by name (objheavy, Task 8) drives LEG_POLICY's policy under its OWN
+#: coverage rule; one it does not know yet (sidekick, stream) still runs as its policy.
+LEG_RUN_LEG = {leg: (leg if leg in ld.POLICIES else LEG_POLICY[leg]) for leg in LEGS}
+
 
 def expected_matrix() -> list[tuple[str, str, int]]:
     return [(leg, shape, ph) for leg in LEGS for shape in SHAPES for ph in PHASES]
 
 
 def result_path(out_dir: Path, leg: str, shape: str, phase: int) -> Path:
-    """Where leg_run writes this cell: `<rom-stem>_<policy>_p<phase>.json`."""
+    """Where leg_run writes this cell: `<rom-stem>_<leg_run leg>_p<phase>.json`."""
     stem = Path(LEG_ROM[(leg, shape)]).stem
-    return Path(out_dir) / f"{stem}_{LEG_POLICY[leg]}_p{phase}.json"
+    return Path(out_dir) / f"{stem}_{LEG_RUN_LEG[leg]}_p{phase}.json"
 
 
 # ---- run ---------------------------------------------------------------------------------
@@ -137,7 +143,7 @@ def run(out_dir, only=None, rom_dir=None, timeout=600, resume=False) -> list[dic
             print(f"leg_survey: {leg}/{shape}/p{ph}: {rec['note']}", file=sys.stderr)
         else:
             cmd = [sys.executable, str(TOOLS / "leg_run.py"), "--rom", str(rom), "--lst",
-                   str(lst), "--leg", LEG_POLICY[leg], "--phase", str(ph), "--out",
+                   str(lst), "--leg", LEG_RUN_LEG[leg], "--phase", str(ph), "--out",
                    str(out_dir), "--dma-probe"]
             rec["rc"], note = _run_cell(cmd, timeout)
             if note:
@@ -195,7 +201,7 @@ def _judge_loaded(r, path, cell=None):
         leg, shape, ph = cell
         got = {"leg": r.get("leg"), "phase": r.get("phase"),
                "provenance.rom.rom": r["provenance"]["rom"].get("rom")}
-        want = {"leg": LEG_POLICY[leg], "phase": ph, "provenance.rom.rom": LEG_ROM[(leg, shape)]}
+        want = {"leg": LEG_RUN_LEG[leg], "phase": ph, "provenance.rom.rom": LEG_ROM[(leg, shape)]}
         for k in want:
             if got[k] != want[k]:
                 return ("FAILED", f"result does not match its cell: {k} is {got[k]!r}, "

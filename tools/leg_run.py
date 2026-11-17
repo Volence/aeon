@@ -46,7 +46,60 @@ DRIVE_FAILURES = (ld.DriveError, BusError, ConnectionError, EOFError,
                   asyncio.IncompleteReadError, TimeoutError, OSError)
 
 DEFAULT_CAP = {"idle": ld.IDLE_NEED_TICKS, "run": 3000, "topspeed": 3000, "diagfall": 3000,
-               "spindash": 3000}
+               "spindash": 3000, "objheavy": 3000}
+
+#: objheavy's path witness: the canonical `run` leg's per-tick P1 path, per shape/phase
+#: (tools/stress_objects_overlay.py fixture). Committed next to the overlay it shaped.
+PATH_FIXTURE = TOOLS.parent / "games" / "sonic4" / "test" / "fixtures" / "stress_objects.path.json"
+
+
+def path_ref(fixture: Path, debug: bool, phase: int):
+    """{tick: (px, py)} for this shape/phase, or None when the fixture does not carry it (the
+    coverage rule then reads UNMEASURABLE, never met)."""
+    try:
+        fx = json.loads(Path(fixture).read_text())
+    except (OSError, ValueError):
+        return None
+    e = fx.get("paths", {}).get(f"{'debug' if debug else 'release'}/{phase}")
+    if not e:
+        return None
+    return {e["t0"] + i: (x, y) for i, (x, y) in enumerate(zip(e["px"], e["py"]))}
+
+
+class ObjLoad:
+    """objheavy's per-tick instruments on the drive's own client. On every row: live /
+    pending / dispatched counts (`leg_drive.read_obj_load`) and the mclk at the Input_Tick
+    hit. A breakpoint at VSync_Wait closes the tick: `cyc` = CPU cycles from Input_Tick to
+    the main loop's next VSync_Wait entry (the whole tick's main-loop work, interrupts that
+    land inside it included). The last row's tick never reaches its wait: `cyc` None."""
+
+    def __init__(self, syms):
+        self.syms, self.bp, self.open = syms, None, None
+        self.wait = syms.addr["VSync_Wait"]
+        self.closed = 0
+
+    async def arm(self, c):
+        self.bp = (await c.call("emulator/breakpoint_add", {"symbol": "VSync_Wait"}))["breakpoint"]
+
+    async def disarm(self, c):
+        if self.bp is not None:
+            await c.call("emulator/breakpoint_clear", {"breakpoint": self.bp})
+            self.bp = None
+
+    async def on_tick(self, c, s, row):
+        got = await ld.read_obj_load(c, self.syms, s.cx, s.cy)
+        row.update(live=got["live"], pend=got["pend"], disp=got["disp"], cyc=None)
+        self.open = (row, got["mclk"])
+
+    async def on_break(self, c, pc, reply) -> bool:
+        if pc != self.wait:
+            return False
+        if self.open is not None:
+            row, m0 = self.open
+            row["cyc"] = (int(reply["mclk"]) - m0) // ld.MCLK_PER_CPU_CYCLE
+            self.open = None
+            self.closed += 1
+        return True
 
 
 def _lfc_note(syms, tr) -> str:
@@ -78,7 +131,7 @@ async def _profile_read(c, ticks: int, top: int = 512) -> dict:
                 depthExceeded=pf.get("depthExceeded"), interrupts=pf["interrupts"], items=items)
 
 
-async def run_leg(a, inst, syms, probe=None) -> dict:
+async def run_leg(a, inst, syms, probe=None, obj=None) -> dict:
     from aether import BusClient
     c = BusClient(socket_path=inst.socket_path, client_id=f"leg-run-{os.getpid()}",
                   client_name="leg_run")
@@ -100,12 +153,23 @@ async def run_leg(a, inst, syms, probe=None) -> dict:
                     await c.call("emulator/set_profiler", {"enabled": True, "callers": True})
                 if probe is not None:
                     await probe.arm(c)
+                if obj is not None:
+                    await obj.arm(c)
                 armed["at"] = s.tick
+            if obj is not None:
+                await obj.on_tick(c, s, row)
+
+        async def on_break(cl, pc, reply):
+            if probe is not None and await probe.on_break(cl, pc, reply):
+                return True
+            return obj is not None and await obj.on_break(cl, pc, reply)
 
         tr = await ld.drive_leg(c, syms, policy, t0=t0, cap_ticks=a.cap, on_tick=on_tick,
-                                on_break=None if probe is None else probe.on_break)
+                                on_break=None if probe is None and obj is None else on_break)
         if probe is not None:
             await probe.disarm(c)
+        if obj is not None:
+            await obj.disarm(c)
         prof = (await _profile_read(c, tr.rows[-1]["t"] - armed["at"]) if a.profile
                 else _did_not_run("--profile not given"))
     finally:
@@ -123,6 +187,8 @@ def main(argv=None) -> int:
     ap.add_argument("--profile", action="store_true")
     ap.add_argument("--dma-probe", action="store_true")
     ap.add_argument("--cap", type=int, default=None)
+    ap.add_argument("--path-ref", default=str(PATH_FIXTURE),
+                    help="objheavy: the canonical run-leg path fixture (default: committed)")
     a = ap.parse_args(argv)
     if a.cap is None:
         a.cap = DEFAULT_CAP[a.leg]
@@ -132,6 +198,14 @@ def main(argv=None) -> int:
     except ld.DriveError as e:
         print(f"leg_run: COULD NOT RUN — {e}", file=sys.stderr)
         return 2
+    obj = ref = None
+    if a.leg == "objheavy":
+        miss = ld.obj_syms_missing(syms)
+        if miss:
+            print(f"leg_run: COULD NOT RUN — {lst}: objheavy needs {miss}", file=sys.stderr)
+            return 2
+        obj = ObjLoad(syms)
+        ref = path_ref(Path(a.path_ref), syms.debug, a.phase)
     probe = None
     if a.dma_probe:
         try:
@@ -160,7 +234,7 @@ def main(argv=None) -> int:
                                                                         "vblank_dma_probe.py")
             prov["harness"]["leg_correction_sha256"] = lp.sha256_file(TOOLS / "leg_correction.py")
         try:
-            got = asyncio.run(run_leg(a, inst, syms, probe))
+            got = asyncio.run(run_leg(a, inst, syms, probe, obj))
         except DRIVE_FAILURES as e:
             print(f"leg_run: COULD NOT RUN {type(e).__name__}: {e} (nothing written)",
                   file=sys.stderr)
@@ -169,7 +243,7 @@ def main(argv=None) -> int:
         inst.reap()
     wall = time.monotonic() - wall0
     tr = got["trace"]
-    cov = ld.coverage(a.leg, tr.status, tr.rows, syms.equ)
+    cov = ld.coverage(a.leg, tr.status, tr.rows, syms.equ, ref=ref)
     lag = {"frames": tr.lag_frames, "ticks": tr.lag_ticks}
     if syms.debug:
         lag["lag_frame_count_delta"] = tr.lag_frame_count_delta
@@ -181,6 +255,7 @@ def main(argv=None) -> int:
         "profile": got["profile"],
         "dma": probe.result() if probe is not None else _did_not_run("--dma-probe not given"),
         "reason": tr.reason, "notes": tr.notes,
+        "policy": ld.POLICIES[a.leg].__name__,
         "end": {k: last.get(k) for k in ("t", "px", "py", "cx", "cy", "cxm")},
         "run": {"t0": got["t0"], "cap_ticks": a.cap, "policy_from": tr.policy_from,
                 "hits": tr.hits, "run_frames_misses": tr.misses, "probe_breaks": tr.breaks,
@@ -188,6 +263,17 @@ def main(argv=None) -> int:
                 "loadavg_start": load0, "loadavg_end": open("/proc/loadavg").read().split()[:3],
                 "date_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())},
     }
+    if obj is not None:
+        result["path_ref"] = {"file": str(a.path_ref), "sha256": lp.sha256_file(Path(a.path_ref))
+                              if Path(a.path_ref).is_file() else None,
+                              "key": f"{'debug' if syms.debug else 'release'}/{a.phase}",
+                              "ticks": None if ref is None else len(ref)}
+        result["obj_cost"] = {
+            "what": "least-squares fit of main-loop CPU cycles per tick (Input_Tick -> next "
+                    "VSync_Wait entry, mclk / 7) against the live and the dispatched object "
+                    "count; slope = CPU cycles per object (MEASURED)",
+            "ticks_with_cycles": obj.closed,
+            "live": ld.obj_cost_fit(tr.rows, "live"), "disp": ld.obj_cost_fit(tr.rows, "disp")}
     lp.require_provenance(result["provenance"])
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
@@ -202,6 +288,14 @@ def main(argv=None) -> int:
           f"; wall {wall:.1f}s -> {path}")
     for n in tr.notes:
         print(f"  note: {n}")
+    if obj is not None:
+        g = cov["got"]
+        print(f"  objheavy: {g}")
+        for k in ("live", "disp"):
+            f = result["obj_cost"][k]
+            print(f"  obj_cost vs {k}: " + (f"{f['slope']:.1f} cyc/object (intercept "
+                  f"{f['intercept']:.0f}, r2 {f['r2']:.3f}, n {f['n']}, x {f['x_min']}..{f['x_max']})"
+                  if f["status"] == "MEASURED" else f"UNMEASURABLE ({f['reason']})"))
     dma_ok = True
     if probe is not None:
         d = result["dma"]

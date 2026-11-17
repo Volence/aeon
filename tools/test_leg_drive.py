@@ -197,7 +197,7 @@ def test_diagfall_holds_down_in_the_air():
 def test_idle_is_zero():
     p = ld.POLICIES["idle"](B, EQ)
     assert {p.held(st(t)) for t in range(50)} == {0}
-    assert set(ld.POLICIES) == {"idle", "run", "topspeed", "diagfall", "spindash"}
+    assert set(ld.POLICIES) == {"idle", "run", "topspeed", "diagfall", "spindash", "objheavy"}
 
 
 class _Script:
@@ -448,7 +448,7 @@ def test_failed_drive_is_could_not_run_and_writes_nothing(tmp_path, monkeypatch,
             "bus": leg_run.BusError(-32004, "bad address"),
             "conn": ConnectionResetError("bus connection closed")}
 
-    async def boom(a, inst, syms, probe=None):
+    async def boom(a, inst, syms, probe=None, obj=None):
         raise errs[exc]
     monkeypatch.setattr(lp, "spawn_pinned", lambda rom, l: Inst())
     monkeypatch.setattr(lp, "provenance", lambda *a: {"harness": {}})
@@ -556,3 +556,93 @@ def test_drive_routes_other_breaks_to_on_break():
     assert seen == [SITE, SITE, OTHER, SITE]
     assert tr.misses == 1 and tr.hits == 4 and tr.breaks == 3
     assert bus.bp_added == bus.bp_cleared == 1
+
+
+# ---- objheavy (v2 C2: the STRESS_OBJECTS leg) ----------------------------------------------
+
+OEQ = dict(EQ, NUM_DYNAMIC=0x28)
+
+
+def _oh_rows(n=100, disp=30, live=32, t0=300, px0=256, cyc=None):
+    return [rows_of(t=t0 + i, px=px0 + i, py=500, disp=disp, live=live, pend=0,
+                    cyc=cyc(i) if cyc else None) for i in range(n)]
+
+
+def _ref(rows, shift_from=None):
+    """The canonical path for the same ticks; positions differ from tick `shift_from` on."""
+    return {r["t"]: (r["px"] + (1 if shift_from is not None and r["t"] >= shift_from else 0),
+                     r["py"]) for r in rows}
+
+
+def test_objheavy_drives_the_run_policy():
+    assert ld.POLICIES["objheavy"] is ld.POLICIES["run"]
+
+
+def test_objheavy_dispatch_threshold_is_three_quarters_of_num_dynamic():
+    assert ld.obj_dispatch_min(OEQ) == 30
+    assert ld.obj_dispatch_min(dict(OEQ, NUM_DYNAMIC=0x20)) == 24
+
+
+def test_objheavy_coverage_met():
+    rows = _oh_rows(100)
+    cov = ld.coverage("objheavy", "FINISHED", rows, OEQ, ref=_ref(rows))
+    assert cov["met"], cov
+    assert cov["got"]["ticks_dispatched_ge_min"] == 100
+    assert cov["got"]["first_divergence"] is None
+
+
+def test_objheavy_coverage_needs_sixty_loaded_ticks():
+    rows = _oh_rows(100, disp=29)
+    for r in rows[:ld.OBJ_COVER_TICKS]:
+        r["disp"] = 30
+    assert ld.coverage("objheavy", "FINISHED", rows, OEQ, ref=_ref(rows))["met"]
+    rows[0]["disp"] = 29
+    cov = ld.coverage("objheavy", "FINISHED", rows, OEQ, ref=_ref(rows))
+    assert not cov["met"] and cov["got"]["ticks_dispatched_ge_min"] == ld.OBJ_COVER_TICKS - 1
+
+
+def test_objheavy_coverage_refuses_live_over_pool_and_not_finished():
+    rows = _oh_rows(100)
+    rows[5]["live"] = 41
+    assert not ld.coverage("objheavy", "FINISHED", rows, OEQ, ref=_ref(rows))["met"]
+    rows = _oh_rows(100)
+    assert not ld.coverage("objheavy", "STUCK", rows, OEQ, ref=_ref(rows))["met"]
+
+
+def test_objheavy_path_witness_and_first_touch():
+    rows = _oh_rows(100)
+    cov = ld.coverage("objheavy", "FINISHED", rows, OEQ, ref=_ref(rows, shift_from=396))
+    assert cov["met"] and cov["got"]["path_pct"] == 96.0          # 4 of 100 ticks differ
+    assert cov["got"]["first_divergence"] == 396
+    cov = ld.coverage("objheavy", "FINISHED", rows, OEQ, ref=_ref(rows, shift_from=394))
+    assert not cov["met"] and cov["got"]["path_pct"] == 94.0
+
+
+def test_objheavy_without_reference_or_fields_is_unmeasurable():
+    rows = _oh_rows(100)
+    cov = ld.coverage("objheavy", "FINISHED", rows, OEQ, ref=None)
+    assert not cov["met"] and "UNMEASURABLE" in cov["got"]["unmeasurable"]
+    bad = _oh_rows(100)
+    del bad[3]["disp"]
+    cov = ld.coverage("objheavy", "FINISHED", bad, OEQ, ref=_ref(bad))
+    assert not cov["met"] and "UNMEASURABLE" in cov["got"]["unmeasurable"]
+    cov = ld.coverage("objheavy", "FINISHED", [], OEQ, ref={})
+    assert not cov["met"] and "UNMEASURABLE" in cov["got"]["unmeasurable"]
+
+
+def test_obj_cost_fit_recovers_a_linear_cost():
+    rows = _oh_rows(50)
+    for i, r in enumerate(rows):
+        r["live"] = 10 + i % 25
+        r["cyc"] = 20000 + 700 * r["live"]
+    fit = ld.obj_cost_fit(rows, "live")
+    assert fit["status"] == "MEASURED" and fit["slope"] == pytest.approx(700.0)
+    assert fit["intercept"] == pytest.approx(20000.0) and fit["r2"] == pytest.approx(1.0)
+    assert fit["n"] == 50
+
+
+def test_obj_cost_fit_is_unmeasurable_without_spread_or_samples():
+    rows = _oh_rows(50, cyc=lambda i: 1000)
+    assert ld.obj_cost_fit(rows, "live")["status"] == "UNMEASURABLE"     # live constant
+    rows = _oh_rows(50)                                                  # cyc None
+    assert ld.obj_cost_fit(rows, "live")["status"] == "UNMEASURABLE"

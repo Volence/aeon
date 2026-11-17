@@ -1,0 +1,1528 @@
+{
+ "act": {
+  "h": 6144,
+  "w": 6144
+ },
+ "candidates": 505,
+ "canon_count": 11,
+ "count": 239,
+ "equates": {
+  "CULL_DISTANCE_X": 768,
+  "CULL_DISTANCE_Y": 512,
+  "ENTITY_DESPAWN_BUFFER": 512,
+  "ENTITY_DESPAWN_BUFFER_Y": 384,
+  "ENTITY_LOAD_BUFFER": 384,
+  "ENTITY_LOAD_BUFFER_Y": 256,
+  "NUM_DYNAMIC": 40,
+  "SCREEN_HEIGHT": 224,
+  "SCREEN_WIDTH": 320,
+  "SECTION_SIZE": 2048
+ },
+ "generator": "tools/stress_objects_overlay.py",
+ "model": {
+  "debug/0": {
+   "alloc_fails": 0,
+   "dispatch_min": 30,
+   "live_max": 38,
+   "ticks": 923,
+   "ticks_dispatched_ge_min": 252
+  },
+  "debug/1": {
+   "alloc_fails": 0,
+   "dispatch_min": 30,
+   "live_max": 38,
+   "ticks": 923,
+   "ticks_dispatched_ge_min": 252
+  },
+  "debug/2": {
+   "alloc_fails": 0,
+   "dispatch_min": 30,
+   "live_max": 38,
+   "ticks": 923,
+   "ticks_dispatched_ge_min": 252
+  },
+  "release/0": {
+   "alloc_fails": 0,
+   "dispatch_min": 30,
+   "live_max": 38,
+   "ticks": 1100,
+   "ticks_dispatched_ge_min": 344
+  },
+  "release/1": {
+   "alloc_fails": 0,
+   "dispatch_min": 30,
+   "live_max": 38,
+   "ticks": 1100,
+   "ticks_dispatched_ge_min": 344
+  },
+  "release/2": {
+   "alloc_fails": 0,
+   "dispatch_min": 30,
+   "live_max": 38,
+   "ticks": 1100,
+   "ticks_dispatched_ge_min": 344
+  }
+ },
+ "objects": [
+  {
+   "subtype": 0,
+   "typeId": "static",
+   "x": 535,
+   "y": 11
+  },
+  {
+   "subtype": 0,
+   "typeId": "solid",
+   "x": 767,
+   "y": 0
+  },
+  {
+   "subtype": 0,
+   "typeId": "static",
+   "x": 1015,
+   "y": 3
+  },
+  {
+   "subtype": 0,
+   "typeId": "solid",
+   "x": 1566,
+   "y": 317
+  },
+  {
+   "subtype": 0,
+   "typeId": "static",
+   "x": 1430,
+   "y": 457
+  },
+  {
+   "subtype": 0,
+   "typeId": "solid",
+   "x": 1584,
+   "y": 341
+  },
+  {
+   "subtype": 0,
+   "typeId": "static",
+   "x": 1445,
+   "y": 479
+  },
+  {
+   "subtype": 0,
+   "typeId": "solid",
+   "x": 1605,
+   "y": 373
+  },
+  {
+   "subtype": 0,
+   "typeId": "static",
+   "x": 1625,
+   "y": 405
+  },
+  {
+   "subtype": 0,
+   "typeId": "solid",
+   "x": 1643,
+   "y": 435
+  },
+  {
+   "subtype": 0,
+   "typeId": "static",
+   "x": 1655,
+   "y": 456
+  },
+  {
+   "subtype": 0,
+   "typeId": "solid",
+   "x": 1669,
+   "y": 481
+  },
+  {
+   "subtype": 0,
+   "typeId": "static",
+   "x": 1621,
+   "y": 653
+  },
+  {
+   "subtype": 0,
+   "typeId": "solid",
+   "x": 1645,
+   "y": 653
+  },
+  {
+   "subtype": 0,
+   "typeId": "static",
+   "x": 1645,
+   "y": 461
+  },
+  {
+   "subtype": 0,
+   "typeId": "static",
+   "x": 1669,
+   "y": 461
+  },
+  {
+   "subtype": 0,
+   "typeId": "static",
+   "x": 1693,
+   "y": 461
+  },
+  {
+   "subtype": 0,
+   "typeId": "static",
+   "x": 1717,
+   "y": 461
+  },
+  {
+   "subtype": 0,
+   "typeId": "static",
+   "x": 1741,
+   "y": 461
+  },
+  {
+   "subtype": 0,
+   "typeId": "static",
+   "x": 1765,
+   "y": 461
+  },
+  {
+   "subtype": 0,
+   "typeId": "static",
+   "x": 1789,
+   "y": 461
+  },
+  {
+   "subtype": 0,
+   "typeId": "static",
+   "x": 1813,
+   "y": 461
+  },
+  {
+   "subtype": 0,
+   "typeId": "static",
+   "x": 1837,
+   "y": 461
+  },
+  {
+   "subtype": 0,
+   "typeId": "static",
+   "x": 1861,
+   "y": 461
+  },
+  {
+   "subtype": 0,
+   "typeId": "solid",
+   "x": 2299,
+   "y": 916
+  },
+  {
+   "subtype": 0,
+   "typeId": "static",
+   "x": 2309,
+   "y": 937
+  },
+  {
+   "subtype": 0,
+   "typeId": "solid",
+   "x": 2320,
+   "y": 959
+  },
+  {
+   "subtype": 0,
+   "typeId": "static",
+   "x": 2332,
+   "y": 984
+  },
+  {
+   "subtype": 0,
+   "typeId": "solid",
+   "x": 2343,
+   "y": 1009
+  },
+  {
+   "subtype": 0,
+   "typeId": "static",
+   "x": 2355,
+   "y": 1036
+  },
+  {
+   "subtype": 0,
+   "typeId": "solid",
+   "x": 2367,
+   "y": 1064
+  },
+  {
+   "subtype": 0,
+   "typeId": "static",
+   "x": 2379,
+   "y": 1093
+  },
+  {
+   "subtype": 0,
+   "typeId": "solid",
+   "x": 2390,
+   "y": 1121
+  },
+  {
+   "subtype": 0,
+   "typeId": "static",
+   "x": 2402,
+   "y": 1151
+  },
+  {
+   "subtype": 0,
+   "typeId": "solid",
+   "x": 2414,
+   "y": 1181
+  },
+  {
+   "subtype": 0,
+   "typeId": "static",
+   "x": 2426,
+   "y": 1211
+  },
+  {
+   "subtype": 0,
+   "typeId": "solid",
+   "x": 2438,
+   "y": 1241
+  },
+  {
+   "subtype": 0,
+   "typeId": "static",
+   "x": 2450,
+   "y": 1271
+  },
+  {
+   "subtype": 0,
+   "typeId": "solid",
+   "x": 2462,
+   "y": 1301
+  },
+  {
+   "subtype": 0,
+   "typeId": "static",
+   "x": 2772,
+   "y": 1559
+  },
+  {
+   "subtype": 0,
+   "typeId": "static",
+   "x": 2784,
+   "y": 1589
+  },
+  {
+   "subtype": 0,
+   "typeId": "static",
+   "x": 2796,
+   "y": 1619
+  },
+  {
+   "subtype": 0,
+   "typeId": "solid",
+   "x": 2630,
+   "y": 1721
+  },
+  {
+   "subtype": 0,
+   "typeId": "static",
+   "x": 2808,
+   "y": 1649
+  },
+  {
+   "subtype": 0,
+   "typeId": "solid",
+   "x": 2642,
+   "y": 1751
+  },
+  {
+   "subtype": 0,
+   "typeId": "static",
+   "x": 2820,
+   "y": 1679
+  },
+  {
+   "subtype": 0,
+   "typeId": "solid",
+   "x": 2654,
+   "y": 1781
+  },
+  {
+   "subtype": 0,
+   "typeId": "static",
+   "x": 2832,
+   "y": 1709
+  },
+  {
+   "subtype": 0,
+   "typeId": "solid",
+   "x": 2666,
+   "y": 1811
+  },
+  {
+   "subtype": 0,
+   "typeId": "static",
+   "x": 2844,
+   "y": 1739
+  },
+  {
+   "subtype": 0,
+   "typeId": "solid",
+   "x": 2678,
+   "y": 1841
+  },
+  {
+   "subtype": 0,
+   "typeId": "static",
+   "x": 2856,
+   "y": 1769
+  },
+  {
+   "subtype": 0,
+   "typeId": "solid",
+   "x": 2690,
+   "y": 1871
+  },
+  {
+   "subtype": 0,
+   "typeId": "static",
+   "x": 2868,
+   "y": 1799
+  },
+  {
+   "subtype": 0,
+   "typeId": "solid",
+   "x": 2702,
+   "y": 1901
+  },
+  {
+   "subtype": 0,
+   "typeId": "static",
+   "x": 2880,
+   "y": 1829
+  },
+  {
+   "subtype": 0,
+   "typeId": "solid",
+   "x": 2714,
+   "y": 1931
+  },
+  {
+   "subtype": 0,
+   "typeId": "static",
+   "x": 2892,
+   "y": 1859
+  },
+  {
+   "subtype": 0,
+   "typeId": "solid",
+   "x": 2726,
+   "y": 1961
+  },
+  {
+   "subtype": 0,
+   "typeId": "static",
+   "x": 2904,
+   "y": 1889
+  },
+  {
+   "subtype": 0,
+   "typeId": "solid",
+   "x": 2738,
+   "y": 1991
+  },
+  {
+   "subtype": 0,
+   "typeId": "static",
+   "x": 2916,
+   "y": 1919
+  },
+  {
+   "subtype": 0,
+   "typeId": "solid",
+   "x": 2750,
+   "y": 2021
+  },
+  {
+   "subtype": 0,
+   "typeId": "static",
+   "x": 2928,
+   "y": 1949
+  },
+  {
+   "subtype": 0,
+   "typeId": "solid",
+   "x": 2762,
+   "y": 2051
+  },
+  {
+   "subtype": 0,
+   "typeId": "static",
+   "x": 2940,
+   "y": 1979
+  },
+  {
+   "subtype": 0,
+   "typeId": "solid",
+   "x": 2774,
+   "y": 2081
+  },
+  {
+   "subtype": 0,
+   "typeId": "static",
+   "x": 2952,
+   "y": 2009
+  },
+  {
+   "subtype": 0,
+   "typeId": "solid",
+   "x": 2786,
+   "y": 2111
+  },
+  {
+   "subtype": 0,
+   "typeId": "static",
+   "x": 2964,
+   "y": 2039
+  },
+  {
+   "subtype": 0,
+   "typeId": "solid",
+   "x": 2798,
+   "y": 2141
+  },
+  {
+   "subtype": 0,
+   "typeId": "static",
+   "x": 2976,
+   "y": 2069
+  },
+  {
+   "subtype": 0,
+   "typeId": "solid",
+   "x": 2810,
+   "y": 2171
+  },
+  {
+   "subtype": 0,
+   "typeId": "static",
+   "x": 2988,
+   "y": 2099
+  },
+  {
+   "subtype": 0,
+   "typeId": "static",
+   "x": 3000,
+   "y": 2129
+  },
+  {
+   "subtype": 0,
+   "typeId": "static",
+   "x": 3012,
+   "y": 2159
+  },
+  {
+   "subtype": 0,
+   "typeId": "static",
+   "x": 3024,
+   "y": 2189
+  },
+  {
+   "subtype": 0,
+   "typeId": "static",
+   "x": 3132,
+   "y": 2459
+  },
+  {
+   "subtype": 0,
+   "typeId": "static",
+   "x": 3144,
+   "y": 2489
+  },
+  {
+   "subtype": 0,
+   "typeId": "static",
+   "x": 3156,
+   "y": 2519
+  },
+  {
+   "subtype": 0,
+   "typeId": "solid",
+   "x": 2990,
+   "y": 2621
+  },
+  {
+   "subtype": 0,
+   "typeId": "static",
+   "x": 3168,
+   "y": 2549
+  },
+  {
+   "subtype": 0,
+   "typeId": "solid",
+   "x": 3002,
+   "y": 2651
+  },
+  {
+   "subtype": 0,
+   "typeId": "static",
+   "x": 3180,
+   "y": 2579
+  },
+  {
+   "subtype": 0,
+   "typeId": "solid",
+   "x": 3014,
+   "y": 2681
+  },
+  {
+   "subtype": 0,
+   "typeId": "static",
+   "x": 3192,
+   "y": 2609
+  },
+  {
+   "subtype": 0,
+   "typeId": "solid",
+   "x": 3026,
+   "y": 2711
+  },
+  {
+   "subtype": 0,
+   "typeId": "static",
+   "x": 3204,
+   "y": 2639
+  },
+  {
+   "subtype": 0,
+   "typeId": "solid",
+   "x": 3038,
+   "y": 2741
+  },
+  {
+   "subtype": 0,
+   "typeId": "static",
+   "x": 3216,
+   "y": 2669
+  },
+  {
+   "subtype": 0,
+   "typeId": "solid",
+   "x": 3050,
+   "y": 2771
+  },
+  {
+   "subtype": 0,
+   "typeId": "static",
+   "x": 3228,
+   "y": 2699
+  },
+  {
+   "subtype": 0,
+   "typeId": "solid",
+   "x": 3062,
+   "y": 2801
+  },
+  {
+   "subtype": 0,
+   "typeId": "static",
+   "x": 3240,
+   "y": 2729
+  },
+  {
+   "subtype": 0,
+   "typeId": "solid",
+   "x": 3074,
+   "y": 2831
+  },
+  {
+   "subtype": 0,
+   "typeId": "static",
+   "x": 3252,
+   "y": 2759
+  },
+  {
+   "subtype": 0,
+   "typeId": "solid",
+   "x": 3086,
+   "y": 2861
+  },
+  {
+   "subtype": 0,
+   "typeId": "static",
+   "x": 3264,
+   "y": 2789
+  },
+  {
+   "subtype": 0,
+   "typeId": "solid",
+   "x": 3098,
+   "y": 2891
+  },
+  {
+   "subtype": 0,
+   "typeId": "static",
+   "x": 3276,
+   "y": 2819
+  },
+  {
+   "subtype": 0,
+   "typeId": "solid",
+   "x": 3110,
+   "y": 2921
+  },
+  {
+   "subtype": 0,
+   "typeId": "static",
+   "x": 3288,
+   "y": 2849
+  },
+  {
+   "subtype": 0,
+   "typeId": "solid",
+   "x": 3122,
+   "y": 2951
+  },
+  {
+   "subtype": 0,
+   "typeId": "static",
+   "x": 3300,
+   "y": 2879
+  },
+  {
+   "subtype": 0,
+   "typeId": "solid",
+   "x": 3134,
+   "y": 2981
+  },
+  {
+   "subtype": 0,
+   "typeId": "static",
+   "x": 3312,
+   "y": 2909
+  },
+  {
+   "subtype": 0,
+   "typeId": "static",
+   "x": 3324,
+   "y": 2939
+  },
+  {
+   "subtype": 0,
+   "typeId": "static",
+   "x": 3336,
+   "y": 2969
+  },
+  {
+   "subtype": 0,
+   "typeId": "static",
+   "x": 3348,
+   "y": 2999
+  },
+  {
+   "subtype": 0,
+   "typeId": "static",
+   "x": 3360,
+   "y": 3029
+  },
+  {
+   "subtype": 0,
+   "typeId": "static",
+   "x": 3372,
+   "y": 3059
+  },
+  {
+   "subtype": 0,
+   "typeId": "static",
+   "x": 3384,
+   "y": 3089
+  },
+  {
+   "subtype": 0,
+   "typeId": "static",
+   "x": 3396,
+   "y": 3119
+  },
+  {
+   "subtype": 0,
+   "typeId": "static",
+   "x": 3408,
+   "y": 3149
+  },
+  {
+   "subtype": 0,
+   "typeId": "static",
+   "x": 3420,
+   "y": 3179
+  },
+  {
+   "subtype": 0,
+   "typeId": "static",
+   "x": 3480,
+   "y": 3329
+  },
+  {
+   "subtype": 0,
+   "typeId": "static",
+   "x": 3492,
+   "y": 3359
+  },
+  {
+   "subtype": 0,
+   "typeId": "static",
+   "x": 3504,
+   "y": 3389
+  },
+  {
+   "subtype": 0,
+   "typeId": "static",
+   "x": 3516,
+   "y": 3419
+  },
+  {
+   "subtype": 0,
+   "typeId": "static",
+   "x": 3528,
+   "y": 3449
+  },
+  {
+   "subtype": 0,
+   "typeId": "static",
+   "x": 3564,
+   "y": 3539
+  },
+  {
+   "subtype": 0,
+   "typeId": "static",
+   "x": 3576,
+   "y": 3569
+  },
+  {
+   "subtype": 0,
+   "typeId": "static",
+   "x": 3588,
+   "y": 3599
+  },
+  {
+   "subtype": 0,
+   "typeId": "static",
+   "x": 3600,
+   "y": 3629
+  },
+  {
+   "subtype": 0,
+   "typeId": "static",
+   "x": 3624,
+   "y": 3689
+  },
+  {
+   "subtype": 0,
+   "typeId": "static",
+   "x": 3636,
+   "y": 3719
+  },
+  {
+   "subtype": 0,
+   "typeId": "static",
+   "x": 3648,
+   "y": 3749
+  },
+  {
+   "subtype": 0,
+   "typeId": "solid",
+   "x": 3482,
+   "y": 3851
+  },
+  {
+   "subtype": 0,
+   "typeId": "static",
+   "x": 3660,
+   "y": 3779
+  },
+  {
+   "subtype": 0,
+   "typeId": "static",
+   "x": 3672,
+   "y": 3809
+  },
+  {
+   "subtype": 0,
+   "typeId": "static",
+   "x": 3684,
+   "y": 3839
+  },
+  {
+   "subtype": 0,
+   "typeId": "static",
+   "x": 3696,
+   "y": 3869
+  },
+  {
+   "subtype": 0,
+   "typeId": "static",
+   "x": 3708,
+   "y": 3899
+  },
+  {
+   "subtype": 0,
+   "typeId": "static",
+   "x": 3720,
+   "y": 3929
+  },
+  {
+   "subtype": 0,
+   "typeId": "static",
+   "x": 3732,
+   "y": 3959
+  },
+  {
+   "subtype": 0,
+   "typeId": "static",
+   "x": 3744,
+   "y": 3989
+  },
+  {
+   "subtype": 0,
+   "typeId": "static",
+   "x": 3756,
+   "y": 4019
+  },
+  {
+   "subtype": 0,
+   "typeId": "static",
+   "x": 3768,
+   "y": 4049
+  },
+  {
+   "subtype": 0,
+   "typeId": "solid",
+   "x": 3602,
+   "y": 4151
+  },
+  {
+   "subtype": 0,
+   "typeId": "solid",
+   "x": 3614,
+   "y": 4181
+  },
+  {
+   "subtype": 0,
+   "typeId": "static",
+   "x": 3792,
+   "y": 4109
+  },
+  {
+   "subtype": 0,
+   "typeId": "solid",
+   "x": 3626,
+   "y": 4211
+  },
+  {
+   "subtype": 0,
+   "typeId": "static",
+   "x": 3804,
+   "y": 4139
+  },
+  {
+   "subtype": 0,
+   "typeId": "solid",
+   "x": 3638,
+   "y": 4241
+  },
+  {
+   "subtype": 0,
+   "typeId": "static",
+   "x": 3816,
+   "y": 4169
+  },
+  {
+   "subtype": 0,
+   "typeId": "solid",
+   "x": 3650,
+   "y": 4271
+  },
+  {
+   "subtype": 0,
+   "typeId": "static",
+   "x": 3828,
+   "y": 4199
+  },
+  {
+   "subtype": 0,
+   "typeId": "static",
+   "x": 3840,
+   "y": 4229
+  },
+  {
+   "subtype": 0,
+   "typeId": "static",
+   "x": 3852,
+   "y": 4259
+  },
+  {
+   "subtype": 0,
+   "typeId": "solid",
+   "x": 3686,
+   "y": 4361
+  },
+  {
+   "subtype": 0,
+   "typeId": "static",
+   "x": 3864,
+   "y": 4289
+  },
+  {
+   "subtype": 0,
+   "typeId": "solid",
+   "x": 3698,
+   "y": 4391
+  },
+  {
+   "subtype": 0,
+   "typeId": "static",
+   "x": 3876,
+   "y": 4319
+  },
+  {
+   "subtype": 0,
+   "typeId": "solid",
+   "x": 3710,
+   "y": 4421
+  },
+  {
+   "subtype": 0,
+   "typeId": "static",
+   "x": 3888,
+   "y": 4349
+  },
+  {
+   "subtype": 0,
+   "typeId": "solid",
+   "x": 3722,
+   "y": 4451
+  },
+  {
+   "subtype": 0,
+   "typeId": "static",
+   "x": 3900,
+   "y": 4379
+  },
+  {
+   "subtype": 0,
+   "typeId": "solid",
+   "x": 3734,
+   "y": 4481
+  },
+  {
+   "subtype": 0,
+   "typeId": "static",
+   "x": 3912,
+   "y": 4409
+  },
+  {
+   "subtype": 0,
+   "typeId": "static",
+   "x": 3924,
+   "y": 4439
+  },
+  {
+   "subtype": 0,
+   "typeId": "solid",
+   "x": 3758,
+   "y": 4541
+  },
+  {
+   "subtype": 0,
+   "typeId": "static",
+   "x": 3936,
+   "y": 4469
+  },
+  {
+   "subtype": 0,
+   "typeId": "solid",
+   "x": 3770,
+   "y": 4571
+  },
+  {
+   "subtype": 0,
+   "typeId": "solid",
+   "x": 3782,
+   "y": 4601
+  },
+  {
+   "subtype": 0,
+   "typeId": "solid",
+   "x": 3794,
+   "y": 4631
+  },
+  {
+   "subtype": 0,
+   "typeId": "solid",
+   "x": 3806,
+   "y": 4661
+  },
+  {
+   "subtype": 0,
+   "typeId": "solid",
+   "x": 3818,
+   "y": 4691
+  },
+  {
+   "subtype": 0,
+   "typeId": "solid",
+   "x": 3830,
+   "y": 4721
+  },
+  {
+   "subtype": 0,
+   "typeId": "solid",
+   "x": 3842,
+   "y": 4751
+  },
+  {
+   "subtype": 0,
+   "typeId": "solid",
+   "x": 3926,
+   "y": 4961
+  },
+  {
+   "subtype": 0,
+   "typeId": "solid",
+   "x": 3938,
+   "y": 4991
+  },
+  {
+   "subtype": 0,
+   "typeId": "solid",
+   "x": 3950,
+   "y": 5021
+  },
+  {
+   "subtype": 0,
+   "typeId": "static",
+   "x": 4128,
+   "y": 4949
+  },
+  {
+   "subtype": 0,
+   "typeId": "solid",
+   "x": 3962,
+   "y": 5051
+  },
+  {
+   "subtype": 0,
+   "typeId": "static",
+   "x": 4140,
+   "y": 4979
+  },
+  {
+   "subtype": 0,
+   "typeId": "solid",
+   "x": 3974,
+   "y": 5081
+  },
+  {
+   "subtype": 0,
+   "typeId": "static",
+   "x": 4152,
+   "y": 5009
+  },
+  {
+   "subtype": 0,
+   "typeId": "solid",
+   "x": 3986,
+   "y": 5111
+  },
+  {
+   "subtype": 0,
+   "typeId": "static",
+   "x": 4164,
+   "y": 5039
+  },
+  {
+   "subtype": 0,
+   "typeId": "solid",
+   "x": 3998,
+   "y": 5141
+  },
+  {
+   "subtype": 0,
+   "typeId": "static",
+   "x": 4176,
+   "y": 5069
+  },
+  {
+   "subtype": 0,
+   "typeId": "solid",
+   "x": 4010,
+   "y": 5171
+  },
+  {
+   "subtype": 0,
+   "typeId": "static",
+   "x": 4188,
+   "y": 5099
+  },
+  {
+   "subtype": 0,
+   "typeId": "solid",
+   "x": 4022,
+   "y": 5201
+  },
+  {
+   "subtype": 0,
+   "typeId": "static",
+   "x": 4200,
+   "y": 5129
+  },
+  {
+   "subtype": 0,
+   "typeId": "solid",
+   "x": 4034,
+   "y": 5231
+  },
+  {
+   "subtype": 0,
+   "typeId": "static",
+   "x": 4212,
+   "y": 5159
+  },
+  {
+   "subtype": 0,
+   "typeId": "solid",
+   "x": 4046,
+   "y": 5261
+  },
+  {
+   "subtype": 0,
+   "typeId": "static",
+   "x": 4224,
+   "y": 5189
+  },
+  {
+   "subtype": 0,
+   "typeId": "solid",
+   "x": 4058,
+   "y": 5291
+  },
+  {
+   "subtype": 0,
+   "typeId": "static",
+   "x": 4236,
+   "y": 5219
+  },
+  {
+   "subtype": 0,
+   "typeId": "solid",
+   "x": 4070,
+   "y": 5321
+  },
+  {
+   "subtype": 0,
+   "typeId": "static",
+   "x": 4248,
+   "y": 5249
+  },
+  {
+   "subtype": 0,
+   "typeId": "solid",
+   "x": 4082,
+   "y": 5351
+  },
+  {
+   "subtype": 0,
+   "typeId": "static",
+   "x": 4260,
+   "y": 5279
+  },
+  {
+   "subtype": 0,
+   "typeId": "solid",
+   "x": 4094,
+   "y": 5381
+  },
+  {
+   "subtype": 0,
+   "typeId": "static",
+   "x": 4272,
+   "y": 5309
+  },
+  {
+   "subtype": 0,
+   "typeId": "solid",
+   "x": 4106,
+   "y": 5411
+  },
+  {
+   "subtype": 0,
+   "typeId": "static",
+   "x": 4284,
+   "y": 5339
+  },
+  {
+   "subtype": 0,
+   "typeId": "static",
+   "x": 4296,
+   "y": 5369
+  },
+  {
+   "subtype": 0,
+   "typeId": "static",
+   "x": 4320,
+   "y": 5429
+  },
+  {
+   "subtype": 0,
+   "typeId": "static",
+   "x": 4607,
+   "y": 5826
+  },
+  {
+   "subtype": 0,
+   "typeId": "solid",
+   "x": 4645,
+   "y": 5835
+  },
+  {
+   "subtype": 0,
+   "typeId": "static",
+   "x": 4669,
+   "y": 5843
+  },
+  {
+   "subtype": 0,
+   "typeId": "static",
+   "x": 4739,
+   "y": 5826
+  },
+  {
+   "subtype": 0,
+   "typeId": "solid",
+   "x": 4777,
+   "y": 5835
+  },
+  {
+   "subtype": 0,
+   "typeId": "static",
+   "x": 4801,
+   "y": 5843
+  },
+  {
+   "subtype": 0,
+   "typeId": "solid",
+   "x": 4766,
+   "y": 6041
+  },
+  {
+   "subtype": 0,
+   "typeId": "static",
+   "x": 4871,
+   "y": 5826
+  },
+  {
+   "subtype": 0,
+   "typeId": "solid",
+   "x": 4909,
+   "y": 5835
+  },
+  {
+   "subtype": 0,
+   "typeId": "static",
+   "x": 4933,
+   "y": 5843
+  },
+  {
+   "subtype": 0,
+   "typeId": "solid",
+   "x": 4898,
+   "y": 6041
+  },
+  {
+   "subtype": 0,
+   "typeId": "static",
+   "x": 5003,
+   "y": 5826
+  },
+  {
+   "subtype": 0,
+   "typeId": "solid",
+   "x": 5041,
+   "y": 5835
+  },
+  {
+   "subtype": 0,
+   "typeId": "static",
+   "x": 5065,
+   "y": 5843
+  },
+  {
+   "subtype": 0,
+   "typeId": "solid",
+   "x": 5030,
+   "y": 6041
+  },
+  {
+   "subtype": 0,
+   "typeId": "static",
+   "x": 5162,
+   "y": 6041
+  },
+  {
+   "subtype": 0,
+   "typeId": "solid",
+   "x": 5267,
+   "y": 5826
+  },
+  {
+   "subtype": 0,
+   "typeId": "static",
+   "x": 5305,
+   "y": 5835
+  },
+  {
+   "subtype": 0,
+   "typeId": "solid",
+   "x": 5329,
+   "y": 5843
+  },
+  {
+   "subtype": 0,
+   "typeId": "static",
+   "x": 5294,
+   "y": 6041
+  },
+  {
+   "subtype": 0,
+   "typeId": "solid",
+   "x": 5399,
+   "y": 5826
+  },
+  {
+   "subtype": 0,
+   "typeId": "static",
+   "x": 5437,
+   "y": 5835
+  },
+  {
+   "subtype": 0,
+   "typeId": "solid",
+   "x": 5461,
+   "y": 5843
+  },
+  {
+   "subtype": 0,
+   "typeId": "static",
+   "x": 5426,
+   "y": 6041
+  },
+  {
+   "subtype": 0,
+   "typeId": "solid",
+   "x": 5531,
+   "y": 5826
+  },
+  {
+   "subtype": 0,
+   "typeId": "static",
+   "x": 5569,
+   "y": 5835
+  },
+  {
+   "subtype": 0,
+   "typeId": "solid",
+   "x": 5593,
+   "y": 5843
+  },
+  {
+   "subtype": 0,
+   "typeId": "static",
+   "x": 5558,
+   "y": 6041
+  },
+  {
+   "subtype": 0,
+   "typeId": "solid",
+   "x": 5663,
+   "y": 5826
+  },
+  {
+   "subtype": 0,
+   "typeId": "static",
+   "x": 5701,
+   "y": 5835
+  },
+  {
+   "subtype": 0,
+   "typeId": "solid",
+   "x": 5725,
+   "y": 5843
+  },
+  {
+   "subtype": 0,
+   "typeId": "static",
+   "x": 5690,
+   "y": 6041
+  },
+  {
+   "subtype": 0,
+   "typeId": "solid",
+   "x": 5795,
+   "y": 5826
+  },
+  {
+   "subtype": 0,
+   "typeId": "static",
+   "x": 5833,
+   "y": 5835
+  },
+  {
+   "subtype": 0,
+   "typeId": "solid",
+   "x": 5857,
+   "y": 5843
+  },
+  {
+   "subtype": 0,
+   "typeId": "solid",
+   "x": 5927,
+   "y": 5826
+  },
+  {
+   "subtype": 0,
+   "typeId": "static",
+   "x": 5965,
+   "y": 5835
+  },
+  {
+   "subtype": 0,
+   "typeId": "solid",
+   "x": 5989,
+   "y": 5843
+  }
+ ],
+ "params": {
+  "clearance_px": 64,
+  "live_cap": 38,
+  "live_cap_margin": 2,
+  "offset": 96,
+  "primary_path": "release/0",
+  "spacing": 24,
+  "types": [
+   "solid",
+   "static"
+  ]
+ },
+ "path_fixture": {
+  "file": "games/sonic4/test/fixtures/stress_objects.path.json",
+  "paths": [
+   "debug/0",
+   "debug/1",
+   "debug/2",
+   "release/0",
+   "release/1",
+   "release/2"
+  ],
+  "sha256": "7f0e56a62db93792d50b85c6d03a2cb8d737c74de9e0fb742af2ad356cfec880"
+ },
+ "schema": 1,
+ "what": "STRESS_OBJECTS=1 overlay: world-pixel objects merged into OJZ act 1 by ojz_entity_gen.py generate --overlay (v2 step 0, C2)"
+}

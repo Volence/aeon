@@ -36,7 +36,7 @@ def _sync(out):
 
 
 def write(out, leg, shape, ph, **over):
-    r = {"provenance": _good_prov(leg, shape), "leg": ls.LEG_POLICY[leg], "phase": ph, "status": "FINISHED",
+    r = {"provenance": _good_prov(leg, shape), "leg": ls.LEG_RUN_LEG[leg], "phase": ph, "status": "FINISHED",
          "coverage": {"rule": "r", "got": 1, "need": 1, "met": True}, "lag": {"frames": 3, "ticks": 90},
          "dma": _dma()}
     r.update(over)
@@ -371,3 +371,12 @@ def test_witness_disagrees_verdict_exits_one(tmp_path, monkeypatch):
     monkeypatch.setattr(ls.lc, "classify", lambda *a, **k: "WITNESS-DISAGREES")
     summ, rc = ls.write_summary(tmp_path)
     assert summ.counts["OK"] == 48 and rc == 1
+
+
+def test_objheavy_runs_under_its_own_coverage_rule():
+    """objheavy drives the run policy, but leg_run is asked for `--leg objheavy` so its result
+    is judged by the objheavy rule (v2 C2), and the cell's file is named for it."""
+    assert ls.LEG_RUN_LEG["objheavy"] == "objheavy"
+    assert ls.LEG_RUN_LEG["run"] == "run" and ls.LEG_RUN_LEG["sidekick"] == "run"
+    assert ls.result_path(Path("/o"), "objheavy", "debug", 1).name == \
+        "s4.stressobj.debug_objheavy_p1.json"

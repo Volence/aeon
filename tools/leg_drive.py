@@ -33,6 +33,7 @@ is the thin async I/O loop around it.
 from __future__ import annotations
 
 import inspect
+import math
 import re
 import sys
 from dataclasses import dataclass, field
@@ -68,6 +69,10 @@ SPIN_POST = 2              # ticks of DOWN after the last tap before release
 SPIN_LEN = SPIN_PRE + SPIN_TAPS * (SPIN_ON + SPIN_OFF) + SPIN_POST   # 30
 DEBUG_FROZEN_TICKS = 8     # DEBUG: py unchanged this long -> B; still frozen as long -> FAILED
 IDLE_NEED_TICKS = 600      # idle coverage
+# objheavy (v2 C2, the STRESS_OBJECTS leg; C1 note §1.4). The dispatch threshold is derived
+# from the listing's NUM_DYNAMIC (`obj_dispatch_min`), never typed.
+OBJ_COVER_TICKS = 60       # ticks with >= obj_dispatch_min dispatched objects: one second at 60 Hz
+OBJ_PATH_PCT = 95          # path witness: P1 (x, y) == the canonical run leg's on >= this % of ticks
 
 STATUSES = ("FINISHED", "STUCK", "CAP", "FAILED")
 
@@ -314,6 +319,9 @@ class Replay:
 #: family's gate (PHYS_ROLL_START_MIN) must come from the listing, not be typed here.
 POLICIES: dict[str, Callable[[Buttons, dict], Policy]] = {
     "idle": Idle, "run": Run, "topspeed": TopSpeed, "diagfall": DiagFall, "spindash": Spindash,
+    # The stress legs drive the run policy on their own shape's ROM; the leg NAME selects the
+    # coverage rule (and, in leg_run, the per-tick instruments the rule reads).
+    "objheavy": Run,
 }
 
 
@@ -455,8 +463,9 @@ def spindash_releases(rows, pstate_spindash: int) -> int:
                if a["ps"] == pstate_spindash and b["ps"] != pstate_spindash)
 
 
-def coverage(leg: str, status: str, rows: list, equ: dict) -> dict:
-    """{rule, got, need, met}. Thresholds the engine owns come from listing equates."""
+def coverage(leg: str, status: str, rows: list, equ: dict, ref: dict | None = None) -> dict:
+    """{rule, got, need, met}. Thresholds the engine owns come from listing equates. `ref` is
+    the objheavy leg's canonical path, {tick: (px, py)} (ignored by every other leg)."""
     if leg == "idle":
         got, need = len(rows), IDLE_NEED_TICKS
         return dict(rule=f"ticks driven >= {need}", got=got, need=need, met=got >= need)
@@ -479,7 +488,91 @@ def coverage(leg: str, status: str, rows: list, equ: dict) -> dict:
                     got={"status": status, "releases": n}, need={"status": "FINISHED",
                                                                  "releases": 1},
                     met=status == "FINISHED" and n >= 1)
-    raise DriveError(f"no coverage rule for leg {leg!r} (objheavy/sidekick/stream are Tasks 8-10)")
+    if leg == "objheavy":
+        return _objheavy_coverage(status, rows, equ, ref)
+    raise DriveError(f"no coverage rule for leg {leg!r} (sidekick/stream are Tasks 9-10)")
+
+
+def obj_dispatch_min(equ: dict) -> int:
+    """3/4 of the listing's NUM_DYNAMIC: the plan's load level, counted as DISPATCHED objects
+    (inside RunObjects' CULL_DISTANCE_X/Y of the camera), not merely live (C1 note §1.4)."""
+    return equ["NUM_DYNAMIC"] * 3 // 4
+
+
+def first_divergence(rows: list, ref: dict):
+    """The first tick whose P1 (px, py) differs from the reference (absent counts as
+    different), or None."""
+    for r in rows:
+        if ref.get(r["t"]) != (r["px"], r["py"]):
+            return r["t"]
+    return None
+
+
+def _objheavy_coverage(status, rows, equ, ref):
+    nd = equ.get("NUM_DYNAMIC")
+    rule = (f"status == FINISHED and >= {OBJ_COVER_TICKS} ticks with dispatched >= 3/4 NUM_DYNAMIC"
+            f" and live <= NUM_DYNAMIC every tick and P1 (x, y) == canonical run leg on >= "
+            f"{OBJ_PATH_PCT}% of ticks")
+    need = {"status": "FINISHED", "ticks_dispatched_ge_min": OBJ_COVER_TICKS,
+            "ticks_live_over_pool": 0, "path_pct": OBJ_PATH_PCT}
+    why = []
+    if nd is None:
+        why.append("the listing publishes no EQU NUM_DYNAMIC")
+    if not rows:
+        why.append("no rows")
+    lacking = [r.get("t") for r in rows if any(r.get(k) is None for k in ("live", "disp", "pend"))]
+    if lacking:
+        why.append(f"{len(lacking)} row(s) carry no live/disp/pend reading (first tick "
+                   f"{lacking[0]})")
+    if ref is None:
+        why.append("no canonical run-leg path to compare P1 against (path fixture missing "
+                   "this shape/phase)")
+    elif not ref:
+        why.append("the canonical run-leg path is empty")
+    if why:
+        return dict(rule=rule, need=need, met=False,
+                    got={"status": status, "unmeasurable": "UNMEASURABLE: " + "; ".join(why)})
+    dmin = obj_dispatch_min(equ)
+    loaded = sum(1 for r in rows if r["disp"] >= dmin)
+    over = sum(1 for r in rows if r["live"] > nd)
+    same = sum(1 for r in rows if ref.get(r["t"]) == (r["px"], r["py"]))
+    pct = round(100.0 * same / len(rows), 2)
+    got = {"status": status, "dispatch_min": dmin, "ticks_dispatched_ge_min": loaded,
+           "ticks_live_over_pool": over, "path_pct": pct,
+           "first_divergence": first_divergence(rows, ref),
+           "live_max": max(r["live"] for r in rows), "disp_max": max(r["disp"] for r in rows),
+           "ticks_pending": sum(1 for r in rows if r["pend"] > 0),
+           "ref_ticks_missing": sum(1 for r in rows if r["t"] not in ref)}
+    met = (status == "FINISHED" and loaded >= OBJ_COVER_TICKS and over == 0
+           and pct >= OBJ_PATH_PCT)
+    return dict(rule=rule, got=got, need=need, met=met)
+
+
+def obj_cost_fit(rows: list, x_key: str = "live") -> dict:
+    """Least-squares fit of main-loop CPU cycles per tick (`cyc`) against `x_key` (live or
+    dispatched object count): slope = the cost per object. UNMEASURABLE (never 0) with fewer
+    than 3 samples or no spread in x."""
+    pts = [(r[x_key], r["cyc"]) for r in rows
+           if r.get(x_key) is not None and r.get("cyc") is not None]
+    n = len(pts)
+    if n < 3:
+        return {"status": "UNMEASURABLE", "reason": f"{n} tick(s) with a cycle reading", "n": n}
+    mx = sum(x for x, _ in pts) / n
+    my = sum(y for _, y in pts) / n
+    sxx = sum((x - mx) ** 2 for x, _ in pts)
+    if sxx == 0:
+        return {"status": "UNMEASURABLE", "reason": f"{x_key} is {pts[0][0]} on every tick",
+                "n": n}
+    sxy = sum((x - mx) * (y - my) for x, y in pts)
+    syy = sum((y - my) ** 2 for _, y in pts)
+    slope = sxy / sxx
+    intercept = my - slope * mx
+    r2 = 1.0 if syy == 0 else (sxy * sxy) / (sxx * syy)
+    resid = [y - (intercept + slope * x) for x, y in pts]
+    se = math.sqrt(sum(e * e for e in resid) / (n - 2) / sxx) if n > 2 else None
+    return {"status": "MEASURED", "x": x_key, "n": n, "slope": slope, "intercept": intercept,
+            "r2": r2, "slope_stderr": se, "x_min": min(x for x, _ in pts),
+            "x_max": max(x for x, _ in pts)}
 
 
 # ---- symbol / offset resolution -----------------------------------------------------------
@@ -660,6 +753,45 @@ async def read_tick_state(c, syms: Syms) -> tuple[TickState, int, int | None]:
                   yvel=yv, gspeed=gs, airborne=air, rolling=rolling, cx=_be(cam, 0, 2), cy=_be(camy, 0, 2),
                   cx_max=_be(cxm, 0, 2))
     return s, ps, lag
+
+
+#: objheavy's per-tick instruments (leg_run): the live list, its pending tail, and the
+#: main loop's wait (the end of a tick's work). Resolved from the listing, never typed.
+OBJ_ADDR_SYMS = ("Dynamic_Live", "Dynamic_Live_Count", "Dynamic_Live_Pending_Count",
+                 "VSync_Wait")
+OBJ_EQU_NEEDED = ("NUM_DYNAMIC", "CULL_DISTANCE_X", "CULL_DISTANCE_Y")
+MCLK_PER_CPU_CYCLE = 7     # the 68000 runs at MCLK / 7 (NTSC 53.693175 MHz / 7)
+
+
+def obj_syms_missing(syms: Syms) -> list:
+    return ([n for n in OBJ_ADDR_SYMS if n not in syms.addr]
+            + [f"EQU {n}" for n in OBJ_EQU_NEEDED if n not in syms.equ])
+
+
+async def read_obj_load(c, syms: Syms, cx: int, cy: int) -> dict:
+    """Live / pending / dispatched dynamic objects this tick, read by symbol, plus the
+    machine's mclk stamp at the read (the machine is paused at the Input_Tick hit).
+    `disp` counts Dynamic_Live[] SSTs within CULL_DISTANCE_X/Y of the camera: the objects
+    RunObjects will dispatch (C1 note §1.4; needs no emulator/object_list)."""
+    a, e, o = syms.addr, syms.equ, syms.off
+    live = _be(await _rd(c, a["Dynamic_Live_Count"], 2), 0, 2)
+    pend = _be(await _rd(c, a["Dynamic_Live_Pending_Count"], 2), 0, 2)
+    n = min(live, e["NUM_DYNAMIC"])
+    r = await c.call("emulator/read_memory", {"addr": hex(a["Dynamic_Live"] & 0xFFFFFF),
+                                              "len": max(2, 2 * n)})
+    mclk = int(r["mclk"])
+    raw = bytes.fromhex(_unhex(r["bytes"])[:4 * n])
+    ptrs = [0xFF0000 | _be(raw, 2 * i, 2) for i in range(n)]
+    disp = 0
+    if ptrs:
+        lo, hi = min(ptrs), max(ptrs) + max(o["x_pos"], o["y_pos"]) + 2
+        blk = await _rd(c, lo, hi - lo)
+        for p in ptrs:
+            x = _be(blk, p - lo + o["x_pos"], 2)
+            y = _be(blk, p - lo + o["y_pos"], 2)
+            if abs(x - cx) <= e["CULL_DISTANCE_X"] and abs(y - cy) <= e["CULL_DISTANCE_Y"]:
+                disp += 1
+    return {"live": live, "pend": pend, "disp": disp, "mclk": mclk}
 
 
 async def _write_pad(c, syms: Syms, held: int, press: int):

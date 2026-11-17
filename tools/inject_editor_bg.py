@@ -225,6 +225,10 @@ BGANIM_SECTION_CEILINGS = {
     # bganim_room.py measures each ROM for itself.
     "s4.s2clip.lst": BGANIM_SECTION_CEILING_RULED,        # S2CLIP=<id>
     "s4.s2clip.debug.lst": BGANIM_SECTION_CEILING_RULED,  # S2CLIP=<id> DEBUG=1
+    # The STRESS_OBJECTS shape (v2 C2) re-bakes only entity_data.emp (objects): the act's
+    # background, and so its ruled ceiling, is the shipped act's.
+    "s4.stressobj.lst": BGANIM_SECTION_CEILING_RULED,        # STRESS_OBJECTS=1
+    "s4.stressobj.debug.lst": BGANIM_SECTION_CEILING_RULED,  # STRESS_OBJECTS=1 DEBUG=1
 }
 BGANIM_SECTION_CEILING = min(BGANIM_SECTION_CEILINGS.values())
 

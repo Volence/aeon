@@ -203,7 +203,8 @@ if [[ -n "${S2CLIP:-}" ]]; then
         echo "ERROR: S2CLIP is a sonic4-only shape (the OJZ act slot is the target)."
         exit 1
     fi
-    if [[ "${STRESS_ART:-0}" == "1" || "${STRESS_EVICT:-0}" == "1" ]]; then
+    if [[ "${STRESS_ART:-0}" == "1" || "${STRESS_EVICT:-0}" == "1" \
+            || "${STRESS_OBJECTS:-0}" == "1" ]]; then
         echo "ERROR: S2CLIP and the STRESS_* fixtures are mutually exclusive shapes —"
         echo "  both re-bake the same act slot."
         exit 1
@@ -250,6 +251,38 @@ if [[ -n "${S2CLIP:-}" ]]; then
     if [[ -n "$S2CLIP_ANCHORS" ]]; then
         ANCHOR_OVERLAY_ARGS=(--anchor-overlay "$S2CLIP_ANCHORS")
         echo "S2CLIP: clip anchor overlay ${S2CLIP_ANCHORS}"
+    fi
+fi
+
+# STRESS_OBJECTS=1 (Empyrean v2 step 0, task C2): the sonic4 shape built with OJZ act 1
+# packed with dynamic objects placed OFF the canonical run leg's path, so the objheavy leg
+# measures v1 under object load while the route stays the canonical one. Off-canonical DEV
+# shape in exactly S2CLIP's sense: UNFROZEN, no golden, a DISTINCT artifact
+# (s4.stressobj[.debug].bin/.lst), and a THROWAWAY in-place re-bake of ONE generated file
+# (entity_data.emp, by `ojz_entity_gen.py generate --overlay`) under an EXIT trap that
+# restores the committed generated tree from git (the re-bake block further down). The
+# overlay is committed data (games/sonic4/test/fixtures/stress_objects.overlay.json, from
+# tools/stress_objects_overlay.py); NOTHING the canonical shapes read changes, so their bytes
+# are identical BY CONSTRUCTION. Release and DEBUG both build (DEBUG is not forced).
+# Mutually exclusive with S2CLIP (its pass 8 also rewrites entity_data.emp) and with every
+# other STRESS_* shape; FAST is refused (the shape exists to produce evidence).
+if [[ "${STRESS_OBJECTS:-0}" == "1" ]]; then
+    if [[ "$GAME" != "sonic4" ]]; then
+        echo "ERROR: STRESS_OBJECTS=1 is a sonic4-only shape (the OJZ act slot is the target)."
+        exit 1
+    fi
+    if [[ -n "${S2CLIP:-}" || "${STRESS_ART:-0}" == "1" || "${STRESS_EVICT:-0}" == "1" \
+            || "${STRESS_SIDEKICK:-0}" == "1" ]]; then
+        echo "ERROR: STRESS_OBJECTS is mutually exclusive with S2CLIP and the other STRESS_*"
+        echo "  shapes — each builds its own off-canonical artifact, and S2CLIP re-bakes the"
+        echo "  same entity_data.emp."
+        exit 1
+    fi
+    # Standalone literals, as S2CLIP's: tools/gate_cut_shape.py reads the off-canonical
+    # shapes off this file with `^\s*ROM_NAME="([^"$]+)"\s*$`.
+    ROM_NAME="s4.stressobj"
+    if [[ "${DEBUG:-0}" == "1" ]]; then
+        ROM_NAME="s4.stressobj.debug"
     fi
 fi
 MAIN_ASM="games/${GAME}/game_root.asm"
@@ -604,7 +637,8 @@ fi
 # every other misuse the banner is the guard, by design rather than by omission.
 FAST="${FAST:-0}"
 if [[ "$FAST" == "1" ]]; then
-    if [[ "${STRESS_EVICT:-0}" == "1" || "${STRESS_ART:-0}" == "1" ]]; then
+    if [[ "${STRESS_EVICT:-0}" == "1" || "${STRESS_ART:-0}" == "1" \
+            || "${STRESS_OBJECTS:-0}" == "1" ]]; then
         echo "ERROR: FAST=1 is refused on the STRESS_* fixture shapes."
         echo "  Those shapes exist to produce EVIDENCE (soaks, stress ROMs read as results),"
         echo "  and FAST skips every verification lane. Build them canonically."
@@ -1150,6 +1184,39 @@ if [[ "${STRESS_ART:-0}" == "1" ]]; then
     STRESS_UNIQUIFY="${STRESS_ART_N:-2600}" "${TOOLS}/regenerate-level.sh"
 fi
 
+# STRESS_OBJECTS throwaway re-bake: rewrite entity_data.emp IN PLACE with the committed
+# overlay merged in, under an EXIT trap that restores the committed generated tree from git
+# (success, failure and a signal alike: the TERM/INT handlers below `exit`, which runs it).
+# Placed after the pre-build pytest lane, so every pure test reads the committed tree.
+STRESSOBJ_OVERLAY="games/sonic4/test/fixtures/stress_objects.overlay.json"
+STRESSOBJ_GEN_TREE="games/sonic4/data/generated/ojz/act1"
+if [[ "${STRESS_OBJECTS:-0}" == "1" ]]; then
+    if [[ -n "$(git status --porcelain -- "$STRESSOBJ_GEN_TREE")" ]]; then
+        echo "ERROR: STRESS_OBJECTS needs a clean generated tree, but git status shows changes"
+        echo "  under $STRESSOBJ_GEN_TREE. Commit or stash them first — the re-bake restores"
+        echo "  from git and would discard uncommitted changes."
+        exit 1
+    fi
+    # Same rule as _restore_s2clip_tree: a failed restore fails the build.
+    _restore_stressobj_tree() {
+        echo "STRESS_OBJECTS: restoring the committed level tree from git..."
+        if ! git checkout -q -- "$STRESSOBJ_GEN_TREE" \
+                || ! git clean -fdq -- "$STRESSOBJ_GEN_TREE"; then
+            echo "ERROR: STRESS_OBJECTS: could NOT restore the committed level tree (git said why above)."
+            echo "  $STRESSOBJ_GEN_TREE still holds the overlay bake. Restore by hand:"
+            echo "    git checkout -- $STRESSOBJ_GEN_TREE && git clean -fd -- $STRESSOBJ_GEN_TREE"
+            exit 1
+        fi
+    }
+    trap _restore_stressobj_tree EXIT
+    # A signal must reach the EXIT trap: `exit` from a TERM/INT handler runs it.
+    trap 'exit 143' TERM
+    trap 'exit 130' INT
+    echo "STRESS_OBJECTS: throwaway re-bake of entity_data.emp with ${STRESSOBJ_OVERLAY}..."
+    python3 "${TOOLS}/ojz_entity_gen.py" generate --overlay "$STRESSOBJ_OVERLAY" || {
+        echo "STRESS_OBJECTS: the overlay re-bake refused (see above)" >&2; exit 1; }
+fi
+
 # The committed OJZ level tree is consumed directly (its generators need
 # out-of-repo donors — tools/regenerate-level.sh). Fail LOUDLY on internal
 # drift (hand-edited head, missing blob, stale .zx0) the whole-ROM gate would
@@ -1394,6 +1461,20 @@ if [[ -n "${S2CLIP:-}" ]]; then
             --clip "${S2CLIP}" --lst "${ROM_NAME}.lst" --rom "${ROM_NAME}.bin" \
             --built-after "${SIGIL_T0}"; then
         echo "S2CLIP: the clip's sound-bank positions are stale or unverifiable (see above)."
+        exit 1
+    fi
+fi
+
+# STRESS_OBJECTS SELF-CHECK (v2 C2). The overlay was thinned against a model of the entity
+# window; this re-runs that model on the BAKED entity_data.emp with THIS build's own listing
+# equates, over every recorded camera path, and refuses the shape if the bake did not apply
+# the overlay, the model exceeds NUM_DYNAMIC - 2 live, or fewer than OBJ_COVER_TICKS ticks
+# reach 3/4 NUM_DYNAMIC dispatched. `strict`: exit 2 (could not measure) never passes.
+if [[ "${STRESS_OBJECTS:-0}" == "1" ]]; then
+    if ! gate strict "stress_objects_overlay.py" python3 "${TOOLS}/stress_objects_overlay.py" \
+            check --lst "${ROM_NAME}.lst" --entity-data "${STRESSOBJ_GEN_TREE}/entity_data.emp"; then
+        echo "STRESS_OBJECTS: the baked overlay fails its own model (see above) — regenerate"
+        echo "  it with tools/stress_objects_overlay.py generate, not this gate."
         exit 1
     fi
 fi

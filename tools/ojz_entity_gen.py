@@ -8,6 +8,7 @@ entity window (act descriptor references the OJZ_Sec{N}_* labels).
 Usage:
     python3 tools/ojz_entity_gen.py test      # run self-tests
     python3 tools/ojz_entity_gen.py generate  # generate entity_data.asm
+    python3 tools/ojz_entity_gen.py generate --overlay OVERLAY.json   # STRESS_OBJECTS only
 
 Inputs (paths resolved via project.json):
     project.json                  zones[0].acts[0]: gridWidth/gridHeight/dataPath
@@ -344,8 +345,29 @@ def entities_policy(project_json: str | None) -> tuple[str, dict | None]:
     return pol, act
 
 
+def load_overlay_objects(path: str, grid_w: int, grid_h: int) -> dict[int, list[dict]]:
+    """The STRESS_OBJECTS overlay (tools/stress_objects_overlay.py): world-pixel objects
+    {x, y, typeId, subtype} under `objects`, returned per section in SECTION-LOCAL pixels.
+    An object outside the act's grid is refused by name (it would be silently dropped)."""
+    with open(path, "r") as f:
+        ov = json.load(f)
+    objs = ov.get("objects") if isinstance(ov, dict) else None
+    if not isinstance(objs, list):
+        raise SystemExit(f"ojz_entity_gen: overlay {path} carries no `objects` list")
+    out: dict[int, list[dict]] = {}
+    for i, o in enumerate(objs):
+        sx, sy = o["x"] // SECTION_SIZE, o["y"] // SECTION_SIZE
+        if not (0 <= sx < grid_w and 0 <= sy < grid_h):
+            raise SystemExit(f"ojz_entity_gen: overlay {path} objects[{i}] at ({o['x']}, "
+                             f"{o['y']}) is outside the {grid_w}x{grid_h} act")
+        out.setdefault(sy * grid_w + sx, []).append(
+            {"x": o["x"] - sx * SECTION_SIZE, "y": o["y"] - sy * SECTION_SIZE,
+             "typeId": o["typeId"], "subtype": o["subtype"]})
+    return out
+
+
 def generate(out_path: str | None = None, sections: int | None = None,
-             project_json: str | None = None) -> None:
+             project_json: str | None = None, overlay: str | None = None) -> None:
     """Emit entity_data.emp. *out_path* overrides the module default.
 
     *project_json* is the project Pass 8 is baking (ojz_strip_gen's PROJECT_JSON). It is
@@ -419,6 +441,12 @@ def generate(out_path: str | None = None, sections: int | None = None,
                 f"{grid_w}. A clip act's grid must share this act's width for the flat "
                 f"ids to line up.")
     library = load_object_library()
+    # *overlay* (STRESS_OBJECTS=1 only, v2 C2): extra objects appended to each section's
+    # authored list BEFORE validation, so the 128-entry / 32-type limits hold for the merged
+    # list. No canonical caller passes it.
+    if overlay is not None and policy == "none":
+        raise SystemExit("ojz_entity_gen: an overlay on an act with `entities: none` is refused")
+    extra = load_overlay_objects(overlay, grid_w, grid_h) if overlay is not None else {}
 
     errors: list[str] = []
     per_section_rings: list[list[tuple[int, int]]] = []
@@ -432,7 +460,7 @@ def generate(out_path: str | None = None, sections: int | None = None,
             per_section_types.append([])
             continue
         rings_raw = load_section_json(cfg["data_path"], sec_idx, "rings")
-        objects_raw = load_section_json(cfg["data_path"], sec_idx, "objects")
+        objects_raw = load_section_json(cfg["data_path"], sec_idx, "objects") + extra.get(sec_idx, [])
         per_section_rings.append(
             validate_and_sort_rings(rings_raw, sec_idx, errors))
         sorted_objects, type_order = validate_and_sort_objects(
@@ -466,6 +494,11 @@ def generate(out_path: str | None = None, sections: int | None = None,
         lines.append(f"// ENTITIES: NONE ({os.path.relpath(project_json, REPO_ROOT)} act "
                      f"`{ENTITIES_KEY}` = \"none\"): every")
         lines.append("// section's tables are empty and no editor JSON was read.")
+        lines.append("//")
+    if overlay is not None:
+        lines.append(f"// STRESS_OBJECTS OVERLAY: {sum(len(v) for v in extra.values())} object(s) "
+                     f"merged from {os.path.relpath(overlay, REPO_ROOT)} — an off-canonical")
+        lines.append("// throwaway bake (build.sh STRESS_OBJECTS=1), never committed.")
         lines.append("//")
     lines.append("// Stats:")
     lines.append(f"//   grid: {grid_w}x{grid_h} ({num_sections} sections)")
@@ -672,10 +705,21 @@ def _mode_test(rest):
 
 
 def _mode_generate(rest):
-    if rest:
-        print(f"ERROR: unknown argument {rest[0]!r}")
+    """`generate [--overlay PATH] [--out PATH]`. --overlay is the STRESS_OBJECTS shape's input
+    (tools/stress_objects_overlay.py); --out redirects the output (tests)."""
+    overlay = out = None
+    rest = list(rest)
+    while rest:
+        a = rest.pop(0)
+        if a in ("--overlay", "--out") and rest:
+            if a == "--overlay":
+                overlay = rest.pop(0)
+            else:
+                out = rest.pop(0)
+            continue
+        print(f"ERROR: unknown argument {a!r}")
         sys.exit(1)
-    generate()
+    generate(out_path=out, overlay=overlay)
 
 
 MODES = {
