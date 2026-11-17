@@ -31,8 +31,8 @@ def test_corrected_margin_with_sound_adds_z80():
     z80 = math.ceil(elapsed * lc.Z80_STALL_MAX_FRACTION)        # 427: the stall is an upper bound
     assert z80 == 427
     assert lc.corrected_margin(10_000, elapsed, sound_playing=True) == 10_000 - 256 - z80
-    # Sound costs more than silence, and the sum of the two bounds is the rule's ~4 % high end
-    # (1.5625 % + 2.6 % = 4.1625 %; the doc states the band as "2-4%").
+    # Sound costs more than silence; the sum of the two bounds is rule 3's with-sound term
+    # (1.5625 % + 2.6 % = 4.1625 %, pinned against the doc by test_rule3_states_the_exact_terms).
     corr = 10_000 - lc.corrected_margin(10_000, elapsed, sound_playing=True)
     assert corr > 10_000 - lc.corrected_margin(10_000, elapsed, sound_playing=False)
     assert corr == math.floor(elapsed * lc.REFRESH_FRACTION) + z80
@@ -285,6 +285,12 @@ def test_constants_match_hardware_limits_doc():
         assert got == _code(n), f"{n}: prose {got} != code {getattr(lc, n)}"
 
 
+def _rule(sec: str, n: int) -> str:
+    m = re.search(rf"^{n}\. (.*?)(?=^\d+\. |^\s*$)", sec, re.M | re.S)
+    assert m, f"{DOC.name}: no rule {n} in '{SECTION}'"
+    return m.group(1)
+
+
 def test_frame_cycles_derived_from_lines_and_mclk():
     assert lc.FRAME_CYCLES == round(lc.LINES_PER_FRAME * lc.MCLK_PER_LINE / 7)
     assert lc.FRAME_CYCLES != 127_840          # the retired FRAME_CYC must not come back
@@ -356,10 +362,17 @@ def test_compare_failure_in_main_is_recorded_could_not_run(tmp_path, monkeypatch
 
 
 def test_doc_states_what_the_code_actually_subtracts():
-    # Fix round 1, finding 2: the doc's "what the code subtracts" figures are the constants'.
+    """Rule 3 states the code's exact correction terms (fix round 1 finding 2; reworded by
+    owner-proxy ruling Q3, 2026-11-17), in order: the refresh alone (silent), then refresh +
+    the Z80 stall bound (with sound). Both figures are DERIVED here from leg_correction's
+    constants, never copied, so a change to the doc or to the code turns this red."""
     sec = _section(DOC.read_text(), SECTION)
-    m = re.search(r"\*\*([\d.]+%)\*\* of elapsed \(2/128, the refresh alone\) for a silent leg", sec)
-    assert m and _value(m.group(1)) == _code("REFRESH_FRACTION")
-    m = re.search(r"\*\*([\d.]+%)\*\* \([\d.]+% \+ [\d.]+%\) with sound", sec)
-    assert m and _value(m.group(1)) == _code("REFRESH_FRACTION") + _code("Z80_STALL_MAX_FRACTION")
+    rule = _rule(sec, 3)
+    stated = [_value(x) for x in re.findall(r"\*\*([\d.]+%)\*\*", rule)]
+    silent = _code("REFRESH_FRACTION")
+    sound = silent + _code("Z80_STALL_MAX_FRACTION")
+    assert stated == [silent, sound], (
+        f"rule 3 states {[f'{float(x) * 100:g}%' for x in stated]}, code subtracts "
+        f"{float(silent) * 100:g}% silent and {float(sound) * 100:g}% with sound")
+    assert "2-4%" not in rule, "rule 3 still quotes the retired rounded band"
     assert "Rule 4 is not a second correction" in sec

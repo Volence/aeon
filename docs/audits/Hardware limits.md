@@ -144,15 +144,12 @@ so the doc and the code cannot drift. Change one and the test fails until the ot
 
 1. Judge VBlank work by the **last DMA's end**, not by `rte`.
 2. The blank-rate window is **37 lines**, not 38; on hardware it ends at about line 261 + 0, give or take a line. Use the threshold "no DMA ends after line 260 + 0". That leaves one line of safety and needs no disputed GPL-only constant (fitness decision 2).
-3. Oracle omits the 68000 refresh (2 cycles in 128, 1.56%) and Z80 bank stalls (up to about 2.6% with sound). Correct by **2-4%** of the cycles elapsed since VInt: the low end for a silent leg, the high end with sound.
+3. Oracle omits the 68000 refresh (2 cycles in 128) and Z80 bank stalls (up to about 2.6% with sound). Correct by exactly the terms the code subtracts, of the cycles elapsed since VInt: **1.5625%** for a silent leg, and **4.1625%** with sound. The 1.5625% is the refresh alone: the 68000 loses 2 cycles in every 128 to DRAM refresh (PUBLISHED, Kabuto). The 4.1625% adds the Z80 bank-stall bound of 2.6%, the most the Z80's bank-window accesses steal from the 68000 bus with sound playing (ESTIMATED, Oracle fitness finding 5).
 4. Frame budgets on Oracle are about **2% optimistic** (band 1.5-2.5%, ESTIMATED from one BlastEm lag frame).
 5. **A "fits" call with a corrected margin under 3% of its budget (about 3.8k cycles of a frame) is not a verdict on Oracle alone.** It needs BlastEm agreement on lag and path for the same tick-keyed inputs, or it is reported NEEDS-WITNESS.
 6. A DMA past the blank is **not measurable** on Oracle (flat cost, finding 4). Report the flag, not a cost.
 
-**What the code subtracts (fix round 1).** The "2-4%" in rule 3 is a rounding. The code takes off
-**1.5625%** of elapsed (2/128, the refresh alone) for a silent leg, which is below the stated 2% low end, and
-**4.1625%** (1.5625% + 2.6%) with sound, which is above the stated 4% high end. Changing the rule's wording to
-match is the owner's call; until then the rule is quoted as the audit wrote it and the code follows the constants.
+**What the code subtracts.** Rule 3's two figures are the code's exact terms, not a rounded band (reworded 2026-11-17, owner-proxy ruling Q3; the rule used to say "2-4%"). `test_constants_match_hardware_limits_doc` derives both from the constants below, so a change on either side fails it.
 
 **Rule 4 is not a second correction.** The "about 2% optimistic" of rule 4 is the empirical gap between Oracle
 and BlastEm over whole frames (one BlastEm lag frame where Oracle had 1.46% to spare; Oracle fitness finding 5,
@@ -172,7 +169,7 @@ right size, not an amount to add to it. Apply rule 3 once (`corrected_margin`) a
 
 **How to apply it.** `corrected_margin(margin, elapsed, sound)` takes off `floor(elapsed × 2/128)` for the
 refresh and, when sound plays, `ceil(elapsed × 2.6%)` for the Z80 (an upper bound, so rounded up). `elapsed`
-is the cycles since VInt that the margin was measured over. The code takes these exact terms, never rule 3's rounded band (see "What the code subtracts" above). `classify(margin, budget, elapsed, sound, witness)` answers:
+is the cycles since VInt that the margin was measured over. These are the same terms rule 3 states. `classify(margin, budget, elapsed, sound, witness)` answers:
 
 - **OVER**: the corrected margin is negative. A witness cannot rescue it, because Oracle errs optimistic.
 - **FITS**: the corrected margin is at least 3% of the budget, or under it with a BlastEm witness that agrees.
