@@ -186,6 +186,14 @@ generator, `project.json`, the object library and the act's editor JSONs). A can
 refuses an `entity_data.emp` carrying the overlay header (`stress_objects_overlay.py guard`,
 before any work), which covers a stress build killed by SIGKILL. Only `s4.stressobj` is declared; S2CLIP's
 stream leg (Task 10) needs its own row (its bake writes many files and needs donors).
+(4) RUNNER (final review I2, 2026-11-17): the shape's BUILD-TIME gates (the overlay re-bake's
+refusals and `stress_objects_overlay.py check`, the self-check against this build's
+NUM_DYNAMIC / cull / entity-buffer equates) now run unattended in two nightly legs,
+`STRESS_OBJECTS=1 [DEBUG=1] ./build.sh` in `tools/nightly_effects_gates.sh`, and
+`tools/test_landing_lane_shapes.py::test_every_stress_shape_has_a_nightly_leg` pins a leg for
+every STRESS_* flag build.sh reads. **Still manual:** the objheavy path-fixture witness of item
+(1) is a `leg_run --leg objheavy` (emulator) check; nothing runs it between surveys, so a
+canonical route change is found at the next survey, not the next night.
 
 ## V2-C3-STRESS-SIDEKICK: what the mirror-input sidekick shape leaves open (booked 2026-11-17, `feat/v2-step0-stress`)
 
@@ -214,8 +222,10 @@ witness (VRAM-write DMA ticks into P2's window >= 0.9 x P1's), because the surve
 (`result.sidekick.dplc`, needs `--profile` + `--cost-ref`). Survey cells therefore carry
 `sidekick.dplc` / `.cost` / `.lag_vs_ref` as DID NOT RUN unless run with `--profile
 --cost-ref <canonical sidekick-leg result>`. (7) The three DEBUG cells (p0-p2) exit 1 on the
-VBlank-overrun check (2/2/1 DMAs end past line 260; canonical DEBUG run p0 already has 1, a
-v1 finding on the board) while coverage is MET. (8) The cost's `stderr` assumes independent
+VBlank-overrun check (2/2/1 DMAs end past line 260) while coverage is MET. This is not
+sidekick-specific: the step-0 survey (Task 11) measured EVERY moving DEBUG cell overrunning,
+canonical run p0-p2 included (18 of 18; cause in docs/benchmarks/legs/2026-11-17-d11a6661/
+findings.md §1), a v1 finding on the board. (8) The cost's `stderr` assumes independent
 ticks and is optimistic; quote `stderr_block` (32-tick batch means), added in fix 1.
 
 ## V2-C4-STREAM-CLIP: what the streaming act leaves open (booked 2026-11-17, `feat/v2-step0-harness`)
@@ -241,7 +251,12 @@ other clip (`<rom stem>.clip_anchors.json`), and `summarise` FAILS a result whos
 (`tools/s2clip_rebake.py`, a private copy of HEAD under `tools/.cache/`, ~26 s per cell) and
 needs the gitignored donor trees (`python3 tools/s2_zone_convert.py convert --all-six`) and
 `tools/bin/salvador`; without them every stream cell is COULD NOT RUN (NOT FRESH), never a
-result. The pre-build lane tests only the declaration and refusals (the bake needs donors).
+result. The pre-build lane tests only the declaration and refusals (the bake needs donors). The two
+re-bake sources differ, and only fail-safe: the S2CLIP re-bake regenerates from that HEAD
+sandbox, while the sidekick and stressobj re-bakes (`leg_provenance.SHAPE_REBAKES`) regenerate
+from the WORKING TREE. A mismatch reads NOT FRESH either way, but a dirty-tree S2CLIP cell is
+refused where an equally dirty sidekick or objheavy cell is graded (and carries `aeon.dirty`);
+named here by the final review (M7, 2026-11-17), not unified.
 (5) LANE-ORDER HAZARD (fix 1, M7; MEASURED in Task 10): running the bare pre-build lane
 (`pytest tools -m "not needs_build"`) AFTER an S2CLIP build and BEFORE its legs rewrites the
 gitignored `engine/sound/generated/*` to the canonical sound blob (`sigil build --check` in

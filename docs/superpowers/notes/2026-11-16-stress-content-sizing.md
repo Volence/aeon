@@ -682,7 +682,8 @@ There is no overturn 7: the sidekick does not need a commit to master (2.5).
 ## 6. Owner questions
 
 **Q1. A clip that both streams and finishes.** None exists: `s2_ehz_cpz` finishes but
-never pages, and `s2_woven` pages but is STUCK at x 2230 (3.1). Under the ruling, step 0
+never pages, and `s2_woven` pages but is STUCK at x 2550 under the run policy (the §3
+correction above; 3.1's x 2230 was the probe's minimum jump). Under the ruling, step 0
 reports the stream leg as STUCK with the counts as annotations. Do you want a clip that
 both streams and finishes, so the leg can cover? Options:
 
