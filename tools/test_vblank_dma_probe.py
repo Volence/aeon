@@ -94,6 +94,70 @@ def test_listing_symbol_disagreement_is_unmeasurable():
         vp.dma_trigger_sites(lst, dict(syms, Process_DMA_Critical=0x104), rom)
 
 
+def prod(syms):
+    """The production symbol dict shape: `leg_drive.parse_listing` keeps no `$` locals."""
+    return {k: v for k, v in syms.items() if not k.startswith("$")}
+
+
+def test_anchors_bind_with_a_production_symbol_dict():
+    lst, syms, rom = synth(3)
+    assert not any(k.startswith("$") for k in prod(syms))
+    assert vp.dma_trigger_sites(lst, prod(syms), rom) == vp.dma_trigger_sites(lst, syms, rom)
+
+
+@pytest.mark.parametrize("word", [0, 6], ids=["first-move.l", "the-move.w"])
+def test_changed_drain_group_shape_is_refused_with_production_symbols(word):
+    """A partial change of shape in ONE drain group must be refused (unmeasurable), never a
+    probe that silently watches fewer DMAs (Review Focus 4)."""
+    lst, syms, rom = synth(3)
+    rom = bytearray(rom)
+    a = syms["$engine.dma_queue$Process_DMA_Critical$drain_2"]
+    rom[a + word:a + word + 2] = _w(NOP)
+    with pytest.raises(vp.NoTriggerSites, match=r"drain_2.*label \+ 6"):
+        vp.dma_trigger_sites(lst, prod(syms), bytes(rom))
+
+
+def test_drain_label_count_must_equal_the_slots_equate():
+    lst, syms, rom = synth(3)
+    with pytest.raises(vp.NoTriggerSites, match="DMA_CRITICAL_SLOTS 4"):
+        vp.dma_trigger_sites(lst + "EQU DMA_CRITICAL_SLOTS = $00000004\n", prod(syms), rom)
+    assert vp.dma_trigger_sites(lst + "EQU DMA_CRITICAL_SLOTS = $00000003\n", prod(syms), rom)
+
+
+def test_unlabelled_group_in_critical_is_refused():
+    """A group the scan finds with no drain_k label is refused: the Critical sites are exactly
+    the anchored ones. Build it by moving the labels 8 bytes up past an extra leading group."""
+    lst, syms, rom = synth(3)
+    rom = bytearray(rom)
+    rom[0x104:0x10C] = _w(ML1, ML1, ML1, MW1)            # the unlabelled group
+    rom[0x10C:0x124] = _w(*([ML1, ML1, ML1, MW1] * 3))   # drain_3..drain_1, shifted by 8
+    rom[0x124:0x12A] = _w(0x31FC, 0x1234, 0x5678)
+    rom[0x12A:0x12C] = _w(0x4E75)
+    moved = []
+    for i, ln in enumerate(lst.splitlines()):
+        m = vp._LABEL.match(ln.strip())
+        name, a = m.group(3), int(m.group(2), 16)
+        moved.append(f"(0) {i}/{a + 8 if 'Process_DMA_Critical$' in name else a:X} :        "
+                     f"{name}:")
+    with pytest.raises(vp.NoTriggerSites, match="carry no drain_k label"):
+        vp.dma_trigger_sites("\n".join(moved) + "\n", prod(syms), bytes(rom))
+
+
+def test_budgeted_queue_must_have_exactly_one_group():
+    lst, syms, rom = synth(3)
+    rom = bytearray(rom)
+    rom[0x220:0x228] = _w(ML0, ML0, ML0, MW0)
+    with pytest.raises(vp.NoTriggerSites, match="exactly one group"):
+        vp.dma_trigger_sites(lst, prod(syms), bytes(rom))
+
+
+def test_budgeted_queue_needs_its_loop_label():
+    lst, syms, rom = synth(3)
+    cut = "\n".join(ln for ln in lst.splitlines() if "$Drain_Budgeted_Queue$loop" not in ln)
+    with pytest.raises(vp.NoTriggerSites, match=r"\$loop"):
+        vp.dma_trigger_sites(cut, prod(syms), rom)
+
+
 @pytest.mark.needs_build("s4.debug.bin", "s4.debug.lst")
 def test_sites_found_in_both_drain_bodies():
     import leg_drive as ld
@@ -111,7 +175,10 @@ def test_sites_found_in_both_drain_bodies():
     assert groups >= 1
     assert sum(1 for s in sites if lo <= s < hi) >= groups
     blo, bhi = bounds["Drain_Budgeted_Queue"]
-    assert any(blo <= s < bhi for s in sites)
+    assert sum(1 for s in sites if blo <= s < bhi) == 1
+    # Production dict (no locals), exact counts: one site per Critical slot, from the equate.
+    assert not any(k.startswith("$") for k in addr)
+    assert sum(1 for s in sites if lo <= s < hi) == groups == _equ["DMA_CRITICAL_SLOTS"]
 
 
 # ---- line arithmetic ----------------------------------------------------------------------

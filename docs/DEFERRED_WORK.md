@@ -61,6 +61,18 @@ wins. `tools/leg_drive.py` now triggers all three spindash-family policies (`spi
 line 102 and line 103 (`topspeed`) to name `PHYS_ROLL_START_MIN`, and line 91's `POLICIES` type to
 `Callable[[Buttons, dict], Policy]` (the factories now take the listing equates).
 
+## V2-B3-MUTATION-LIMIT: the plan's B3 invariant-8 mutation (limit 260 -> 250) cannot redden the idle smoke (BRIEF WORDING OPEN, booked 2026-11-16, `feat/v2-step0-harness`)
+
+The B3 brief's Step 6 says mutating `DMA_END_LIMIT_LINE` to 250 reddens
+`tools/test_leg_harness_smoke.py` "because the first DMA starts at line 243". That figure is the
+audit's DEBUG diagonal leg (Oracle fitness finding 3). On the smoke's own leg (idle, cap 120,
+phase 0) the first DMA starts at line 232 and the worst last-DMA end is line 247 + 2,359
+(`s4.debug.bin`) / 242 + 1,225 (`s4.bin`) (MEASURED, pinned oracle `dd09acb9`), so 250 stays
+GREEN. Controller ruling (B3 review): the gate's red proof used 236, below every measured
+VBlank end (min 237 DEBUG / 238 release), and was accepted. **Open:** reword the plan's B3
+Step 6 so the mutation limit is DERIVED from the smoke leg's measured idle worst end (any line
+below it), not the fixed 250.
+
 ## LOOP-STEP-OVER-LANDING: the loop witness's landing wait counted emulator frames, and a perf change moved the lag frames under it (FIXED 2026-09-28, `fix/loop-step-over-landing`)
 
 **Symptom.** The 2026-09-28 keepalive nightly (origin/master `d4f8c479`): `loop_step_over_witness.py`

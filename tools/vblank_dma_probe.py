@@ -16,8 +16,11 @@ METHOD (fitness plan item 3, harness version).
     instruction lines (MEASURED: its sections are the Source Digest, the code labels, the
     Symbol Table, the Equate Table and the Phase Table), so the instruction bytes come from
     the ROM the listing vouches for (`artifact_provenance.check_pair`, run by leg_run before
-    any probe). Each `$Process_DMA_Critical$drain_k` label must carry its group's site at
-    label + 6, and each body must contribute at least one site, else `NoTriggerSites`.
+    any probe). Anchors come from the listing's LABEL LINES (the harness's symbol dict holds
+    no `$` locals): Process_DMA_Critical's sites are EXACTLY one per `$drain_k` label (at
+    label + 6, k = 1..DMA_CRITICAL_SLOTS when that equate is published), and the scan may find
+    no other group; Drain_Budgeted_Queue has exactly one group, after its `$loop` label. Any
+    mismatch is `NoTriggerSites` (unmeasurable), never a probe silently watching fewer DMAs.
   * Timing. Break on each site: `start = reply.mclk`; then `emulator/step {count: 1}`:
     `end = reply.mclk`. Oracle charges the DMA's CPU stall to the triggering instruction, so
     the step's return time is the DMA end on Oracle's model (MEASURED model; hardware's
@@ -29,6 +32,11 @@ METHOD (fitness plan item 3, harness version).
   * Check. An event whose end is after `DMA_END_LIMIT_LINE` + 0 mclk is an overrun. Lines are
     relative to the VBlank's own frame and are NOT wrapped: a DMA ending in the next frame
     reads line >= 262, never line 0.
+
+STATED LIMIT (scope). Only DMAs triggered from the two drain bodies are seen. Everything
+else VBlank does to the VDP (the level-mode callees: VInt_DrawLevel's nametable writes,
+Vscroll_Write, register writes) is CPU port writes, not DMA, and is outside this probe; a DMA
+added anywhere else would be invisible to it until its trigger site is added here.
 
 "No DMA this VBlank" (a calibrated VBlank with 0 events; `worst_end.status == "NO DMA"` when
 the whole window had none) and "the probe cannot see" (`unmeasurable`) are different results.
@@ -68,15 +76,34 @@ class NoTriggerSites(RuntimeError):
 _LABEL = re.compile(r"^\((\d+)\)\s+\d+/([0-9A-Fa-f]+)\s*:\s+(\S+):\s*$")
 
 
-def proc_bounds(lst_text: str) -> dict:
-    """{proc: (start, end)} for each DRAIN_PROCS proc found in the listing's label lines. `end`
-    is the next non-local label (a `$`-prefixed name is a local or an asm-block label) in the
-    same listing section."""
-    labels = []
+def _labels(lst_text: str) -> list[tuple[int, int, str]]:
+    """(section, address, name) for every code-label line of the listing, locals included.
+    The harness's symbol dict (`leg_drive.parse_listing`) holds NO `$`-prefixed locals, so the
+    label lines are the only place the drain_k / loop anchors exist."""
+    out = []
     for ln in lst_text.splitlines():
         m = _LABEL.match(ln.strip())
         if m:
-            labels.append((int(m.group(1)), int(m.group(2), 16), m.group(3)))
+            out.append((int(m.group(1)), int(m.group(2), 16), m.group(3)))
+    return out
+
+
+_EQU = re.compile(r"^EQU\s+([A-Za-z_]\w*)\s*=\s*\$([0-9A-Fa-f]+)\s*$")
+
+
+def _equ(lst_text: str, name: str) -> int | None:
+    for ln in lst_text.splitlines():
+        m = _EQU.match(ln.strip())
+        if m and m.group(1) == name:
+            return int(m.group(2), 16)
+    return None
+
+
+def proc_bounds(lst_text: str, labels=None) -> dict:
+    """{proc: (start, end)} for each DRAIN_PROCS proc found in the listing's label lines. `end`
+    is the next non-local label (a `$`-prefixed name is a local or an asm-block label) in the
+    same listing section."""
+    labels = _labels(lst_text) if labels is None else labels
     out = {}
     for sec, addr, name in labels:
         if name in DRAIN_PROCS:
@@ -101,12 +128,58 @@ def _group_end_at(rom: bytes, a: int) -> bool:
     return n is not None and all(_word(rom, a - 2 * i) == MOVE_L[n] for i in (1, 2, 3))
 
 
+_DRAIN_K = re.compile(r"\$Process_DMA_Critical\$drain_(\d+)$")
+
+
+def _critical_sites(proc, lo, hi, labels, scan, rom, lst_text) -> list[int]:
+    """Exactly one site at each `$Process_DMA_Critical$drain_k` label + 6, k = 1..N, N equal
+    to the listing's DMA_CRITICAL_SLOTS when published; the scan may find nothing else."""
+    anchors = sorted((int(m.group(1)), a, n) for _s, a, n in labels
+                     if lo <= a < hi and (m := _DRAIN_K.search(n)))
+    if not anchors:
+        raise NoTriggerSites(f"`{proc}`: no `$drain_k` label lines in the listing to anchor on")
+    ks = [k for k, _a, _n in anchors]
+    if ks != list(range(1, len(ks) + 1)):
+        raise NoTriggerSites(f"`{proc}`: drain labels are k={ks}, not 1..{len(ks)}")
+    slots = _equ(lst_text, "DMA_CRITICAL_SLOTS")
+    if slots is not None and len(anchors) != slots:
+        raise NoTriggerSites(f"`{proc}`: {len(anchors)} drain_k labels != DMA_CRITICAL_SLOTS "
+                             f"{slots}")
+    want = []
+    for _k, a, name in anchors:
+        if not _group_end_at(rom, a + 6):
+            got = " ".join(f"{_word(rom, a + 2 * i):04X}" for i in range(4))
+            raise NoTriggerSites(f"`{name}` (${a:X}): no `move.l x3; move.w (An)+,(a5)` group "
+                                 f"ending at label + 6; words there are {got}")
+        want.append(a + 6)
+    extra = sorted(set(scan) - set(want))
+    if extra:
+        raise NoTriggerSites(f"`{proc}`: group(s) at {[hex(x) for x in extra]} carry no "
+                             "drain_k label")
+    return want
+
+
+def _budgeted_sites(proc, lo, hi, labels, scan) -> list[int]:
+    """Exactly one group (dma_queue.emp:461-474), lying after `$Drain_Budgeted_Queue$loop`."""
+    loop = [a for _s, a, n in labels if n.endswith(f"${proc}$loop") and lo <= a < hi]
+    if len(loop) != 1:
+        raise NoTriggerSites(f"`{proc}`: expected one `$loop` label line, found {len(loop)}")
+    if len(scan) != 1 or scan[0] < loop[0]:
+        raise NoTriggerSites(f"`{proc}`: expected exactly one group after `$loop` "
+                             f"(${loop[0]:X}), found {[hex(x) for x in scan]}")
+    return scan
+
+
 def dma_trigger_sites(lst_text: str, symbols: dict, rom: bytes) -> list[int]:
     """Every DMA trigger site in the two drain bodies, sorted. `symbols` is the listing's
-    symbol table (name -> address) and must agree with the label lines; `rom` is the ROM the
-    listing describes (the listing carries no instruction bytes). Raises NoTriggerSites."""
-    bounds = proc_bounds(lst_text)
-    sites = set()
+    symbol table (name -> address; it holds no locals) and must agree with the label lines;
+    the anchors (drain_k, loop) and the DMA_CRITICAL_SLOTS equate are read from the listing
+    TEXT; `rom` is the ROM the listing describes (the listing carries no instruction bytes).
+    Any shape mismatch raises NoTriggerSites: a changed drain is refused, never read as less
+    DMA."""
+    labels = _labels(lst_text)
+    bounds = proc_bounds(lst_text, labels)
+    sites = []
     for proc in DRAIN_PROCS:
         if proc not in bounds:
             raise NoTriggerSites(f"`{proc}` (a drain body) has no bounded label in the listing")
@@ -115,16 +188,11 @@ def dma_trigger_sites(lst_text: str, symbols: dict, rom: bytes) -> list[int]:
             got = symbols.get(proc)
             raise NoTriggerSites(f"`{proc}`: symbol table ${got:X} != label ${lo:X}"
                                  if got is not None else f"`{proc}` is not in the symbol table")
-        found = [a for a in range(lo + 6, hi - 1, 2) if _group_end_at(rom, a)]
-        if not found:
-            raise NoTriggerSites(f"`{proc}` (${lo:X}-${hi:X}): no `move.l (An)+,(a5) x3; "
-                                 "move.w (An)+,(a5)` group found")
-        # Anchor: every drain_k label of this proc carries its group's trigger at label + 6.
-        pre = f"${proc}$drain_"
-        for name, a in symbols.items():
-            if pre in name and lo <= a < hi and a + 6 not in found:
-                raise NoTriggerSites(f"`{name}` (${a:X}): no trigger word at label + 6")
-        sites.update(found)
+        scan = [a for a in range(lo + 6, hi - 1, 2) if _group_end_at(rom, a)]
+        if proc == "Process_DMA_Critical":
+            sites += _critical_sites(proc, lo, hi, labels, scan, rom, lst_text)
+        else:
+            sites += _budgeted_sites(proc, lo, hi, labels, scan)
     return sorted(sites)
 
 
