@@ -88,7 +88,8 @@ class ObjLoad:
 
     async def on_tick(self, c, s, row):
         got = await ld.read_obj_load(c, self.syms, s.cx, s.cy)
-        row.update(live=got["live"], pend=got["pend"], disp=got["disp"], cyc=None)
+        row.update(live=got["live"], pend=got["pend"], disp=got["disp"], zero=got["zero"],
+                   cyc=None)
         self.open = (row, got["mclk"])
 
     async def on_break(self, c, pc, reply) -> bool:

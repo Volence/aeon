@@ -761,6 +761,7 @@ OBJ_ADDR_SYMS = ("Dynamic_Live", "Dynamic_Live_Count", "Dynamic_Live_Pending_Cou
                  "VSync_Wait")
 OBJ_EQU_NEEDED = ("NUM_DYNAMIC", "CULL_DISTANCE_X", "CULL_DISTANCE_Y")
 MCLK_PER_CPU_CYCLE = 7     # the 68000 runs at MCLK / 7 (NTSC 53.693175 MHz / 7)
+READ_MAX = 4096            # emulator/read_memory's `len` bound (the server refuses more)
 
 
 def obj_syms_missing(syms: Syms) -> list:
@@ -781,17 +782,27 @@ async def read_obj_load(c, syms: Syms, cx: int, cy: int) -> dict:
                                               "len": max(2, 2 * n)})
     mclk = int(r["mclk"])
     raw = bytes.fromhex(_unhex(r["bytes"])[:4 * n])
-    ptrs = [0xFF0000 | _be(raw, 2 * i, 2) for i in range(n)]
+    words = [_be(raw, 2 * i, 2) for i in range(n)]
+    # A zero entry is a slot DeleteObject cleared and the next compaction drops
+    # (engine/objects/core.emp, Dynamic_Live compaction): counted in `live`, never dispatched.
+    ptrs = sorted(0xFF0000 | w for w in words if w)
+    span = max(o["x_pos"], o["y_pos"]) + 2
     disp = 0
-    if ptrs:
-        lo, hi = min(ptrs), max(ptrs) + max(o["x_pos"], o["y_pos"]) + 2
-        blk = await _rd(c, lo, hi - lo)
-        for p in ptrs:
+    k = 0
+    while k < len(ptrs):                       # one read per run of SSTs within READ_MAX
+        j = k
+        while j + 1 < len(ptrs) and ptrs[j + 1] + span - ptrs[k] <= READ_MAX:
+            j += 1
+        lo = ptrs[k]
+        blk = await _rd(c, lo, ptrs[j] + span - lo)
+        for p in ptrs[k:j + 1]:
             x = _be(blk, p - lo + o["x_pos"], 2)
             y = _be(blk, p - lo + o["y_pos"], 2)
             if abs(x - cx) <= e["CULL_DISTANCE_X"] and abs(y - cy) <= e["CULL_DISTANCE_Y"]:
                 disp += 1
-    return {"live": live, "pend": pend, "disp": disp, "mclk": mclk}
+        k = j + 1
+    return {"live": live, "pend": pend, "disp": disp, "zero": len(words) - len(ptrs),
+            "mclk": mclk}
 
 
 async def _write_pad(c, syms: Syms, held: int, press: int):

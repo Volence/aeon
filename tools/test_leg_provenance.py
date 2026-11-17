@@ -216,3 +216,74 @@ def test_require_provenance_partial_block_is_refused():
     r = _full(); r["oracle"] = {"commit": C}
     with pytest.raises(lp.MissingProvenance, match="oracle.server_build_id"):
         lp.require_provenance(r)
+
+
+# ---- throwaway shapes: the declared re-bake (v2 C2, STRESS_OBJECTS) ------------------------
+
+def _rebake_listing(tmp_path, built: bytes):
+    """A digest whose one DIGEST-READ is gen/x.emp as the build read it (`built`)."""
+    import artifact_provenance as ap
+    rom = tmp_path / "s4.stressobj.bin"
+    rom.write_bytes(b"ROMDATA")
+    read = (f"DIGEST-READ crc={zlib.crc32(built) & 0xFFFFFFFF:08x} size={len(built)} "
+            "origin=source path=gen/x.emp")
+    agg = f"{zlib.crc32((read + chr(10)).encode()) & 0xFFFFFFFF:08x}"
+    lst = tmp_path / "s4.stressobj.lst"
+    lst.write_text("\n".join([
+        "DIGEST-FORMAT 1", "DIGEST-ASSEMBLER sigil version=0.1 revision=abc1234 tree=clean",
+        "DIGEST-SHAPE target=sonic4 game=sonic4 debug=0 extra-entries=none",
+        "DIGEST-SCAN pattern=*.emp files=0 crc=00000000", read,
+        f"DIGEST-AGGREGATE crc={agg} reads=1",
+        f"DIGEST-ROM crc={zlib.crc32(b'ROMDATA') & 0xFFFFFFFF:08x} size=7 path=s4.stressobj.bin",
+        "DIGEST-END", ""]))
+    (tmp_path / "gen").mkdir()
+    (tmp_path / "gen" / "x.emp").write_bytes(b"COMMITTED")      # what the EXIT trap restored
+    return ap, rom, lst
+
+
+def _read_problems(v):
+    return [p for p in v.problems if "DIGEST-READ" in p or "rebaked path" in p]
+
+
+def test_rebaked_read_is_checked_against_the_regenerated_bytes(tmp_path, monkeypatch):
+    monkeypatch.setenv("SIGIL_BUILD", "/nonexistent-sigil")
+    ap, rom, lst = _rebake_listing(tmp_path, b"OVERLAY-BAKE")
+    v = ap.check_pair(str(rom), str(lst), root=str(tmp_path))
+    assert any("gen/x.emp" in p for p in _read_problems(v)), v.problems   # restored: stale
+    good = tmp_path / "regen.emp"
+    good.write_bytes(b"OVERLAY-BAKE")
+    v = ap.check_pair(str(rom), str(lst), root=str(tmp_path), rebaked={"gen/x.emp": str(good)})
+    assert not _read_problems(v), v.problems
+    assert any("throwaway re-bake" in n for n in v.notes)
+
+
+def test_a_rebake_that_differs_from_what_the_build_read_is_stale(tmp_path, monkeypatch):
+    monkeypatch.setenv("SIGIL_BUILD", "/nonexistent-sigil")
+    ap, rom, lst = _rebake_listing(tmp_path, b"OVERLAY-BAKE")
+    bad = tmp_path / "regen.emp"
+    bad.write_bytes(b"OVERLAY-BAKE-EDITED")            # the overlay changed after the build
+    v = ap.check_pair(str(rom), str(lst), root=str(tmp_path), rebaked={"gen/x.emp": str(bad)})
+    assert any("gen/x.emp" in p and "the build read" in p for p in _read_problems(v))
+
+
+def test_a_rebake_of_a_file_the_build_never_read_is_a_problem(tmp_path, monkeypatch):
+    monkeypatch.setenv("SIGIL_BUILD", "/nonexistent-sigil")
+    ap, rom, lst = _rebake_listing(tmp_path, b"COMMITTED")
+    f = tmp_path / "regen.emp"
+    f.write_bytes(b"X")
+    v = ap.check_pair(str(rom), str(lst), root=str(tmp_path), rebaked={"gen/other.emp": str(f)})
+    assert any("rebaked path gen/other.emp" in p for p in v.problems)
+
+
+def test_only_the_declared_throwaway_shapes_rebake(tmp_path):
+    for name in ("s4.bin", "s4.debug.bin", "s4.s2clip.bin", "demo.bin"):
+        assert lp.regenerate_rebake(Path(name), tmp_path) is None, name
+    assert set(lp.SHAPE_REBAKES) == {"s4.stressobj"}
+    assert lp._shape_stem(Path("s4.stressobj.debug.bin")) == "s4.stressobj"
+
+
+def test_the_stressobj_rebake_regenerates_from_committed_inputs(tmp_path):
+    path, out, rec = lp.regenerate_rebake(Path("s4.stressobj.debug.bin"), tmp_path)
+    assert path == "games/sonic4/data/generated/ojz/act1/entity_data.emp"
+    assert "STRESS_OBJECTS OVERLAY" in out.read_text()
+    assert rec["sha256"] == lp.sha256_file(out) and rec["inputs"]

@@ -451,13 +451,21 @@ def _resolve(root_word, path, aeon, sigil_root):
 
 
 def check_pair(rom, lst, *, built_after=None, root=None, assembler=None,
-               expect_game=None, expect_debug=None):
+               expect_game=None, expect_debug=None, rebaked=None):
     """The freshness verdict for the pair (`rom`, `lst`). See the module docstring.
 
     `root` is the aeon root the digest's unrooted paths are relative to (default: the tree
     this file lives in). `assembler` is the sigil binary whose revision the listing must
     carry (default: $SIGIL_BUILD). `expect_game`/`expect_debug` override the shape a
-    canonical name implies."""
+    canonical name implies.
+
+    `rebaked` ({aeon-relative path: file}) is ONLY for an off-canonical THROWAWAY shape
+    (build.sh's STRESS_OBJECTS: an in-place re-bake under an EXIT trap that restores the
+    committed file, so the bytes the build read are not on disk afterwards). Each named
+    `DIGEST-READ` row is checked against that file -- the re-bake regenerated from committed
+    inputs by the caller -- instead of the working tree, with the same crc + size rule, and
+    a note names it. A named path the digest never read is a problem (a re-bake the build
+    did not consume), never ignored. Every other row is checked as always."""
     v = Verdict(rom, lst)
     aeon = os.path.realpath(root if root is not None else AEON)
     missing = [p for p in (lst, rom) if not os.path.isfile(p)]
@@ -540,12 +548,21 @@ def check_pair(rom, lst, *, built_after=None, root=None, assembler=None,
                           f"crc={crc32(data):08x} size={len(data)}")
 
     # Every file the build read, as it was read.
+    rebaked = dict(rebaked or {})
+    read_paths = {row["path"] for row in d["reads"] if row["root"] is None}
+    for rel in sorted(set(rebaked) - read_paths):
+        v.problems.append(f"rebaked path {rel} is not a DIGEST-READ row of {lst}: the build "
+                          f"read no such file, so a re-bake of it proves nothing")
     for row in d["reads"]:
         if row["root"] == "sigil" and sigil_root is None:
             v.problems.append(f"DIGEST-READ root=sigil path={row['path']}: no assembler "
                               f"source root to resolve it under")
             continue
         p = _resolve(row["root"], row["path"], aeon, sigil_root)
+        if row["root"] is None and row["path"] in rebaked:
+            p = rebaked[row["path"]]
+            v.notes.append(f"DIGEST-READ path={row['path']} checked against the declared "
+                           f"throwaway re-bake {p}, not the working tree")
         try:
             with open(p, "rb") as f:
                 data = f.read()

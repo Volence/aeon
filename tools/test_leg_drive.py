@@ -646,3 +646,42 @@ def test_obj_cost_fit_is_unmeasurable_without_spread_or_samples():
     assert ld.obj_cost_fit(rows, "live")["status"] == "UNMEASURABLE"     # live constant
     rows = _oh_rows(50)                                                  # cyc None
     assert ld.obj_cost_fit(rows, "live")["status"] == "UNMEASURABLE"
+
+
+class _FakeRam:
+    """The read_memory method over a dict of RAM bytes; refuses len > READ_MAX like the server."""
+
+    def __init__(self, mem):
+        self.mem, self.calls = mem, []
+
+    async def call(self, method, params):
+        assert method == "emulator/read_memory"
+        a, n = int(params["addr"], 16), params["len"]
+        assert 1 <= n <= ld.READ_MAX, n
+        self.calls.append((a, n))
+        return {"bytes": bytes(self.mem.get(a + i, 0) for i in range(n)).hex(), "mclk": 777}
+
+
+def test_read_obj_load_counts_dispatched_skips_zero_entries_and_bounds_reads():
+    off = {"x_pos": 2, "y_pos": 6}
+    syms = ld.Syms(addr={"Dynamic_Live": 0xFFB5E2, "Dynamic_Live_Count": 0xFFB632,
+                         "Dynamic_Live_Pending_Count": 0xFFB646},
+                   equ={"NUM_DYNAMIC": 40, "CULL_DISTANCE_X": 0x300, "CULL_DISTANCE_Y": 0x200},
+                   off=off, buttons=B, debug=False)
+    mem = {}
+
+    def w16(a, v):
+        mem[a], mem[a + 1] = v >> 8, v & 0xFF
+    ssts = [(0x8000, 1000, 500), (0x8040, 5000, 500), (0x9F00, 1100, 600)]   # 2nd is culled
+    entries = [s[0] for s in ssts] + [0]                                       # + a zero slot
+    w16(0xFFB632, len(entries))
+    w16(0xFFB646, 1)
+    for i, e in enumerate(entries):
+        w16(0xFFB5E2 + 2 * i, e)
+    for p, x, y in ssts:
+        w16(0xFF0000 | p + 2, x)
+        w16(0xFF0000 | p + 6, y)
+    c = _FakeRam(mem)
+    got = asyncio.run(ld.read_obj_load(c, syms, cx=900, cy=400))
+    assert got == {"live": 4, "pend": 1, "disp": 2, "zero": 1, "mclk": 777}
+    assert all(n <= ld.READ_MAX for _a, n in c.calls)
