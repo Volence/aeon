@@ -91,6 +91,28 @@ refuses an `entity_data.emp` carrying the overlay header (`stress_objects_overla
 before any work), which covers a stress build killed by SIGKILL. Only `s4.stressobj` is declared; S2CLIP's
 stream leg (Task 10) needs its own row (its bake writes many files and needs donors).
 
+## V2-C3-STRESS-SIDEKICK: what the mirror-input sidekick shape leaves open (booked 2026-11-17, `feat/v2-step0-stress`)
+
+`STRESS_SIDEKICK=1 ./build.sh` (+ `DEBUG=1`) builds `s4.sidekick[.debug]`: Player_2 spawned on
+Player_1 and run every tick on Player_1's input word from 16 ticks ago, its art in a 29-tile
+window borrowed from `spare_nametable` (768..796). The whole mechanism is ONE committed patch,
+`tools/stress/sidekick.patch`, applied in place by `tools/stress_sidekick.py apply` under an
+EXIT trap that restores the five touched files (C1 note §2.5); canonical sources carry nothing
+of it. `leg_run.py --leg sidekick` (the survey's `sidekick` leg) is FINISHED and COVERS on both
+shapes, phases 0-2 (task-9 report). **Open:** (1) the patch can rot when
+`games/sonic4/test/ojz_scroll_test.emp` changes near its two hunks: the pre-build lane's
+`test_the_patch_applies_to_the_committed_tree` goes red first, and the shape refuses by name;
+fix by re-diffing the two hunks. (2) The nightly does not build the shape: its needs_build
+lane EXEMPTS the `s4.sidekick*` pairs (`--shapes-built`, derived), and
+`test_sidekick_slot_live` runs only in a STRESS_SIDEKICK build's own post-sigil lane. A nightly
+STRESS_SIDEKICK leg (after the needs_build lane, like STRESS_EVICT/STRESS_ART) is not built.
+(3) The pointer swap (`Player_Chardef` around P2's calls) is a stress-shape device; a shipped
+CPU Tails needs per-slot `cd_vrambase` (C1 note Q2, owner item). (4) Risks R1-R5 of the C1 note
+stand (shared `Camera_Hold_Frames`, `Player_Death_Pending`, ring count, the insta-shield window,
+P2 running after RunObjects). (5) The DMA probe's destination decode is opt-in
+(`probe_for(decode_dest=True)`, the sidekick leg only); every other leg's events carry
+`dest: null`.
+
 ## V2-B2-SPINDASH-GATE: the v2 step-0 plan's spindash trigger sits above the engine's spindash gate (BRIEF WORDING OPEN, booked 2026-11-16, `feat/v2-step0-harness`)
 
 `docs/superpowers/plans/2026-11-16-measurement-harness-and-stress.md:102` says the `spindash`
