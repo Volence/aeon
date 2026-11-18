@@ -218,3 +218,6 @@ games/sonic4/data/clips/*/baked/
 # tools/clip_anchors.py check: the per-shape measurement record an S2CLIP build writes
 # beside its ROM, read by `clip_anchors.py derive`. Describes a local build only.
 *.clip_anchors.json
+
+# G0a: every build writes <stem>.build.json (sigil build-data export) beside the ROM. Local build output.
+*.build.json
