@@ -102,6 +102,20 @@ proofs in the v2 step-0 plan (Tasks 1-10) that mutated and restored a `tools/*.p
 succession were not re-audited for this; a red from the wrong mutant, or a restored run that
 was not, cannot be excluded from their logs alone.
 
+## V2-B1-DETACHED-PROVENANCE: a leg run refuses a detached checkout, so the land gate's own instruction goes red (OPEN, booked 2026-11-18, found landing the step-0 wave-3 pair)
+
+`tools/leg_provenance.py:287` records `aeon.branch` from `git branch --show-current`, which is empty on a
+detached HEAD, and the validator (`:307`, `:326`) then raises `MissingProvenance("provenance
+`aeon.branch` is missing or empty")`. `tools/land_gate.py:626` tells you to prove a push "from a clean
+checkout of <sha>", and a checkout of a SHA is detached, so `tools/landing_build.sh` run that way goes
+finished=1: MEASURED 2026-11-17 at `99cb963d`, `test_leg_harness_smoke::test_idle_legs_with_dma_probe`
+[s4] and [s4.debug] failed with "no result file written", NO STAMP. The harness landing passed only
+because it ran on a branch. **Workaround used:** temporary branch `land/step0-wave3` at `99cb963d`
+(finished=0, stamp b6483dc9; branch since deleted). **Fix:** record a detached HEAD explicitly
+(for example `branch = "(detached)"`, with the commit still mandatory) instead of refusing, and add a
+detached-checkout case to `tools/test_leg_provenance.py` plus a smoke run from a detached worktree,
+proved red-first per invariant 8.
+
 ## V2-T11-SURVEY-TOOLING: gaps the 48-cell leg survey exposed (booked 2026-11-17, `feat/v2-step0-harness`)
 
 Found running Task 11. The survey is at `docs/benchmarks/legs/2026-11-17-d11a6661/` (`2553163b`; the
