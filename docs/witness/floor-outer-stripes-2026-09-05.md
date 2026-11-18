@@ -169,3 +169,5 @@ shadow/highlight mask that varies along a row, masking Plane A puts the server
 onto a post-hoc `stateRender` that cannot see a per-line ramp at all, and
 inverting the mask by colour did not close against the runtime CRAM. That absence
 is printed on every run.
+
+The owner's 2026-09-05 "two floors with a kink" capture was the fan running in a stale window, not the shear: [floor-kink-capture-was-the-fan-2026-09-05.md](floor-kink-capture-was-the-fan-2026-09-05.md).

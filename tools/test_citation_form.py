@@ -74,6 +74,9 @@ RECORD_FILES = (
     "docs/QUEUE-ARCHIVE.md",
     "docs/CHARACTER_BOX_AUDIT.md",              # "**Date:** 2026-08-28 ... Verdict:"
     "docs/SPRITE_OWNER_PIN_SLIDE_MEASUREMENT.md",
+    # Landed 2026-11-17 from diag/glide-momentum: a 2026-08-28 diagnosis read at 42e70bea, with a
+    # correction header. Cited by name from DEFERRED_WORK and a dated note, so it keeps its name.
+    "docs/GLIDE_LANDING_ANGLE_DIAGNOSIS.md",
 )
 
 
