@@ -302,7 +302,7 @@ def _leg_result(tmp_path, n=40, t0=300, lag_at=(310,)):
     wrows = _rows(n, t0=t0, lag_at=lag_at)
     rows = [dict(t=r.tick, fc=r.frame_counter, dfc=(r.frame_counter - p.frame_counter) & 0xFFFF,
                  dlt=1, cx=r.cx, cy=r.cy, px=r.px, py=r.py) for p, r in zip(wrows, wrows[1:])]
-    res = {"provenance": {"rom": {"crc32": "00000000", "size": 4}}, "leg": "run", "phase": 0,
+    res = {"provenance": {"rom": {"romSha256": "0" * 64, "size": 4}}, "leg": "run", "phase": 0,
            "lag": {"frames": len(lag_at), "ticks": n}, "rows": rows,
            "input_log": {"t0": t0, "held": [8] * n}}
     p = tmp_path / "s4_run_p0.json"
@@ -312,7 +312,7 @@ def _leg_result(tmp_path, n=40, t0=300, lag_at=(310,)):
 
 def _stub_main(monkeypatch, wrows):
     """Run blastem_witness.main with BlastEm replaced by `wrows` cut to the asked ticks."""
-    monkeypatch.setattr(bw.lp, "rom_provenance", lambda rom, lst: {"crc32": "00000000", "size": 4})
+    monkeypatch.setattr(bw.lp, "rom_provenance", lambda rom, lst: {"romSha256": "0" * 64, "size": 4})
     monkeypatch.setattr(bw.lp, "aeon_provenance", lambda: {"commit": "x", "dirty": False})
     monkeypatch.setattr(bw.lp, "sha256_file", lambda p: "0" * 64)
     monkeypatch.setattr(bw.ld, "resolve_syms", lambda lst: None)

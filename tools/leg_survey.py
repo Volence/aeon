@@ -9,7 +9,7 @@ subprocess per cell, with `rc` appended to DIR/manifest.jsonl. `summarise` judge
 (never "the run finished"): a cell with no result file is DID NOT RUN, with the cell named. A
 file is only believed when manifest.jsonl confirms this run wrote it (no manifest, no record,
 or an rc that disagrees with the file -> FAILED), it matches its cell, and its provenance is one
-aeon + oracle tuple across the whole survey with one ROM crc per leg x shape. Cell status:
+aeon + oracle tuple across the whole survey with one ROM romSha256 per leg x shape. Cell status:
     OK             `coverage.met` per `leg_drive.coverage` (idle and topspeed may be CAP+met;
                    the others need FINISHED), the DMA probe measured, and no DMA overrun
     STUCK          the leg's progress stalled
@@ -212,8 +212,9 @@ def _run_cells(out_dir, cells, rom_dir, timeout, resume, check_empty=False) -> l
             continue
         rom = rom_dir / _cell_rom(leg, shape)
         lst = rom.with_suffix(".lst")
+        bj = lp.sidecar_path(rom)   # the build export: the ROM's name (romSha256), never a CRC
         rec = {"leg": leg, "shape": shape, "phase": ph, "rom": rom.name}
-        miss = [p.name for p in (rom, lst) if not p.is_file()]
+        miss = [p.name for p in (rom, lst, bj) if not p.is_file()]
         want, got = _cell_clip(leg), rom_clip(rom)
         if miss:
             rec.update(rc=None, note=f"DID NOT RUN: {', '.join(miss)} missing in {rom_dir}")
@@ -227,7 +228,7 @@ def _run_cells(out_dir, cells, rom_dir, timeout, resume, check_empty=False) -> l
             print(f"leg_survey: {leg}/{shape}/p{ph}: {rec['note']}", file=sys.stderr)
         else:
             cmd = [sys.executable, str(TOOLS / "leg_run.py"), "--rom", str(rom), "--lst",
-                   str(lst), "--leg", "stream" if leg == COMPANION else LEG_RUN_LEG[leg],
+                   str(lst), "--build-json", str(bj), "--leg", "stream" if leg == COMPANION else LEG_RUN_LEG[leg],
                    "--phase", str(ph), "--out", str(out_dir), "--dma-probe"]
             rec["rc"], note = _run_cell(cmd, timeout)
             if note:
@@ -258,7 +259,7 @@ class Row:
 class Summary:
     rows: list
     counts: dict
-    prov: dict | None = None          # {shape: tuple-dict, (leg, shape): crc} as printed in the header
+    prov: dict | None = None          # {shape: tuple-dict, (leg, shape): romSha256} as printed in the header
     groups: dict | None = None        # {(leg, shape): (end_text, verdict, all_ok)}
     companion: list = field(default_factory=list)   # the 6 cells OUTSIDE the 48 (STREAM_COMPANION_CLIP)
 
@@ -425,15 +426,15 @@ def summarise(out_dir) -> Summary:
         lambda l, sh, ph: companion_path(out_dir, sh, ph),
         lambda p, l, sh, ph: _judge(p, ("stream", sh, ph), clip=STREAM_COMPANION_CLIP))
     # ONE aeon + oracle tuple across the whole survey (both shapes come from one checkout and
-    # one pinned oracle; G0 is judged on the survey as a whole), one ROM crc32 per leg x shape.
+    # one pinned oracle; G0 is judged on the survey as a whole), one ROM romSha256 per leg x shape.
     # The first readable cell sets the reference; every deviant is FAILED naming the field and
     # both values.
-    # The crc is ALSO held constant per ROM FILE within a run (final review M1): the five
+    # The romSha256 is ALSO held constant per ROM FILE within a run (final review M1): the five
     # canonical legs share s4.bin, and two different s4.bin builds at one commit + dirty flag
     # (a gitignored input such as engine/sound/generated/, which aeon.dirty cannot see) would
     # each pass a per-(leg, shape) check. Keyed by group too: the companion is a different
     # clip baked into the same file name.
-    ref, crc, crc_rom = {}, {}, {}
+    ref, sha, sha_rom = {}, {}, {}
     every = [(r, loaded, "48") for r in rows] + [(r, comp_loaded, "companion") for r in comp]
     for r, src, grp in every:
         j = src.get((r.leg, r.shape, r.phase))
@@ -444,7 +445,7 @@ def summarise(out_dir) -> Summary:
             continue
         try:
             t = _checked_of(j, r.shape)
-            c = j["provenance"]["rom"]["crc32"]
+            c = j["provenance"]["rom"]["romSha256"]
             rom = j["provenance"]["rom"]["rom"]
         except (KeyError, TypeError, AttributeError):
             continue
@@ -459,21 +460,21 @@ def summarise(out_dir) -> Summary:
             ref = {"t": t, "printed": _tuple_of(j, r.shape),
                    "cell": f"{r.leg}/{r.shape}/p{r.phase}"}
         if bad is None:
-            seen = crc_rom.get((grp, rom))
+            seen = sha_rom.get((grp, rom))
             if seen is not None and seen[0] != c:
-                bad = (f"provenance mismatch: rom.crc32 of {rom} is {c!r} here but {seen[0]!r} "
-                       f"in {seen[1]} (one crc per ROM file)")
+                bad = (f"provenance mismatch: rom.romSha256 of {rom} is {c!r} here but {seen[0]!r} "
+                       f"in {seen[1]} (one sha256 per ROM file)")
             elif seen is None:
-                crc_rom[(grp, rom)] = (c, f"{r.leg}/{r.shape}/p{r.phase}")
+                sha_rom[(grp, rom)] = (c, f"{r.leg}/{r.shape}/p{r.phase}")
         if bad is None:
-            if (r.leg, r.shape) in crc and crc[(r.leg, r.shape)] != c:
-                bad = (f"provenance mismatch: rom.crc32 is {c!r}, {r.leg}/{r.shape} "
-                       f"reference {crc[(r.leg, r.shape)]!r}")
+            if (r.leg, r.shape) in sha and sha[(r.leg, r.shape)] != c:
+                bad = (f"provenance mismatch: rom.romSha256 is {c!r}, {r.leg}/{r.shape} "
+                       f"reference {sha[(r.leg, r.shape)]!r}")
             else:
-                crc.setdefault((r.leg, r.shape), c)
+                sha.setdefault((r.leg, r.shape), c)
         if bad:
             r.status, r.detail = "FAILED", bad
-    prov = {"survey": ref.get("printed", {}), "crc": {f"{l}/{sh}": c for (l, sh), c in crc.items()}}
+    prov = {"survey": ref.get("printed", {}), "romSha256": {f"{l}/{sh}": c for (l, sh), c in sha.items()}}
     counts = {s: 0 for s in STATUSES}
     counts.update(Counter(r.status for r in rows))
     ccounts = Counter(r.status for r in comp)
@@ -572,8 +573,8 @@ def render(out_dir, summ: Summary) -> str:
     t = (summ.prov or {}).get("survey", {})
     if t:
         L.append("- survey: " + ", ".join(f"{k}={v}" for k, v in t.items()))
-    for k, c in (summ.prov or {}).get("crc", {}).items():
-        L.append(f"- rom crc32 {k}: {c}")
+    for k, c in (summ.prov or {}).get("romSha256", {}).items():
+        L.append(f"- rom sha256 {k}: {c}")
     if not t:
         L.append("- none (no readable result)")
     L += ["", "| leg | shape | cells (p0 p1 p2) | lag frames min-max, MEASURED (Oracle) | "

@@ -11,6 +11,10 @@ finding 1), measured against whatever .bin/.lst pair was lying around. Both are 
     checked AFTER (id == "<commit>+profile=release", source == "vcs", dirty == false).
   * The ROM is vouched for by its listing through `artifact_provenance.check_pair` (a fresh
     .bin with an old .lst is refused, never measured silently).
+  * The ROM is NAMED by its SHA-256 (`romSha256`), read from the `<stem>.build.json` sigil
+    writes beside it and checked against the ROM's own bytes (G0a). A missing sidecar, or one
+    that binds a different ROM, refuses; there is no fallback to a CRC. `crc32Legacy` is kept
+    for one release so older notes can still be matched to a ROM.
   * A dirty aeon tree is RECORDED (`aeon.dirty`), never hidden.
   * `require_provenance` is the writer's gate: a result missing any provenance key refuses
     to be written.
@@ -35,6 +39,9 @@ sys.path.insert(0, str(TOOLS))
 from suite_paths import suite_path  # noqa: E402
 import artifact_provenance as ap  # noqa: E402
 from artifact_provenance import check_pair, read_digest  # noqa: E402
+from suite_paths import add_client_path  # noqa: E402
+add_client_path()  # the empyrean.build reader lives beside the Aether client; loud if absent
+import empyrean_build as eb  # noqa: E402
 
 PIN_FILE = TOOLS / "oracle_pin.toml"
 AEON_ROOT = TOOLS.parent
@@ -50,6 +57,11 @@ class MissingProvenance(RuntimeError):
 
 class StalePair(RuntimeError):
     """The .bin/.lst pair is not fresh per artifact_provenance.check_pair."""
+
+
+class UnboundRom(RuntimeError):
+    """The ROM has no usable `<stem>.build.json`: absent, unreadable, or binding another ROM.
+    Never falls back to a CRC: a ROM that cannot be named by its SHA-256 is not measured."""
 
 
 @dataclass(frozen=True)
@@ -244,7 +256,32 @@ def regenerate_rebake(rom: Path, out_dir: Path, root: Path = AEON_ROOT, lst: Pat
     return files, rec
 
 
-def rom_provenance(rom: Path, lst: Path, root: Path | None = None) -> dict:
+def sidecar_path(rom: Path) -> Path:
+    """`<stem>.build.json` beside the ROM: `s4.bin` -> `s4.build.json`, `s4.debug.bin` ->
+    `s4.debug.build.json` (sigil names it from the ROM's own stem)."""
+    return Path(rom).with_suffix(".build.json")
+
+
+def rom_sha256(rom: Path, build_json: Path | None = None) -> str:
+    """The ROM's `romSha256`, read from its sidecar and CHECKED against the ROM's bytes
+    (empyrean_build.load binds on the full digest). Every failure is UnboundRom."""
+    rom = Path(rom)
+    bj = Path(build_json) if build_json is not None else sidecar_path(rom)
+    try:
+        b = eb.load(str(bj), rom.read_bytes())
+    except FileNotFoundError as e:
+        raise UnboundRom(f"leg_provenance: no build export for {rom.name}: {bj} is missing "
+                         f"({e.filename}); rebuild it with a sigil that writes the sidecar") from e
+    except eb.NotBound as e:
+        raise UnboundRom(f"leg_provenance: {bj.name} binds ROM sha256 {e.expected} but "
+                         f"{rom.name} is {e.found}: a stale sidecar or a patched ROM") from e
+    except eb.BuildError as e:
+        raise UnboundRom(f"leg_provenance: {bj} is unusable: {e}") from e
+    return b.rom_sha256
+
+
+def rom_provenance(rom: Path, lst: Path, root: Path | None = None,
+                   build_json: Path | None = None) -> dict:
     """`root` is the aeon root the digest is checked against (default: this tree). A
     throwaway shape (SHAPE_REBAKES) is checked against its re-bake regenerated from the
     committed inputs, and the record carries `rebake`."""
@@ -260,7 +297,9 @@ def rom_provenance(rom: Path, lst: Path, root: Path | None = None) -> dict:
     d = read_digest(str(lst))
     shape, asm = d["shape"], d["assembler"]
     data = rom.read_bytes()
-    return {"rom": rom.name, "crc32": f"{zlib.crc32(data) & 0xFFFFFFFF:08x}", "size": len(data),
+    sha = rom_sha256(rom, build_json)
+    return {"rom": rom.name, "romSha256": sha,
+            "crc32Legacy": f"{zlib.crc32(data) & 0xFFFFFFFF:08x}", "size": len(data),
             "game": shape["game"], "debug": int(shape["debug"]), "target": shape["target"],
             "extra_entries": shape["extra-entries"], "sigil_revision": asm["revision"],
             "tree": asm["tree"], **({} if rb is None else {"rebake": rb[1]})}
@@ -293,25 +332,26 @@ def aeon_provenance(root: Path = AEON_ROOT) -> dict:
             "branch": _git(root, "branch", "--show-current").strip() or DETACHED_BRANCH}
 
 
-def provenance(pin: OraclePin, handshake: dict, rom: Path, lst: Path) -> dict:
+def provenance(pin: OraclePin, handshake: dict, rom: Path, lst: Path,
+               build_json: Path | None = None) -> dict:
     verify_pin(pin, handshake)
     sb = handshake["serverBuild"]
     return {
         "oracle": {"commit": pin.commit, "server_build_id": sb["id"], "source": sb["source"],
                    "dirty": sb["dirty"], "sha256": pin.sha256},
         "aeon": aeon_provenance(),
-        "rom": rom_provenance(rom, lst),
+        "rom": rom_provenance(rom, lst, build_json=build_json),
         "harness": {"tool_sha256": sha256_file(Path(__file__).resolve())},
     }
 
 
 #: Required leaves per block (the plan's global constraint: aeon commit + dirty flag; oracle
-#: serverBuild id/source/dirty; ROM name/crc32/size; DIGEST-SHAPE and DIGEST-ASSEMBLER
+#: serverBuild id/source/dirty; ROM name/romSha256/size; DIGEST-SHAPE and DIGEST-ASSEMBLER
 #: revision). `False`, `0` and "none" are VALID values; only absent/None/"" is missing.
 REQUIRED = {
     "oracle": ("commit", "server_build_id", "source", "dirty", "sha256"),
     "aeon": ("commit", "dirty", "branch"),
-    "rom": ("rom", "crc32", "size", "game", "debug", "target", "sigil_revision"),
+    "rom": ("rom", "romSha256", "size", "game", "debug", "target", "sigil_revision"),
     "harness": ("tool_sha256",),
 }
 TOP_KEYS = tuple(REQUIRED)

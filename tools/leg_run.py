@@ -2,7 +2,7 @@
 """leg_run — one leg, one shape, one phase, one JSON result (Empyrean v2 step 0, B2).
 
     python3 tools/leg_run.py --rom s4.bin --lst s4.lst --leg run --phase 0 --out DIR \\
-        [--profile] [--dma-probe] [--cap N]
+        [--build-json s4.build.json] [--profile] [--dma-probe] [--cap N]
 
 Writes DIR/<rom-stem>_<leg>_p<phase>.json with keys
     provenance, leg, phase, status, coverage{rule, got, need, met}, lag{frames, ticks},
@@ -85,7 +85,7 @@ def load_cost_ref(path: Path, debug: bool, phase: int, leg: str = "objheavy") ->
     if not any(x.get("cyc") is not None for x in r.get("rows", [])):
         raise ValueError(f"{path}: no row carries a cycle reading")
     return {"rows": r["rows"], "profile": r.get("profile"), "lag": r.get("lag"),
-            "source": f"{Path(path).name} ({want} {rom.get('crc32')}, "
+            "source": f"{Path(path).name} ({want} {rom.get('romSha256') or rom.get('crc32')}, "
                       f"aeon {str(r['provenance']['aeon']['commit'])[:12]})"}
 
 
@@ -269,7 +269,12 @@ async def run_leg(a, inst, syms, probe=None, obj=None) -> dict:
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--rom", required=True)
-    ap.add_argument("--lst", required=True)
+    ap.add_argument("--lst", required=True,
+                    help="the listing (kept until Oracle reads the build export instead: "
+                         "docs/DEFERRED_WORK.md G0A-LST-REFUSED)")
+    ap.add_argument("--build-json", default=None,
+                    help="the ROM's build export (default: `<rom stem>.build.json` beside it); "
+                         "its rom.sha256 must bind the ROM and becomes `romSha256`")
     ap.add_argument("--leg", required=True, choices=sorted(ld.POLICIES))
     ap.add_argument("--phase", required=True, type=int, choices=range(len(ld.PHASE_OFFSETS)))
     ap.add_argument("--out", required=True)
@@ -285,6 +290,12 @@ def main(argv=None) -> int:
     if a.cap is None:
         a.cap = DEFAULT_CAP[a.leg]
     rom, lst = Path(a.rom).resolve(), Path(a.lst).resolve()
+    build_json = Path(a.build_json).resolve() if a.build_json else None
+    try:
+        lp.rom_sha256(rom, build_json)   # fail before spawning anything: no sidecar, no run
+    except lp.UnboundRom as e:
+        print(f"leg_run: COULD NOT RUN — {e}", file=sys.stderr)
+        return 2
     try:
         syms = ld.resolve_syms(lst)
     except ld.DriveError as e:
@@ -340,8 +351,8 @@ def main(argv=None) -> int:
         return 2
     try:
         try:
-            prov = lp.provenance(lp.load_pin(), inst.handshake, rom, lst)
-        except (lp.StalePair, lp.PinMismatch) as e:
+            prov = lp.provenance(lp.load_pin(), inst.handshake, rom, lst, build_json)
+        except (lp.StalePair, lp.PinMismatch, lp.UnboundRom) as e:
             print(f"leg_run: COULD NOT RUN — {e}", file=sys.stderr)
             return 2
         prov["harness"]["leg_drive_sha256"] = lp.sha256_file(TOOLS / "leg_drive.py")

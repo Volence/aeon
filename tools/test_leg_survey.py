@@ -9,13 +9,18 @@ import leg_survey as ls
 PROV = {"aeon": {"commit": "c" * 40, "dirty": False}}
 
 
+def _sha(seed):
+    import hashlib
+    return hashlib.sha256(seed.encode()).hexdigest()
+
+
 def _good_prov(leg="idle", shape="release"):
     import leg_provenance as lp
     pv = {k: {leaf: "x" for leaf in leaves} for k, leaves in lp.REQUIRED.items()}
     pv["aeon"]["dirty"] = False
     pv["oracle"]["dirty"] = False
     pv["rom"]["rom"] = ls.LEG_ROM[(leg, shape)]
-    pv["rom"]["crc32"] = "crc-" + ls.LEG_ROM[(leg, shape)]
+    pv["rom"]["romSha256"] = _sha("rom-" + ls.LEG_ROM[(leg, shape)])
     pv["rom"]["debug"] = 1 if shape == "debug" else 0    # as leg_provenance writes it (M3)
     if leg in ls.LEG_CLIP:                         # a clip-built cell names its clip (v2 C4)
         pv["rom"]["rebake"] = {"clip": ls.LEG_CLIP[leg]}
@@ -60,7 +65,7 @@ def fill(out, skip=(), companion=True):
                                                     "met": True},
                  "lag": {"frames": 3, "ticks": 90}, "dma": _dma()}
             r["provenance"]["rom"]["rebake"] = {"clip": ls.STREAM_COMPANION_CLIP}
-            r["provenance"]["rom"]["crc32"] = "crc-companion-" + sh
+            r["provenance"]["rom"]["romSha256"] = _sha("companion-" + sh)
             p = ls.companion_path(out, sh, ph)
             p.parent.mkdir(parents=True, exist_ok=True)
             p.write_text(json.dumps(r))
@@ -231,21 +236,21 @@ def test_mixed_provenance_in_a_shape_is_failed_naming_the_field(tmp_path, field,
     assert row.status == "FAILED" and field in row.detail and rc == 1
 
 
-def test_mixed_rom_crc_within_a_leg_is_failed(tmp_path):
+def test_mixed_rom_sha256_within_a_leg_is_failed(tmp_path):
     fill(tmp_path)
     p = ls.result_path(tmp_path, "idle", "release", 1)
     r = json.loads(p.read_text())
-    r["provenance"]["rom"]["crc32"] = "deadbeef"
+    r["provenance"]["rom"]["romSha256"] = _sha("deadbeef")
     p.write_text(json.dumps(r))
     row = [x for x in ls.summarise(tmp_path).rows if (x.leg, x.shape, x.phase) == ("idle", "release", 1)][0]
-    assert row.status == "FAILED" and "rom.crc32" in row.detail
+    assert row.status == "FAILED" and "rom.romSha256" in row.detail
 
 
 def test_summary_header_prints_provenance_tuples_and_labels(tmp_path):
     fill(tmp_path)
     ls.write_summary(tmp_path)
     t = (tmp_path / "summary.md").read_text()
-    assert "aeon.commit=" in t and "oracle.server_build_id=" in t and "rom crc32 idle/release" in t
+    assert "aeon.commit=" in t and "oracle.server_build_id=" in t and "rom sha256 idle/release" in t
     assert "MEASURED (Oracle)" in t
     assert "ESTIMATED: classify, sound_playing=True (upper-bound Z80 stall), no witness" in t
 
@@ -289,8 +294,8 @@ def test_run_refuses_nonempty_out_dir_without_resume(tmp_path):
 def test_run_survives_oserror_and_kills_group_on_timeout(tmp_path, monkeypatch, capsys):
     rom_dir = tmp_path / "roms"
     rom_dir.mkdir()
-    for n in ("s4.stressobj.bin", "s4.stressobj.lst", "s4.stressobj.debug.bin",
-              "s4.stressobj.debug.lst"):
+    for n in ("s4.stressobj.bin", "s4.stressobj.lst", "s4.stressobj.build.json",
+              "s4.stressobj.debug.bin", "s4.stressobj.debug.lst", "s4.stressobj.debug.build.json"):
         (rom_dir / n).write_bytes(b"x")
     monkeypatch.setattr(ls.subprocess, "Popen",
                         lambda *a, **k: (_ for _ in ()).throw(PermissionError("nope")))
@@ -565,7 +570,7 @@ def test_run_refuses_a_rom_of_the_wrong_clip(tmp_path, capsys):
     root). A stream cell over the companion's ROM is DID NOT RUN, naming both clips."""
     rd = tmp_path / "roms"
     rd.mkdir()
-    for n in ("s4.s2clip.bin", "s4.s2clip.lst"):
+    for n in ("s4.s2clip.bin", "s4.s2clip.lst", "s4.s2clip.build.json"):
         (rd / n).write_bytes(b"x")
     (rd / "s4.s2clip.clip_anchors.json").write_text(json.dumps({"clip": "s2_ehz_cpz"}))
     recs = ls.run(tmp_path / "out", only=["stream"], rom_dir=rd)
@@ -653,10 +658,10 @@ def test_m1_two_builds_of_one_rom_file_across_legs_is_failed(tmp_path):
     fill(tmp_path)
     for ph in ls.PHASES:
         _edit(tmp_path, ("run", "release", ph),
-              lambda r: r["provenance"]["rom"].__setitem__("crc32", "crc-other-s4.bin"))
+              lambda r: r["provenance"]["rom"].__setitem__("romSha256", _sha("other-s4.bin")))
     summ = ls.summarise(tmp_path)
     row = _row(summ, ("run", "release", 0))
-    assert row.status == "FAILED" and "one crc per ROM file" in row.detail and "s4.bin" in row.detail
+    assert row.status == "FAILED" and "one sha256 per ROM file" in row.detail and "s4.bin" in row.detail
 
 
 def test_m1_the_companion_is_its_own_rom_group(tmp_path):
@@ -701,3 +706,28 @@ def test_m4_a_result_without_a_coverage_verdict_is_failed_not_did_not_cover(tmp_
     _edit(tmp_path, ("topspeed", "release", 0), lambda r: r.__setitem__("coverage", cov))
     row = _row(ls.summarise(tmp_path), ("topspeed", "release", 0))
     assert row.status == "FAILED" and "no coverage verdict" in row.detail
+
+
+def test_one_sha256_per_rom_file(tmp_path):
+    """Planted: two cells that share s4.bin carry different romSha256. The second is FAILED
+    naming the field, both digests, the other cell and the rule (one sha256 per ROM file)."""
+    fill(tmp_path)
+    a, b = _sha("planted-A"), _sha("planted-B")
+    _edit(tmp_path, ("idle", "release", 0), lambda r: r["provenance"]["rom"].__setitem__("romSha256", a))
+    _edit(tmp_path, ("idle", "release", 1), lambda r: r["provenance"]["rom"].__setitem__("romSha256", b))
+    row = _row(ls.summarise(tmp_path), ("idle", "release", 1))
+    assert row.status == "FAILED"
+    assert "rom.romSha256" in row.detail and a in row.detail and b in row.detail
+    assert "one sha256 per ROM file" in row.detail and "idle/release/p0" in row.detail
+
+
+def test_a_cell_without_its_build_export_did_not_run(tmp_path, monkeypatch):
+    """The sidecar is the ROM's name: no `<stem>.build.json` beside the ROM, no run, and the
+    note names the file. (Never a fallback to a CRC.)"""
+    rom_dir = tmp_path / "roms"
+    rom_dir.mkdir()
+    cells = [("idle", "release", 0)]
+    (rom_dir / ls.LEG_ROM[("idle", "release")]).write_bytes(b"R")
+    (rom_dir / ls.LEG_ROM[("idle", "release")]).with_suffix(".lst").write_text("L")
+    done = ls._run_cells(tmp_path / "out", cells, rom_dir, 5, False)
+    assert done[0]["rc"] is None and "build.json" in done[0]["note"]

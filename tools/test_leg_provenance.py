@@ -103,7 +103,27 @@ def test_committed_pin_is_the_archived_binary_and_the_live_handshake():
     inst.reap()
 
 
-def _synthetic(tmp_path, rom_bytes=b"ROMDATA", digest_crc=None, debug=1):
+def write_sidecar(rom, sha=None, **over):
+    """A minimal schema-valid `<stem>.build.json` beside `rom`, binding the ROM's own SHA-256
+    unless `sha` says otherwise (the contract's required keys, nothing more)."""
+    import hashlib
+    data = Path(rom).read_bytes()
+    doc = {"format": "empyrean.build", "version": {"major": 1, "minor": 0},
+           "rom": {"path": Path(rom).name, "size": len(data),
+                   "sha256": sha or hashlib.sha256(data).hexdigest()},
+           "inputsSha256": "a" * 64,
+           "tool": {"name": "sigil", "version": "0", "revision": "r", "tree": "clean"},
+           "shape": {"game": "sonic4", "shape": "s4", "defines": {}},
+           "spaces": [{"id": "m68k", "addrBits": 24}],
+           "files": [], "symbols": [], "layouts": [], "consts": [],
+           "lines": {"columns": ["vma", "lma", "len", "file", "line", "kind"], "sections": {}}}
+    doc.update(over)
+    p = lp.sidecar_path(rom)
+    p.write_text(json.dumps(doc))
+    return p
+
+
+def _synthetic(tmp_path, rom_bytes=b"ROMDATA", digest_crc=None, debug=1, sidecar=True):
     rom = tmp_path / "s4.debug.bin"
     rom.write_bytes(rom_bytes)
     read = "DIGEST-READ crc=00000001 size=1 origin=source path=x.asm"
@@ -118,6 +138,8 @@ def _synthetic(tmp_path, rom_bytes=b"ROMDATA", digest_crc=None, debug=1):
         read, f"DIGEST-AGGREGATE crc={agg} reads=1",
         f"DIGEST-ROM crc={crc:08x} size={len(rom_bytes)} path=s4.debug.bin",
         "DIGEST-END", ""]))
+    if sidecar:
+        write_sidecar(rom)
     return rom, lst
 
 
@@ -135,7 +157,45 @@ def test_rom_provenance_reads_digest_shape(tmp_path, monkeypatch):
     assert p["debug"] == 1 and p["sigil_revision"] == "abc1234"
     assert p["game"] == "sonic4" and p["target"] == "sonic4" and p["extra_entries"] == "none"
     assert p["size"] == 7 and p["rom"] == "s4.debug.bin" and p["tree"] == "clean"
-    assert p["crc32"] == f"{zlib.crc32(b'ROMDATA') & 0xFFFFFFFF:08x}"
+    assert p["crc32Legacy"] == f"{zlib.crc32(b'ROMDATA') & 0xFFFFFFFF:08x}"
+    assert "crc32" not in p
+
+
+def test_rom_identity_is_sha256_from_sidecar(tmp_path, monkeypatch):
+    """`romSha256` is what the sidecar says, bound to the ROM's bytes; never a CRC."""
+    import hashlib
+    rom, lst = _synthetic(tmp_path)
+    _fresh(monkeypatch)
+    p = lp.rom_provenance(rom, lst)
+    assert p["romSha256"] == hashlib.sha256(b"ROMDATA").hexdigest()
+    assert len(p["romSha256"]) == 64
+    assert p["romSha256"] == json.loads(lp.sidecar_path(rom).read_text())["rom"]["sha256"]
+
+
+def test_missing_sidecar_is_loud_not_a_crc_fallback(tmp_path, monkeypatch):
+    rom, lst = _synthetic(tmp_path, sidecar=False)
+    _fresh(monkeypatch)
+    with pytest.raises(lp.UnboundRom, match="s4.debug.build.json"):
+        lp.rom_provenance(rom, lst)
+
+
+def test_sidecar_binding_another_rom_is_refused(tmp_path, monkeypatch):
+    rom, lst = _synthetic(tmp_path)
+    write_sidecar(rom, sha="0" * 64)        # a stale sidecar beside a new ROM
+    _fresh(monkeypatch)
+    with pytest.raises(lp.UnboundRom, match="binds ROM sha256 " + "0" * 64):
+        lp.rom_provenance(rom, lst)
+
+
+def test_explicit_build_json_path_is_honoured(tmp_path, monkeypatch):
+    rom, lst = _synthetic(tmp_path, sidecar=False)
+    _fresh(monkeypatch)
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    bj = write_sidecar(rom)
+    moved = elsewhere / "x.build.json"
+    bj.rename(moved)
+    assert lp.rom_provenance(rom, lst, build_json=moved)["romSha256"]
 
 
 def test_refuses_stale_pair(tmp_path, monkeypatch):
@@ -180,7 +240,7 @@ def test_detached_head_is_recorded_not_refused(tmp_path):
     lp.require_provenance({
         "oracle": {"commit": C, "server_build_id": "x", "source": "s", "dirty": False, "sha256": "h"},
         "aeon": a,
-        "rom": {"rom": "s4.bin", "crc32": "00000000", "size": 1, "game": "sonic4", "debug": False,
+        "rom": {"rom": "s4.bin", "romSha256": "0" * 64, "size": 1, "game": "sonic4", "debug": False,
                 "target": "sonic4", "sigil_revision": "r"},
         "harness": {"tool_sha256": "h"},
     })
@@ -211,7 +271,7 @@ def _full():
     return {"oracle": {"commit": C, "server_build_id": C + "+profile=release", "source": "vcs",
                        "dirty": False, "sha256": "0" * 64},
             "aeon": {"commit": C, "dirty": False, "branch": "b"},
-            "rom": {"rom": "s4.bin", "crc32": "00000000", "size": 0, "game": "sonic4",
+            "rom": {"rom": "s4.bin", "romSha256": "0" * 64, "size": 0, "game": "sonic4",
                     "debug": 0, "target": "sonic4", "sigil_revision": "r",
                     "extra_entries": "none"},
             "harness": {"tool_sha256": "f" * 64}}
@@ -376,3 +436,17 @@ def test_an_s2clip_tree_rebake_needs_the_listing_and_a_read_under_the_trees(tmp_
     with pytest.raises(lp.StalePair, match="no DIGEST-READ row under"):
         lp.regenerate_rebake(rom, tmp_path / "o", lst=lst)       # its one read is gen/x.emp
     assert lp._tree_reads(lst, ["gen"]) == ["gen/x.emp"]
+
+
+def test_leg_run_without_a_build_export_could_not_run(tmp_path, capsys):
+    """leg_run checks the sidecar before spawning anything: rc 2, naming the missing file;
+    `--lst` still works beside `--build-json` (it is refused only after Oracle reads the export)."""
+    import leg_run
+    rom, lst = _synthetic(tmp_path, sidecar=False)
+    argv = ["--rom", str(rom), "--lst", str(lst), "--leg", "idle", "--phase", "0",
+            "--out", str(tmp_path / "out")]
+    assert leg_run.main(argv) == 2
+    assert "s4.debug.build.json" in capsys.readouterr().err
+    stale = write_sidecar(rom, sha="1" * 64)
+    assert leg_run.main(argv + ["--build-json", str(stale)]) == 2
+    assert "binds ROM sha256 " + "1" * 64 in capsys.readouterr().err

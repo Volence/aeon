@@ -287,12 +287,12 @@ def main(argv=None) -> int:
         log, oracle_rows = result["input_log"], result["rows"]
         rom_prov = lp.rom_provenance(rom, lst)
         want = result["provenance"]["rom"]
-        if (rom_prov["crc32"], rom_prov["size"]) != (want["crc32"], want["size"]):
-            raise WitnessError(f"{rom.name} crc32 {rom_prov['crc32']} size {rom_prov['size']} "
-                               f"!= the result's ROM {want['crc32']} / {want['size']}")
+        if (rom_prov["romSha256"], rom_prov["size"]) != (want["romSha256"], want["size"]):
+            raise WitnessError(f"{rom.name} romSha256 {rom_prov['romSha256']} size {rom_prov['size']} "
+                               f"!= the result's ROM {want['romSha256']} / {want['size']}")
         syms = ld.resolve_syms(lst)
         bin_ = blastem_binary()
-    except (OSError, KeyError, ValueError, WitnessError, ld.DriveError, lp.StalePair) as e:
+    except (OSError, KeyError, ValueError, WitnessError, ld.DriveError, lp.StalePair, lp.UnboundRom) as e:
         print(f"blastem_witness: COULD NOT RUN — {type(e).__name__}: {e} (nothing written)",
               file=sys.stderr)
         return 2
