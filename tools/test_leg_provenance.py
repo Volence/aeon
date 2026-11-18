@@ -160,6 +160,32 @@ def test_records_dirty_tree(tmp_path):
     assert a["dirty"] is True and len(a["commit"]) == 40 and a["branch"] == "main"
 
 
+def test_detached_head_is_recorded_not_refused(tmp_path):
+    """V2-B1-DETACHED-PROVENANCE: the land gate says to prove a push from a clean checkout of a
+    SHA, and that checkout is detached. Provenance names it DETACHED_BRANCH (the commit stays
+    mandatory) and the writer's gate accepts it; it does not raise MissingProvenance."""
+    def g(*a):
+        subprocess.run(["git", "-C", str(tmp_path), *a], check=True, capture_output=True)
+    g("init", "-q", "-b", "main")
+    (tmp_path / "f").write_text("1")
+    g("add", "f")
+    g("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "c")
+    sha = subprocess.run(["git", "-C", str(tmp_path), "rev-parse", "HEAD"], check=True,
+                         capture_output=True, text=True).stdout.strip()
+    g("checkout", "-q", "--detach", sha)
+    a = lp.aeon_provenance(tmp_path)
+    assert a["branch"] == lp.DETACHED_BRANCH == "(detached)"
+    assert a["commit"] == sha and a["dirty"] is False
+    C = "0" * 40
+    lp.require_provenance({
+        "oracle": {"commit": C, "server_build_id": "x", "source": "s", "dirty": False, "sha256": "h"},
+        "aeon": a,
+        "rom": {"rom": "s4.bin", "crc32": "00000000", "size": 1, "game": "sonic4", "debug": False,
+                "target": "sonic4", "sigil_revision": "r"},
+        "harness": {"tool_sha256": "h"},
+    })
+
+
 def test_dirty_paths_are_recorded_and_capped(tmp_path, monkeypatch):
     """The porcelain lines behind `dirty` are in the provenance (auditable), capped at
     DIRTY_PATHS_MAX with the full count beside them. Untracked files still count."""

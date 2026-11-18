@@ -271,6 +271,12 @@ def _git(root: Path, *args: str) -> str:
                           text=True).stdout
 
 
+#: `aeon.branch` on a detached HEAD (V2-B1-DETACHED-PROVENANCE). The land gate proves a push
+#: from a clean checkout of a SHA, which is detached; the commit is what identifies the tree, so
+#: a detached checkout is named, never refused. `git branch --show-current` prints "" there.
+DETACHED_BRANCH = "(detached)"
+
+
 #: How many `git status --porcelain` lines `aeon.dirty_paths` keeps; `dirty_count` is the total.
 DIRTY_PATHS_MAX = 50
 
@@ -284,7 +290,7 @@ def aeon_provenance(root: Path = AEON_ROOT) -> dict:
             "dirty": bool(lines),
             "dirty_count": len(lines),
             "dirty_paths": lines[:DIRTY_PATHS_MAX],
-            "branch": _git(root, "branch", "--show-current").strip()}
+            "branch": _git(root, "branch", "--show-current").strip() or DETACHED_BRANCH}
 
 
 def provenance(pin: OraclePin, handshake: dict, rom: Path, lst: Path) -> dict:
