@@ -102,7 +102,16 @@ proofs in the v2 step-0 plan (Tasks 1-10) that mutated and restored a `tools/*.p
 succession were not re-audited for this; a red from the wrong mutant, or a restored run that
 was not, cannot be excluded from their logs alone.
 
-## V2-B1-DETACHED-PROVENANCE: a leg run refuses a detached checkout, so the land gate's own instruction goes red (OPEN, booked 2026-11-18, found landing the step-0 wave-3 pair)
+## V2-B1-DETACHED-PROVENANCE: a leg run refuses a detached checkout, so the land gate's own instruction goes red (CLOSED 2026-11-17 on `fix/v2-b1-detached-provenance`; booked 2026-11-18, found landing the step-0 wave-3 pair)
+
+> **CLOSED (branch `fix/v2-b1-detached-provenance`).** `aeon_provenance` now records `branch =
+> DETACHED_BRANCH` (`"(detached)"`) when `git branch --show-current` prints nothing; `commit` stays
+> mandatory and `require_provenance` is unchanged. Gate: `tools/test_leg_provenance.py::
+> test_detached_head_is_recorded_not_refused` (a real detached checkout in a temp repo, then the
+> writer's gate). Red-first with the mutation on disk (`.strip() or DETACHED_BRANCH` → `.strip()`):
+> `AssertionError: assert '' == '(detached)'`; restored from the committed baseline: 51 passed,
+> 1 skipped (the skip is the existing DEFERRED s4.bin-absent case). End-to-end: see the landing run
+> from a detached checkout recorded in this branch's merge commit.
 
 `tools/leg_provenance.py:287` records `aeon.branch` from `git branch --show-current`, which is empty on a
 detached HEAD, and the validator (`:307`, `:326`) then raises `MissingProvenance("provenance
