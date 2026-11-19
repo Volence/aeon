@@ -31,7 +31,8 @@ baseline = "baseline.toml"
 require_one_text = false
 
 # deb2 appendix presence floor. native.rs:4832 (DEMO_APPENDIX_FLOOR), chosen at
-# sigil-cli main.rs:3443.
+# sigil-cli main.rs:3443, and in native.rs:4288-4292 by game path
+# (`game_root_rel.contains("/demo/")`, a literal the new driver retires).
 appendix_floor = 0x1000
 
 [entry]

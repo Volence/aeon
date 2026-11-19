@@ -79,8 +79,8 @@ error_handler_blob = "ErrorHandlerBlob"
 fault_island_heads = ["ReleaseFault", "BusError"]
 
 # Labels the driver reads out of every build's layout. native.rs:4586
-# (`sigil_native_symbol_listing`: EndOfRom absent is an error); also
-# native.rs:234 (`assembled_len`). EndOfRom is engine/system/epilogue.emp's.
+# (`sigil_native_symbol_listing`: EndOfRom absent from the resolved layout is an
+# error). EndOfRom is engine/system/epilogue.emp's.
 required_labels = ["EndOfRom"]
 
 # The harvest sources. native.rs:918 (harvest_engine_constants reads
@@ -131,8 +131,13 @@ place_in = { feature = "!sound" }
 modules = "engine.debug.sound_debug"      # module_roots.rs:164, ShapeGate::SoundDbgMirror
 place_in = { feature = "SOUND_DBG_MIRROR" }
 
-# What sound_bank_ids.rs holds, checked on every sound-on build: so every label
-# here is one a sound-on game's layout must carry.
+# What sound_bank_ids.rs holds, checked on every sound-on build. The labels here
+# (and in [[sound.blob_bank_ids]] banks) are GAME-DEFINED labels the sound engine
+# requires when sound is on: a sound-on game's layout must carry every one
+# (blob_start/blob_end are the engine's own, engine/system/boot_data.emp; the dac_*
+# and bank labels are the game's, games/sonic4/data/sound/). They sit here rather
+# than in required_labels because [sound] carries the sound-on condition that
+# required_labels lacks (controller ruling M4, G0b Task 2).
 [sound]
 blob_start = "Z80_Sound_Start"            # sound_bank_ids.rs:45 (BLOB_START, engine/system/boot_data.emp)
 blob_end = "Z80_Sound_End"                # sound_bank_ids.rs:46 (BLOB_END)
