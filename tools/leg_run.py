@@ -85,6 +85,8 @@ def load_cost_ref(path: Path, debug: bool, phase: int, leg: str = "objheavy") ->
     if not any(x.get("cyc") is not None for x in r.get("rows", [])):
         raise ValueError(f"{path}: no row carries a cycle reading")
     return {"rows": r["rows"], "profile": r.get("profile"), "lag": r.get("lag"),
+            # DISPLAY ONLY: results recorded before G0a carry `crc32`, not `romSha256`. The fallback
+            # names the ROM in this source string and is never compared or used as identity.
             "source": f"{Path(path).name} ({want} {rom.get('romSha256') or rom.get('crc32')}, "
                       f"aeon {str(r['provenance']['aeon']['commit'])[:12]})"}
 

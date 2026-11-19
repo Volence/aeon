@@ -1,0 +1,216 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://empyrean.invalid/contract/build/1",
+  "title": "empyrean.build 1.x",
+  "description": "The build-data export: one <stem>.build.json per ROM, written by the assembler (G0a design, docs/v2/specs/2026-11-17-G0a-build-data-export-design.md). The schema and the vectors beside it are the contract (4.3); a vector change is a contract amendment first. The ENVELOPE OBJECTS (version, rom, tool, shape, and each spaces entry) are closed: an unknown key inside them fails, which is what keeps timestamps and hostnames out. The ROOT is open and so are RECORD PAYLOADS (a file, symbol, layout, field, overlay, const, line section): a minor version adds top-level collections and record keys, and a 1.0 reader ignores both (spec 4.3). Numbers are JSON integers, never hex strings. No absolute paths, timestamps or hostnames. The binding key is rom.sha256: the SHA-256 of the ROM file as written; results name it romSha256 on the bus.",
+  "type": "object",
+  "required": ["format", "version", "rom", "inputsSha256", "tool", "shape", "spaces", "files", "symbols", "layouts", "consts", "lines"],
+  "properties": {
+    "format": { "const": "empyrean.build" },
+    "version": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["major", "minor"],
+      "properties": {
+        "major": { "const": 1, "description": "A consumer refuses an unknown major by name before reading anything else (4.3)." },
+        "minor": { "type": "integer", "minimum": 0, "description": "Adds fields or records. A consumer accepts any equal or higher minor and ignores unknown keys in records." }
+      }
+    },
+    "rom": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "size", "sha256"],
+      "properties": {
+        "path": { "$ref": "#/$defs/relPath", "description": "The ROM's file name as the build named it, never absolute." },
+        "size": { "$ref": "#/$defs/uint" },
+        "sha256": { "$ref": "#/$defs/sha256", "description": "The binding key: SHA-256 of the ROM file as written, before any pad, mirror or runtime patch (4.2)." }
+      }
+    },
+    "inputsSha256": { "$ref": "#/$defs/sha256", "description": "Hashes tool identity, shape, defines and every input file's SHA-256. Changes when the tool changes even if nothing else does; a comparison of two builds excludes it and `tool`." },
+    "tool": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "version", "revision", "tree"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "version": { "type": "string" },
+        "revision": { "type": "string" },
+        "tree": { "type": "string", "description": "The build's tree-state word." }
+      }
+    },
+    "shape": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["game", "shape", "defines"],
+      "properties": {
+        "game": { "type": "string", "minLength": 1, "description": "From the caller, never from the assembler's source." },
+        "shape": { "type": "string", "minLength": 1 },
+        "defines": { "type": "object", "additionalProperties": { "type": "integer" }, "description": "The shape's integer defines." }
+      }
+    },
+    "spaces": {
+      "type": "array",
+      "minItems": 1,
+      "allOf": [
+        { "contains": { "required": ["id"], "properties": { "id": { "const": "m68k" } } }, "minContains": 0, "maxContains": 1 },
+        { "contains": { "required": ["id"], "properties": { "id": { "const": "z80" } } }, "minContains": 0, "maxContains": 1 }
+      ],
+      "description": "Each space at most once. Unique-by-key is not expressible in plain JSON Schema, so this bounds each id of the closed enum with maxContains; a new space (a major version) adds a clause.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "addrBits"],
+        "properties": {
+          "id": { "$ref": "#/$defs/space" },
+          "addrBits": { "type": "integer", "minimum": 1, "maximum": 64 }
+        }
+      }
+    },
+    "files": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["root", "path", "lang", "sha256", "size"],
+        "properties": {
+          "root": { "enum": ["engine", "game", "generated", "sigil"], "description": "Exactly these four roots; a new root is a major version." },
+          "path": { "$ref": "#/$defs/relPath" },
+          "lang": { "enum": ["emp", "asm", "z80"] },
+          "sha256": { "$ref": "#/$defs/sha256" },
+          "size": { "$ref": "#/$defs/uint" }
+        }
+      }
+    },
+    "symbols": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "vma", "kind", "public"],
+        "properties": {
+          "name": { "type": "string", "minLength": 1, "description": "The identifying spelling exactly as the listing writes it (mangling included)." },
+          "demangled": { "type": "string" },
+          "space": { "$ref": "#/$defs/space", "description": "Absent on an equate that is not known to be an address." },
+          "vma": { "$ref": "#/$defs/uint32" },
+          "lma": { "$ref": "#/$defs/uint32", "description": "The load address. Required for a z80 symbol in the banked window $8000-$FFFF, where vma is not unique across banks (4.4)." },
+          "kind": { "enum": ["proc", "label", "data", "equ", "ram"] },
+          "size": { "$ref": "#/$defs/uint32" },
+          "module": { "type": "string" },
+          "public": { "type": "boolean" }
+        },
+        "allOf": [
+          {
+            "if": { "required": ["space"], "properties": { "space": { "const": "z80" } } },
+            "then": { "properties": { "vma": { "maximum": 65535 } } }
+          },
+          {
+            "if": { "required": ["space", "vma"], "properties": { "space": { "const": "z80" }, "vma": { "minimum": 32768, "maximum": 65535 } } },
+            "then": { "required": ["lma"] }
+          }
+        ]
+      }
+    },
+    "layouts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "module", "kind", "size", "fields", "overlays"],
+        "properties": {
+          "name": { "type": "string", "minLength": 1 },
+          "module": { "type": "string" },
+          "kind": { "enum": ["struct", "bitfield", "enum"] },
+          "size": { "$ref": "#/$defs/uint32" },
+          "fields": { "type": "array", "items": { "$ref": "#/$defs/field" } },
+          "overlays": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["name", "base", "offset", "size", "fields"],
+              "properties": {
+                "name": { "type": "string", "minLength": 1 },
+                "base": { "type": "string" },
+                "offset": { "$ref": "#/$defs/uint32" },
+                "size": { "$ref": "#/$defs/uint32" },
+                "fields": { "type": "array", "items": { "$ref": "#/$defs/field" } }
+              }
+            }
+          }
+        }
+      }
+    },
+    "consts": {
+      "type": "array",
+      "description": "1.0: integer, boolean and enum constants only, as integers. No regions, no expansion chain (1.1).",
+      "items": {
+        "type": "object",
+        "required": ["name", "module", "type", "value"],
+        "properties": {
+          "name": { "type": "string", "minLength": 1 },
+          "module": { "type": "string" },
+          "type": { "type": "string" },
+          "value": { "type": "integer" }
+        }
+      }
+    },
+    "lines": {
+      "type": "object",
+      "required": ["columns", "sections"],
+      "properties": {
+        "columns": {
+          "type": "array",
+          "prefixItems": [
+            { "const": "vma" }, { "const": "lma" }, { "const": "len" },
+            { "const": "file" }, { "const": "line" }, { "const": "kind" }
+          ],
+          "minItems": 6,
+          "description": "Names the row columns. A minor version may append columns; a reader uses the first six."
+        },
+        "sections": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "required": ["space", "rows"],
+            "properties": {
+              "space": { "$ref": "#/$defs/space" },
+              "rows": {
+                "type": "array",
+                "items": {
+                  "type": "array",
+                  "prefixItems": [
+                    { "$ref": "#/$defs/uint32" },
+                    { "$ref": "#/$defs/uint32" },
+                    { "$ref": "#/$defs/uint32" },
+                    { "$ref": "#/$defs/uint32", "description": "Index into `files`." },
+                    { "$ref": "#/$defs/uint32" },
+                    { "enum": ["code", "data", "fill", "org-gap", "deb2", "checksum"], "description": "Closed: a new kind is a major version. fill, org-gap, deb2 and checksum are the declared no-source ranges." }
+                  ],
+                  "minItems": 6
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "uint": { "type": "integer", "minimum": 0 },
+    "uint32": { "type": "integer", "minimum": 0, "maximum": 4294967295 },
+    "space": { "enum": ["m68k", "z80"], "description": "Closed: a new space is a major version." },
+    "relPath": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?![/\\\\])(?![A-Za-z]:)(?!.*(^|[/\\\\])\\.\\.([/\\\\]|$)).+$",
+      "description": "Relative, with no leading slash or drive letter, no backslash separator trick and no `..` segment."
+    },
+    "field": {
+      "type": "object",
+      "required": ["name", "offset", "size", "type"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "offset": { "$ref": "#/$defs/uint32" },
+        "size": { "$ref": "#/$defs/uint32" },
+        "type": { "type": "string" }
+      }
+    }
+  }
+}

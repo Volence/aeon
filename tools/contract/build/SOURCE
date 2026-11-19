@@ -1,0 +1,28 @@
+# Vendored copy of the empyrean.build 1.x reader and contract (G0a). Do not edit here: change it in empyrean, then re-vendor with tools/vendor_contract_build.py.
+# Lines below `files:` are sha256sum format: <sha256>  <path relative to this directory>.
+empyrean-repo: empyrean
+empyrean-branch: feat/g0a-build-contract
+empyrean-commit: 5a623ef7e19fd95188255fb412d0170e68171f97
+files:
+e57847a7ddcde38298c7d39503f694406506c5abc6d1cf6d13274b2750d937a6  empyrean.build-1.schema.json
+fa6de793c63b8609bbfb2c86893adb8335d31d0412a64089c12c9f35a252fd92  empyrean_build.py
+9f11de2a63bde4e06e6fc9dfb95abcb368c5926c827a824118ed6e6d89984a64  test_empyrean_build.py
+1419c69b06435529e9922d844eeba6b407f4b9860db156749879000522ae8084  vectors/pass/demo-minimal.json
+4800374ef66a5f5d25513d4223c68084b49f2b991b59419874a8b7cd6d677473  vectors/pass/minor-1-1-new-collection.json
+196e605f3f030de1ec53254a4b0f56fd18f41506cbb1d82dee12215a74d6934b  vectors/pass/minor-1-1-unknown-keys.json
+a55f193528ca07f9def7c1d3db6b724e9dc97436398148296ec401e3f16eb39d  vectors/pass/s4-minimal.json
+ae2f81acbc2ab8cba3263f69964e9d9250c0dd6a78e4869a04d34aa80df7eb56  vectors/pass/z80-banked.json
+77bf325cc1dd3034af2da91b490717dc0adf990f61416e199b5f830b15539f4c  vectors/red/absolute-path.json
+e1bb5f9109e9a44324554dc48e1694c8ec32a5252e81b9a0402a3c46ecfa8c5b  vectors/red/dotdot-segment.json
+37fae41746ab763739419c394c3c4a6b8c9c09edc09437475c42d7c7a7913ca1  vectors/red/drive-letter-path.json
+3a084b52467567d80b428586e1a41aab383486f55361cfd3f92f45f88ec1fad2  vectors/red/duplicate-space.json
+1c9ba00d1528381dce9c595a2cd016a0201c61810b2a341c22430d4cf9fd89ac  vectors/red/format-unknown.json
+e602284c8ae72f4b8a958c356b8a048c6a42738283842edbd42e9acdb962f994  vectors/red/hex-string-number.json
+422f5208bdc0e594e64bf8d9bed90b3a3180013a0f72adaf71ef3974e6fe342c  vectors/red/lines-kind-unknown.json
+6ba362dd9e4f54b19b12e6380875ba97f34e7083d3774a06f87072befb0ca652  vectors/red/major-2.json
+984219d09451948a2d298e7e1e540885da602063953b25bad69489a096f0d2ee  vectors/red/missing-rom-sha256.json
+63115cc3b09d3e78ffba3c6fa4448acd5e743ced549286ada40dac68a75138a5  vectors/red/sha256-uppercase.json
+7d02ed13855052515e6dce759f75b66c53fe895b017f733ce68fe00c3d1d513f  vectors/red/timestamp-key-in-envelope.json
+45b1eee2df2e86722da755ed4e6b0815e20269f71512d25a364983c326962788  vectors/red/unknown-space.json
+7f98f9b3eba3946cf4f6978134dd6b69243919fcffa3d57bbd2bc5d09f475cee  vectors/red/z80-banked-no-lma.json
+e97558852d220e6f614ac74b3ee11aa7d55fcf69c23a33ec4f4691dc01fde493  vectors/red/z80-vma-out-of-range.json

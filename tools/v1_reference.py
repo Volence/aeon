@@ -384,6 +384,7 @@ def record(rom, lst, leg: str, out: Path, inputs: ld.InputLog | None = None,
         policy = ld.Replay(inputs)
         t0, n = inputs["t0"], len(inputs["held"])
     wall0 = time.monotonic()
+    lp.rom_sha256(rom)   # no sidecar (or one binding another ROM), no run: before anything spawns
     inst = lp.spawn_pinned(rom, lst)
     try:
         prov = lp.provenance(lp.load_pin(), inst.handshake, rom, lst)
@@ -436,7 +437,7 @@ def _could_not_run():
     from suite_paths import add_client_path
     add_client_path()
     from aether import BusError
-    return (DirtyTree, lp.StalePair, lp.PinMismatch, lp.MissingProvenance, ld.DriveError,
+    return (DirtyTree, lp.StalePair, lp.UnboundRom, lp.PinMismatch, lp.MissingProvenance, ld.DriveError,
             BusError, ConnectionError, EOFError, asyncio.IncompleteReadError, TimeoutError,
             OSError)
 

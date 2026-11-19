@@ -175,6 +175,7 @@ def test_record_refuses_a_dirty_tree_and_names_the_paths(tmp_path, monkeypatch):
 
     monkeypatch.setattr(v1.ld, "resolve_syms", lambda lst: SimpleNamespace(buttons=B, equ={}))
     monkeypatch.setattr(v1, "_ram_spans", lambda syms: {})
+    monkeypatch.setattr(v1.lp, "rom_sha256", lambda rom, *a, **k: "9" * 64)   # the sidecar gate has its own test
     monkeypatch.setattr(v1.lp, "spawn_pinned", lambda rom, lst: Inst())
     monkeypatch.setattr(v1.lp, "load_pin", lambda: None)
     monkeypatch.setattr(v1.lp, "provenance", lambda *a: {
@@ -259,6 +260,7 @@ def _fake_record(monkeypatch, drives):
     monkeypatch.setattr(v1.ld, "resolve_syms",
                         lambda lst: SimpleNamespace(buttons=B, equ=EQU, debug=False))
     monkeypatch.setattr(v1, "_ram_spans", lambda syms: {})
+    monkeypatch.setattr(v1.lp, "rom_sha256", lambda rom, *a, **k: "9" * 64)   # the sidecar gate has its own test
     monkeypatch.setattr(v1.lp, "spawn_pinned", lambda rom, lst: Inst())
     monkeypatch.setattr(v1.lp, "load_pin", lambda: None)
     monkeypatch.setattr(v1.lp, "provenance", lambda *a: _clean_prov())
@@ -397,3 +399,18 @@ def test_replay_cli_refuses_a_reference_without_a_policy_version(tmp_path, capsy
     rc = v1.main(["replay", "--rom", str(tmp_path / "s4.bin"), "--lst", str(tmp_path / "s4.lst"),
                   "--leg", "spindash", "--ref", str(ref), "--out", str(tmp_path / "o")])
     assert rc == 2 and "policy_version" in capsys.readouterr().err
+
+
+def test_record_without_a_build_export_could_not_run_before_spawning(tmp_path, monkeypatch, capsys):
+    """No `<stem>.build.json` beside the ROM: COULD NOT RUN, rc 2, and nothing spawned."""
+    spawned = []
+    monkeypatch.setattr(v1.lp, "spawn_pinned", lambda rom, lst: spawned.append(1))
+    monkeypatch.setattr(v1.ld, "resolve_syms", lambda lst: SimpleNamespace(buttons={}, equ={}))
+    monkeypatch.setattr(v1, "_ram_spans", lambda syms: {})
+    (tmp_path / "s4.bin").write_bytes(b"R")
+    (tmp_path / "s4.lst").write_text("L")
+    rc = v1.main(["record", "--rom", str(tmp_path / "s4.bin"), "--lst", str(tmp_path / "s4.lst"),
+                  "--leg", "run", "--out", str(tmp_path / "out")])
+    assert rc == 2 and spawned == []
+    err = capsys.readouterr().err
+    assert "COULD NOT RUN" in err and "UnboundRom" in err and "s4.build.json" in err

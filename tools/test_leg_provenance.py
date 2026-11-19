@@ -450,3 +450,14 @@ def test_leg_run_without_a_build_export_could_not_run(tmp_path, capsys):
     stale = write_sidecar(rom, sha="1" * 64)
     assert leg_run.main(argv + ["--build-json", str(stale)]) == 2
     assert "binds ROM sha256 " + "1" * 64 in capsys.readouterr().err
+
+
+def test_rom_provenance_reads_the_rom_once(tmp_path, monkeypatch):
+    """One read: the CRC, the size and the binding all come from the same bytes."""
+    rom, lst = _synthetic(tmp_path)
+    _fresh(monkeypatch)
+    reads = []
+    real = Path.read_bytes
+    monkeypatch.setattr(Path, "read_bytes", lambda self: (reads.append(self.name), real(self))[1])
+    lp.rom_provenance(rom, lst)
+    assert reads.count(rom.name) == 1, reads

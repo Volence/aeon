@@ -1,0 +1,115 @@
+{
+ "why": "Trimmed from the real demo export: a second game, empty layouts and consts, no Sonic names.",
+ "doc": {
+  "format": "empyrean.build",
+  "version": {
+   "major": 1,
+   "minor": 0
+  },
+  "rom": {
+   "path": "demo.bin",
+   "size": 99994,
+   "sha256": "c71299aa6715c80349dea164e545c4dd4414ae790015577cd19c59f2caf5f9a7"
+  },
+  "inputsSha256": "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+  "tool": {
+   "name": "sigil",
+   "version": "0.1.0",
+   "revision": "6b40f52fb3741b410ca5048f321674ea98f4f0fc",
+   "tree": "clean"
+  },
+  "shape": {
+   "game": "demo",
+   "shape": "demo",
+   "defines": {
+    "COLLECTED_WINDOW_SLOTS": 4,
+    "CRASH_REPORT": 1,
+    "DEBUG": 0,
+    "GAME_SCANLINE_CAPS": 0,
+    "HAS_ACT_ART_POOL": 0,
+    "MAX_RING_BUFFER": 16,
+    "SOUND_DBG_MIRROR": 0,
+    "SOUND_DEBUG_HOTKEYS": 0,
+    "SOUND_DRIVER_ENABLED": 0,
+    "STRESS_EVICT": 0,
+    "VRAM_RING_PLACEHOLDER": 996
+   }
+  },
+  "spaces": [
+   {
+    "id": "m68k",
+    "addrBits": 24
+   },
+   {
+    "id": "z80",
+    "addrBits": 16
+   }
+  ],
+  "files": [
+   {
+    "root": "game",
+    "path": "game_root.asm",
+    "lang": "asm",
+    "sha256": "0303030303030303030303030303030303030303030303030303030303030303",
+    "size": 640
+   }
+  ],
+  "symbols": [
+   {
+    "name": "ART_HOLD_X_BIT",
+    "vma": 0,
+    "kind": "equ",
+    "public": false
+   },
+   {
+    "name": "SYSTEM_STACK",
+    "vma": 4294967040,
+    "kind": "equ",
+    "public": false
+   }
+  ],
+  "layouts": [],
+  "consts": [],
+  "lines": {
+   "columns": [
+    "vma",
+    "lma",
+    "len",
+    "file",
+    "line",
+    "kind"
+   ],
+   "sections": {
+    "rom": {
+     "space": "m68k",
+     "rows": [
+      [
+       0,
+       0,
+       40,
+       0,
+       0,
+       "data"
+      ],
+      [
+       40,
+       40,
+       216,
+       0,
+       0,
+       "data"
+      ],
+      [
+       256,
+       256,
+       142,
+       0,
+       0,
+       "data"
+      ]
+     ]
+    }
+   }
+  }
+ }
+}

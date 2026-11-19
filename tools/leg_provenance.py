@@ -39,8 +39,9 @@ sys.path.insert(0, str(TOOLS))
 from suite_paths import suite_path  # noqa: E402
 import artifact_provenance as ap  # noqa: E402
 from artifact_provenance import check_pair, read_digest  # noqa: E402
-from suite_paths import add_client_path  # noqa: E402
-add_client_path()  # the empyrean.build reader lives beside the Aether client; loud if absent
+# The empyrean.build reader is VENDORED (tools/contract/build/, pinned by its SOURCE file, drift-gated
+# by test_contract_build_vendor.py): no runtime dependence on the sibling empyrean checkout.
+sys.path.insert(0, str(TOOLS / "contract" / "build"))
 import empyrean_build as eb  # noqa: E402
 
 PIN_FILE = TOOLS / "oracle_pin.toml"
@@ -262,19 +263,23 @@ def sidecar_path(rom: Path) -> Path:
     return Path(rom).with_suffix(".build.json")
 
 
-def rom_sha256(rom: Path, build_json: Path | None = None) -> str:
+def rom_sha256(rom: Path, build_json: Path | None = None, data: bytes | None = None) -> str:
     """The ROM's `romSha256`, read from its sidecar and CHECKED against the ROM's bytes
-    (empyrean_build.load binds on the full digest). Every failure is UnboundRom."""
+    (empyrean_build.load binds on the full digest). `data` is the ROM's bytes when the caller already
+    holds them (one read, one hash, one bind). Every failure is UnboundRom; an environment fault of
+    the reader (no schema, no jsonschema) is NOT a sidecar fault and propagates as itself."""
     rom = Path(rom)
     bj = Path(build_json) if build_json is not None else sidecar_path(rom)
     try:
-        b = eb.load(str(bj), rom.read_bytes())
+        b = eb.load(str(bj), rom.read_bytes() if data is None else data)
     except FileNotFoundError as e:
         raise UnboundRom(f"leg_provenance: no build export for {rom.name}: {bj} is missing "
                          f"({e.filename}); rebuild it with a sigil that writes the sidecar") from e
     except eb.NotBound as e:
         raise UnboundRom(f"leg_provenance: {bj.name} binds ROM sha256 {e.expected} but "
                          f"{rom.name} is {e.found}: a stale sidecar or a patched ROM") from e
+    except eb.EnvironmentFault:
+        raise
     except eb.BuildError as e:
         raise UnboundRom(f"leg_provenance: {bj} is unusable: {e}") from e
     return b.rom_sha256
@@ -297,7 +302,7 @@ def rom_provenance(rom: Path, lst: Path, root: Path | None = None,
     d = read_digest(str(lst))
     shape, asm = d["shape"], d["assembler"]
     data = rom.read_bytes()
-    sha = rom_sha256(rom, build_json)
+    sha = rom_sha256(rom, build_json, data)
     return {"rom": rom.name, "romSha256": sha,
             "crc32Legacy": f"{zlib.crc32(data) & 0xFFFFFFFF:08x}", "size": len(data),
             "game": shape["game"], "debug": int(shape["debug"]), "target": shape["target"],
