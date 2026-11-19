@@ -1,0 +1,246 @@
+{
+ "why": "Reverse lookup, shared by every reader (Python reference, Oracle's Rust reader, the bus). `at(space, addr, bank)` answers the NEAREST PRECEDING symbol in the same space and, in the Z80 window, the same bank, with `disp = addr - symbol address` and `contains` = disp < size (null for an unsized symbol). Equates (no space) never answer. Several symbols at one address: the last in name order. A Z80 window address ($8000-$FFFF) without a bank is AmbiguousBank, however many banks hold a symbol there. `line_at` answers the source row covering addr, or null for a no-source range or no row. `expect.error` is NotFound or AmbiguousBank (Python: SymbolNotFound / AmbiguousBank).",
+ "vector": "pass/z80-banked.json",
+ "cases": [
+  {
+   "fn": "at",
+   "space": "m68k",
+   "addr": 7817,
+   "expect": {
+    "error": "NotFound"
+   },
+   "why": "below the first m68k symbol; equates never answer an address"
+  },
+  {
+   "fn": "at",
+   "space": "m68k",
+   "addr": 7818,
+   "expect": {
+    "symbol": "QueueDMA_Deferrable",
+    "disp": 0,
+    "contains": true
+   },
+   "why": "two symbols at one address: the last in name order answers"
+  },
+  {
+   "fn": "at",
+   "space": "m68k",
+   "addr": 7850,
+   "expect": {
+    "symbol": "QueueDMA_Deferrable",
+    "disp": 32,
+    "contains": true
+   }
+  },
+  {
+   "fn": "at",
+   "space": "m68k",
+   "addr": 7950,
+   "expect": {
+    "symbol": "QueueDMA_Deferrable.full",
+    "disp": 50,
+    "contains": null
+   },
+   "why": "inside the proc, past a label: the nearest preceding symbol (the label) answers; it has no size, so contains is null"
+  },
+  {
+   "fn": "at",
+   "space": "m68k",
+   "addr": 8024,
+   "expect": {
+    "symbol": "QueueDMA_Deferrable.full",
+    "disp": 124,
+    "contains": null
+   },
+   "why": "past the proc's end: still the nearest preceding symbol, never NotFound"
+  },
+  {
+   "fn": "at",
+   "space": "m68k",
+   "addr": 0,
+   "expect": {
+    "error": "NotFound"
+   },
+   "why": "the equate ANIM_WALK has vma 0 but no space: it never answers"
+  },
+  {
+   "fn": "at",
+   "space": "z80",
+   "addr": 64,
+   "expect": {
+    "symbol": "Z80_Driver_Entry",
+    "disp": 0,
+    "contains": true
+   }
+  },
+  {
+   "fn": "at",
+   "space": "z80",
+   "addr": 84,
+   "expect": {
+    "symbol": "Z80_Driver_Entry",
+    "disp": 20,
+    "contains": false
+   },
+   "why": "one byte past a sized symbol: nearest preceding, contains false"
+  },
+  {
+   "fn": "at",
+   "space": "z80",
+   "addr": 3,
+   "expect": {
+    "error": "NotFound"
+   }
+  },
+  {
+   "fn": "at",
+   "space": "z80",
+   "addr": 32767,
+   "expect": {
+    "symbol": "Z80_Driver_Entry",
+    "disp": 32703,
+    "contains": false
+   },
+   "why": "Z80 RAM never sees a window symbol"
+  },
+  {
+   "fn": "at",
+   "space": "z80",
+   "addr": 33024,
+   "bank": 5,
+   "expect": {
+    "symbol": "Z80_BankedA",
+    "disp": 0,
+    "contains": true
+   }
+  },
+  {
+   "fn": "at",
+   "space": "z80",
+   "addr": 33088,
+   "bank": 5,
+   "expect": {
+    "symbol": "Z80_BankedA",
+    "disp": 64,
+    "contains": false
+   }
+  },
+  {
+   "fn": "at",
+   "space": "z80",
+   "addr": 33024,
+   "bank": 7,
+   "expect": {
+    "symbol": "Z80_BankedB",
+    "disp": 0,
+    "contains": null
+   }
+  },
+  {
+   "fn": "at",
+   "space": "z80",
+   "addr": 33024,
+   "bank": 6,
+   "expect": {
+    "error": "NotFound"
+   },
+   "why": "bank 6 holds nothing at or below $8100: a banked answer never borrows from another bank"
+  },
+  {
+   "fn": "at",
+   "space": "z80",
+   "addr": 32768,
+   "bank": 5,
+   "expect": {
+    "error": "NotFound"
+   }
+  },
+  {
+   "fn": "at",
+   "space": "z80",
+   "addr": 33024,
+   "expect": {
+    "error": "AmbiguousBank"
+   },
+   "why": "a window address without a bank is refused"
+  },
+  {
+   "fn": "at",
+   "space": "z80",
+   "addr": 32768,
+   "expect": {
+    "error": "AmbiguousBank"
+   },
+   "why": "refused even where no bank holds a symbol: the rule does not count banks"
+  },
+  {
+   "fn": "line_at",
+   "space": "m68k",
+   "addr": 7821,
+   "expect": {
+    "source": {
+     "file": "engine/dma_queue.emp",
+     "line": 42
+    }
+   }
+  },
+  {
+   "fn": "line_at",
+   "space": "m68k",
+   "addr": 850204,
+   "expect": {
+    "source": null
+   },
+   "why": "a declared no-source range (deb2)"
+  },
+  {
+   "fn": "line_at",
+   "space": "m68k",
+   "addr": 99999999,
+   "expect": {
+    "source": null
+   },
+   "why": "no row"
+  },
+  {
+   "fn": "line_at",
+   "space": "z80",
+   "addr": 3,
+   "expect": {
+    "source": {
+     "file": "generated/sound/driver.z80",
+     "line": 7
+    }
+   }
+  },
+  {
+   "fn": "line_at",
+   "space": "z80",
+   "addr": 33024,
+   "bank": 5,
+   "expect": {
+    "source": {
+     "file": "generated/sound/driver.z80",
+     "line": 0
+    }
+   }
+  },
+  {
+   "fn": "line_at",
+   "space": "z80",
+   "addr": 33024,
+   "bank": 7,
+   "expect": {
+    "source": null
+   }
+  },
+  {
+   "fn": "line_at",
+   "space": "z80",
+   "addr": 33024,
+   "expect": {
+    "error": "AmbiguousBank"
+   }
+  }
+ ]
+}

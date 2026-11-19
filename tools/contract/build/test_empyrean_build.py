@@ -129,17 +129,20 @@ def test_symbol_lookup(banked):
         banked.symbol("QueueDMA_Deferrable", "z80")
 
 
-def test_at_m68k(banked):
-    assert banked.at("m68k", 7818).name == "QueueDMA_Deferrable"
-    assert banked.at("m68k", 7818 + 205).name == "QueueDMA_Deferrable"
+def test_at_m68k_is_nearest_preceding(banked):
+    r = banked.at("m68k", 7818 + 3)
+    assert (r.symbol.name, r.disp, r.contains) == ("QueueDMA_Deferrable", 3, True)
+    # past a label inside the proc: the label answers (the bus's rule), unsized
+    r = banked.at("m68k", 7818 + 205)
+    assert (r.symbol.name, r.disp, r.contains) == ("QueueDMA_Deferrable.full", 123, None)
     with pytest.raises(eb.SymbolNotFound):
-        banked.at("m68k", 7818 + 206)
+        banked.at("m68k", 7817)
 
 
 def test_banked_z80_uses_lma_bank(banked):
-    # bank = lma >> 15: 163968 >> 15 == 5, 229504 >> 15 == 7
-    assert banked.at("z80", 0x8100, bank=5).name == "Z80_BankedA"
-    assert banked.at("z80", 0x8100, bank=7).name == "Z80_BankedB"
+    # bank = lma >> 15: $28100 >> 15 == 5, $38100 >> 15 == 7
+    assert banked.at("z80", 0x8100, bank=5).symbol.name == "Z80_BankedA"
+    assert banked.at("z80", 0x8100, bank=7).symbol.name == "Z80_BankedB"
     with pytest.raises(eb.SymbolNotFound):
         banked.at("z80", 0x8100, bank=6)
 
@@ -152,7 +155,7 @@ def test_ambiguous_bank_without_bank(banked):
 
 
 def test_z80_low_window_needs_no_bank(banked):
-    assert banked.at("z80", 64).name == "Z80_Driver_Entry"
+    assert banked.at("z80", 64).symbol.name == "Z80_Driver_Entry"
 
 
 def test_line_at(banked):
@@ -167,6 +170,58 @@ def test_line_at_banked_row(banked):
     # the z80 data row (vma 0x8100, lma 163968 -> bank 5), file index 2 line 0
     assert banked.line_at("z80", 0x8100, bank=5) == ("generated/sound/driver.z80", 0)
     assert banked.line_at("z80", 0x8100, bank=7) is None
+
+
+def _cases():
+    out = []
+    for n in sorted(os.listdir(os.path.join(VEC, "lookup"))):
+        with open(os.path.join(VEC, "lookup", n)) as f:
+            v = json.load(f)
+        for i, c in enumerate(v["cases"]):
+            out.append(pytest.param(v["vector"], c, id=f"{n[:-5]}-{i}-{c['fn']}-{c['space']}-{c['addr']}"))
+    return out
+
+
+@pytest.mark.parametrize("vector,case", _cases())
+def test_lookup_vectors(tmp_path, vector, case):
+    """The shared reverse-lookup cases (vectors/lookup/): Oracle's reader runs the same file."""
+    kind, name = vector[:-5].split("/")
+    b = eb.load(unwrapped(tmp_path, kind, name), unbound=True)
+    fn = getattr(b, case["fn"])
+    want = case["expect"]
+    if "error" in want:
+        err = {"NotFound": eb.SymbolNotFound, "AmbiguousBank": eb.AmbiguousBank}[want["error"]]
+        with pytest.raises(err):
+            fn(case["space"], case["addr"], case.get("bank"))
+        return
+    got = fn(case["space"], case["addr"], case.get("bank"))
+    if case["fn"] == "at":
+        assert {"symbol": got.symbol.name, "disp": got.disp, "contains": got.contains} == want
+    else:
+        src = want["source"]
+        assert got == (None if src is None else (src["file"], src["line"]))
+
+
+def test_lookup_vectors_exist():
+    assert len(_cases()) >= 20, "vectors/lookup holds too few cases: a parity gate with nothing to check"
+
+
+@pytest.mark.parametrize("name", sorted(
+    n[:-5] for n in os.listdir(os.path.join(VEC, "reader-red"))))
+def test_every_reader_red_vector_is_refused(tmp_path, name):
+    """Schema-valid documents that break a rule JSON Schema cannot state: every reader refuses them."""
+    with open(vec("reader-red", name)) as f:
+        assert json.load(f)["expect"]["reader"] == "InvalidBuild"
+    with pytest.raises(eb.InvalidBuild):
+        eb.load(unwrapped(tmp_path, "reader-red", name), unbound=True)
+
+
+@pytest.mark.parametrize("major", [True, "1", -1, 1.0, 2.0, None])
+def test_non_integer_major_is_invalid_not_unknown(tmp_path, major):
+    def setmajor(d):
+        d["version"]["major"] = major
+    with pytest.raises(eb.InvalidBuild):
+        eb.load(unwrapped(tmp_path, "pass", "demo-minimal", setmajor), unbound=True)
 
 
 def test_layout_and_const(banked):

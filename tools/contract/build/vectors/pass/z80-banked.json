@@ -1,5 +1,5 @@
 {
- "why": "Two z80 symbols at one window address ($8100) in different banks, told apart only by lma; z80 rows in their own section. A z80 symbol in $8000-$FFFF carries lma (G0a design 4.4).",
+ "why": "Two z80 symbols at one window address ($8100) in different banks, told apart only by lma; z80 rows in their own section. A z80 symbol in $8000-$FFFF carries lma (G0a design 4.4), and its lma sits at the same offset in its bank as vma in the window (lma & $7FFF == vma & $7FFF: the window shows bank << 15 | (vma & $7FFF)), so $8100 is image byte $28100 in bank 5 and $38100 in bank 7. Two m68k labels pin reverse lookup (vectors/lookup/z80-banked.json): one shares the proc's address, one sits inside it.",
  "doc": {
   "format": "empyrean.build",
   "version": {
@@ -92,18 +92,37 @@
     "public": true
    },
    {
+    "name": "QueueDMA_Alias",
+    "space": "m68k",
+    "vma": 7818,
+    "lma": 7818,
+    "kind": "label",
+    "module": "engine.dma_queue",
+    "public": false
+   },
+   {
+    "name": "QueueDMA_Deferrable.full",
+    "space": "m68k",
+    "vma": 7900,
+    "lma": 7900,
+    "kind": "label",
+    "module": "engine.dma_queue",
+    "public": false
+   },
+   {
     "name": "Z80_BankedA",
     "space": "z80",
     "vma": 33024,
-    "lma": 163968,
+    "lma": 164096,
     "kind": "data",
-    "public": false
+    "public": false,
+    "size": 64
    },
    {
     "name": "Z80_BankedB",
     "space": "z80",
     "vma": 33024,
-    "lma": 229504,
+    "lma": 229632,
     "kind": "data",
     "public": false
    },
@@ -222,7 +241,7 @@
       ],
       [
        33024,
-       163968,
+       164096,
        64,
        2,
        0,

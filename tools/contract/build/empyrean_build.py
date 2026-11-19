@@ -1,14 +1,22 @@
 """Reference reader for the `empyrean.build` export (G0a design 4.2, 4.3).
 
 One `<stem>.build.json` per ROM. This module is the reference consumer: other
-readers (Oracle's Rust one, Aurora, Seraph) must agree with it.
+readers (Oracle's Rust one, Aurora, Seraph) must agree with it on everything the
+shared vectors pin: every pass vector loads, every reader-red vector is refused
+(`vectors/reader-red/`), and every lookup case answers as written
+(`vectors/lookup/`). Oracle's `build_export.rs` runs the same vectors.
 
 Order of checks in `load` (the schema cannot order its own errors, so the
 reader does):
   1. the file is JSON and `format == "empyrean.build"`   -> UnknownFormat
   2. `version.major == 1`                                -> UnknownMajor(found)
-     (no `version` / no `major` at all is InvalidBuild, not UnknownMajor(None))
+     (no `version` / no `major` at all, or a major that is not a non-negative
+     JSON integer (`true`, `"1"`, `-1`, `1.0`), is InvalidBuild, not UnknownMajor)
   3. the schema (any minor >= 0; records are open)       -> InvalidBuild
+     then the rules JSON Schema cannot state           -> InvalidBuild:
+       - a z80 symbol or row in the window $8000-$FFFF has lma & $7FFF == vma & $7FFF
+         (the window shows bank << 15 | (vma & $7FFF); any other lma is unreachable)
+       - a code/data row's `file` index is inside `files`
   4. the binding: SHA-256 of the ROM bytes == rom.sha256 -> NotBound(expected, found)
 
 Nothing but format and major is read before step 3. Binding compares the full
@@ -16,8 +24,15 @@ Nothing but format and major is read before step 3. Binding compares the full
 the object then reports `.bound == False`.
 
 Z80 addresses in the banked window $8000-$FFFF are not unique across banks, so
-`at` and `line_at` take a `bank` (= `lma >> 15`) there, and refuse to guess
-without one (AmbiguousBank).
+`at` and `line_at` take a `bank` (= `lma >> 15`, the value the Z80 bank register
+holds while those bytes are mapped) there, and refuse to guess without one
+(AmbiguousBank), however many banks hold a symbol at the address.
+
+Reverse lookup (`at`) is the bus's rule: the NEAREST PRECEDING symbol in the same
+space (and, in the window, the same bank), with its displacement, and `contains`
+saying whether the address is inside the symbol's size (None when unsized). It
+names what a PC is in, so an address past a proc's end answers the proc (or the
+label after it) with a displacement, never SymbolNotFound. Equates never answer.
 """
 from __future__ import annotations
 
@@ -88,6 +103,15 @@ class SymbolNotFound(KeyError):
 
 class AmbiguousName(BuildError):
     pass
+
+
+@dataclass(frozen=True)
+class Resolved:
+    """A reverse-lookup answer: `symbol` is the nearest at or before the address, `disp` the bytes past
+    it, `contains` whether `disp < symbol.size` (None for an unsized symbol)."""
+    symbol: "Symbol"
+    disp: int
+    contains: Optional[bool]
 
 
 @dataclass(frozen=True)
@@ -164,7 +188,9 @@ def load(path: str, rom: "bytes | None" = None, *, unbound: bool = False) -> "Bu
     if not isinstance(version, dict) or "major" not in version:
         raise InvalidBuild("/version: missing or has no `major`")
     major = version["major"]
-    if major != SUPPORTED_MAJOR or isinstance(major, bool):
+    if not isinstance(major, int) or isinstance(major, bool) or major < 0:
+        raise InvalidBuild(f"/version/major: not a non-negative integer ({major!r})")
+    if major != SUPPORTED_MAJOR:
         raise UnknownMajor(major)
     _validate(doc)
     bound = False
@@ -196,17 +222,27 @@ class BuildExport:
         self._consts: dict = {}
         for r in doc["consts"]:
             self._consts.setdefault(r["name"], []).append(r)
-        # per-space address tables: sorted by vma for containment search
-        self._addr: dict = {}
+        for i, s in enumerate(self._syms):
+            if s.space == "z80" and in_window(s.vma):
+                _window_rule(f"/symbols/{i}", "symbol", s.vma, s.lma)
+        # Reverse lookup: three partitions, each with one sort key (Oracle's `Part`): m68k by vma,
+        # Z80 RAM ($0000-$7FFF) by vma, the Z80 window by lma (the only unique address there).
+        self._part: dict = {}
         for s in self._syms:
             if s.space is not None:
-                self._addr.setdefault(s.space, []).append(s)
-        for v in self._addr.values():
-            v.sort(key=lambda s: s.vma)
-        self._max_size = {sp: max((s.size or 0) for s in v) for sp, v in self._addr.items()}
-        self._addr_keys = {sp: [s.vma for s in v] for sp, v in self._addr.items()}
+                self._part.setdefault(_part_of(s.space, s.vma), []).append(s)
+        for p, v in self._part.items():
+            v.sort(key=lambda s: (_sym_key(p, s), s.name))
+        self._part_keys = {p: [_sym_key(p, s) for s in v] for p, v in self._part.items()}
         self._rows: dict = {}
-        for sec in doc["lines"]["sections"].values():
+        for name, sec in doc["lines"]["sections"].items():
+            for j, r in enumerate(sec["rows"]):
+                at = f"/lines/sections/{name}/rows/{j}"
+                vma, lma, _ln, fi, _line, kind = r[:6]
+                if sec["space"] == "z80" and in_window(vma):
+                    _window_rule(at, "row", vma, lma)
+                if kind in ("code", "data") and fi >= len(self.files):
+                    raise InvalidBuild(f"{at}: file index {fi} is past the files table ({len(self.files)})")
             self._rows.setdefault(sec["space"], []).extend(sec["rows"])
         for v in self._rows.values():
             v.sort(key=lambda r: (r[0], r[1]))
@@ -235,31 +271,24 @@ class BuildExport:
             raise AmbiguousBank(
                 f"z80 ${addr:04X} is in the banked window; the same address names a different byte in each bank. Pass bank (= lma >> {BANK_SHIFT}).")
 
-    def at(self, space: str, addr: int, bank: Optional[int] = None) -> Symbol:
-        """The symbol covering `addr`: a sized symbol that contains it, else an exact-address one."""
+    def at(self, space: str, addr: int, bank: Optional[int] = None) -> Resolved:
+        """Reverse lookup, the bus's rule: the nearest symbol at or before `addr` in `space` (and, in the
+        Z80 window, in `bank`), with the displacement past it. Several symbols at one address: the last
+        in name order. A banked answer never borrows a symbol from another bank."""
         self._need_bank(space, addr, bank)
-        want_bank = bank if (space == "z80" and in_window(addr)) else None
-        syms = self._addr.get(space, [])
-        keys = self._addr_keys.get(space, [])
-        hi = bisect.bisect_right(keys, addr)
-        exact = None
-        reach = self._max_size.get(space, 0)
-        for s in reversed(syms[:hi]):
-            if s.vma + reach <= addr and exact is not None:
-                break
-            if want_bank is not None and s.bank != want_bank:
-                continue
-            if want_bank is None and s.bank is not None:
-                continue
-            if s.size is not None and s.vma <= addr < s.vma + s.size:
-                return s
-            if s.vma == addr and exact is None:
-                exact = s
-            if s.vma + reach <= addr:
-                break
-        if exact is not None:
-            return exact
-        raise SymbolNotFound(f"{space} ${addr:X}" + (f" bank {bank}" if bank is not None else ""))
+        part = _part_of(space, addr)
+        key = ((bank << BANK_SHIFT) | (addr & 0x7FFF)) if part == "z80-window" else addr
+        syms = self._part.get(part, [])
+        hi = bisect.bisect_right(self._part_keys.get(part, []), key)
+        miss = SymbolNotFound(f"{space} ${addr:X}" + (f" bank {bank}" if bank is not None else ""))
+        if hi == 0:
+            raise miss
+        s = syms[hi - 1]
+        skey = _sym_key(part, s)
+        if part == "z80-window" and (skey >> BANK_SHIFT) != (key >> BANK_SHIFT):
+            raise miss
+        disp = key - skey
+        return Resolved(s, disp, None if s.size is None else disp < s.size)
 
     def line_at(self, space: str, addr: int, bank: Optional[int] = None):
         """(`root/path`, line) of the source row covering `addr`; None for a no-source range or no row."""
@@ -281,6 +310,22 @@ class BuildExport:
             if addr - vma > 0x1000000:
                 break
         return None
+
+
+def _part_of(space: str, vma: int) -> str:
+    if space == "z80":
+        return "z80-window" if in_window(vma) else "z80-ram"
+    return space
+
+
+def _sym_key(part: str, s: Symbol) -> int:
+    return s.lma if part == "z80-window" else s.vma
+
+
+def _window_rule(at: str, what: str, vma: int, lma: Optional[int]) -> None:
+    if lma is not None and (lma & 0x7FFF) != (vma & 0x7FFF):
+        raise InvalidBuild(f"{at}: z80 window {what} at ${vma:04X} has lma ${lma:X}, which is not at that "
+                           f"offset in any bank (lma & $7FFF must equal vma & $7FFF)")
 
 
 def _sym(r: dict) -> Symbol:

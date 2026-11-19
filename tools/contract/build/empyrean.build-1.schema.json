@@ -90,7 +90,7 @@
           "demangled": { "type": "string" },
           "space": { "$ref": "#/$defs/space", "description": "Absent on an equate that is not known to be an address." },
           "vma": { "$ref": "#/$defs/uint32" },
-          "lma": { "$ref": "#/$defs/uint32", "description": "The load address. Required for a z80 symbol in the banked window $8000-$FFFF, where vma is not unique across banks (4.4)." },
+          "lma": { "$ref": "#/$defs/uint32", "description": "The load address. Required for a z80 symbol in the banked window $8000-$FFFF, where vma is not unique across banks (4.4). There its bank is lma >> 15 (the value the Z80 bank register holds while it is mapped), and lma & $7FFF MUST equal vma & $7FFF: the window shows bank << 15 | (vma & $7FFF). JSON Schema cannot compare two fields, so every reader refuses a violation (vectors/reader-red/)." },
           "kind": { "enum": ["proc", "label", "data", "equ", "ram"] },
           "size": { "$ref": "#/$defs/uint32" },
           "module": { "type": "string" },
@@ -118,7 +118,7 @@
           "module": { "type": "string" },
           "kind": { "enum": ["struct", "bitfield", "enum"] },
           "size": { "$ref": "#/$defs/uint32" },
-          "fields": { "type": "array", "items": { "$ref": "#/$defs/field" } },
+          "fields": { "type": "array", "items": { "$ref": "#/$defs/field" }, "description": "kind struct: offset and size are bytes from the start of the struct. kind bitfield: offset is the field's least significant bit and size its width, both in BITS (type \"bits\"). kind enum: one field per payload-free variant, and offset carries the variant's DISCRIMINANT, not a position (size is the repr's bytes)." },
           "overlays": {
             "type": "array",
             "items": {
@@ -127,9 +127,9 @@
               "properties": {
                 "name": { "type": "string", "minLength": 1 },
                 "base": { "type": "string" },
-                "offset": { "$ref": "#/$defs/uint32" },
+                "offset": { "$ref": "#/$defs/uint32", "description": "The window's ABSOLUTE offset in the base layout." },
                 "size": { "$ref": "#/$defs/uint32" },
-                "fields": { "type": "array", "items": { "$ref": "#/$defs/field" } }
+                "fields": { "type": "array", "items": { "$ref": "#/$defs/field" }, "description": "Offsets RELATIVE to the window: a field's offset in the base is overlay.offset + field.offset." }
               }
             }
           }
@@ -176,9 +176,9 @@
                   "type": "array",
                   "prefixItems": [
                     { "$ref": "#/$defs/uint32" },
+                    { "$ref": "#/$defs/uint32", "description": "lma. In a z80 section with vma in $8000-$FFFF: bank = lma >> 15 and lma & $7FFF MUST equal vma & $7FFF (readers refuse otherwise)." },
                     { "$ref": "#/$defs/uint32" },
-                    { "$ref": "#/$defs/uint32" },
-                    { "$ref": "#/$defs/uint32", "description": "Index into `files`." },
+                    { "$ref": "#/$defs/uint32", "description": "Index into `files`; a code or data row's index MUST be inside `files` (readers refuse otherwise). Meaningless (0) on a no-source row." },
                     { "$ref": "#/$defs/uint32" },
                     { "enum": ["code", "data", "fill", "org-gap", "deb2", "checksum"], "description": "Closed: a new kind is a major version. fill, org-gap, deb2 and checksum are the declared no-source ranges." }
                   ],

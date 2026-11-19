@@ -1,0 +1,259 @@
+{
+ "why": "Schema-valid, refused by every reader: the z80 window row at $8100 has lma $28080, not at offset $100 of its bank. The same rule as for symbols applies to line rows.",
+ "expect": {
+  "reader": "InvalidBuild",
+  "rule": "z80-window-lma-offset"
+ },
+ "doc": {
+  "format": "empyrean.build",
+  "version": {
+   "major": 1,
+   "minor": 0
+  },
+  "rom": {
+   "path": "s4.bin",
+   "size": 850296,
+   "sha256": "1d679068eb1180ffabbe2bf68e237d88b17d8efe96b55cfbcc8dd8f77b1a89f2"
+  },
+  "inputsSha256": "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+  "tool": {
+   "name": "sigil",
+   "version": "0.1.0",
+   "revision": "6b40f52fb3741b410ca5048f321674ea98f4f0fc",
+   "tree": "clean"
+  },
+  "shape": {
+   "game": "sonic4",
+   "shape": "sonic4",
+   "defines": {
+    "COLLECTED_WINDOW_SLOTS": 9,
+    "CRASH_REPORT": 1,
+    "DEBUG": 0,
+    "GAME_SCANLINE_CAPS": 4062,
+    "HAS_ACT_ART_POOL": 1,
+    "MAX_RING_BUFFER": 128,
+    "SOUND_DBG_MIRROR": 0,
+    "SOUND_DEBUG_HOTKEYS": 0,
+    "SOUND_DRIVER_ENABLED": 1,
+    "STRESS_EVICT": 0,
+    "VRAM_RING_PLACEHOLDER": 1000
+   }
+  },
+  "spaces": [
+   {
+    "id": "m68k",
+    "addrBits": 24
+   },
+   {
+    "id": "z80",
+    "addrBits": 16
+   }
+  ],
+  "files": [
+   {
+    "root": "engine",
+    "path": "dma_queue.emp",
+    "lang": "emp",
+    "sha256": "0101010101010101010101010101010101010101010101010101010101010101",
+    "size": 4096
+   },
+   {
+    "root": "game",
+    "path": "game_root.asm",
+    "lang": "asm",
+    "sha256": "0202020202020202020202020202020202020202020202020202020202020202",
+    "size": 812
+   },
+   {
+    "root": "generated",
+    "path": "sound/driver.z80",
+    "lang": "z80",
+    "sha256": "0404040404040404040404040404040404040404040404040404040404040404",
+    "size": 2048
+   }
+  ],
+  "symbols": [
+   {
+    "name": "ANIM_WALK",
+    "vma": 0,
+    "kind": "equ",
+    "public": false
+   },
+   {
+    "name": "SYSTEM_STACK",
+    "vma": 4294967040,
+    "kind": "equ",
+    "public": false
+   },
+   {
+    "name": "QueueDMA_Deferrable",
+    "space": "m68k",
+    "vma": 7818,
+    "lma": 7818,
+    "kind": "proc",
+    "size": 206,
+    "module": "engine.dma_queue",
+    "public": true
+   },
+   {
+    "name": "QueueDMA_Alias",
+    "space": "m68k",
+    "vma": 7818,
+    "lma": 7818,
+    "kind": "label",
+    "module": "engine.dma_queue",
+    "public": false
+   },
+   {
+    "name": "QueueDMA_Deferrable.full",
+    "space": "m68k",
+    "vma": 7900,
+    "lma": 7900,
+    "kind": "label",
+    "module": "engine.dma_queue",
+    "public": false
+   },
+   {
+    "name": "Z80_BankedA",
+    "space": "z80",
+    "vma": 33024,
+    "lma": 164096,
+    "kind": "data",
+    "public": false,
+    "size": 64
+   },
+   {
+    "name": "Z80_BankedB",
+    "space": "z80",
+    "vma": 33024,
+    "lma": 229632,
+    "kind": "data",
+    "public": false
+   },
+   {
+    "name": "Z80_Driver_Entry",
+    "space": "z80",
+    "vma": 64,
+    "kind": "proc",
+    "size": 20,
+    "public": false
+   }
+  ],
+  "layouts": [
+   {
+    "name": "Sst",
+    "module": "engine.objects",
+    "kind": "struct",
+    "size": 80,
+    "fields": [
+     {
+      "name": "code_addr",
+      "offset": 0,
+      "size": 2,
+      "type": "u16"
+     },
+     {
+      "name": "x_pos",
+      "offset": 16,
+      "size": 4,
+      "type": "fix16_16"
+     }
+    ],
+    "overlays": [
+     {
+      "name": "tail",
+      "base": "Sst",
+      "offset": 48,
+      "size": 8,
+      "fields": [
+       {
+        "name": "timer",
+        "offset": 0,
+        "size": 2,
+        "type": "u16"
+       }
+      ]
+     }
+    ]
+   }
+  ],
+  "consts": [
+   {
+    "name": "MAX_RING_BUFFER",
+    "module": "engine.config",
+    "type": "u16",
+    "value": 128
+   }
+  ],
+  "lines": {
+   "columns": [
+    "vma",
+    "lma",
+    "len",
+    "file",
+    "line",
+    "kind"
+   ],
+   "sections": {
+    "rom": {
+     "space": "m68k",
+     "rows": [
+      [
+       0,
+       0,
+       256,
+       0,
+       0,
+       "data"
+      ],
+      [
+       256,
+       256,
+       142,
+       0,
+       0,
+       "data"
+      ],
+      [
+       7818,
+       7818,
+       206,
+       0,
+       42,
+       "code"
+      ],
+      [
+       850200,
+       850200,
+       96,
+       0,
+       0,
+       "deb2"
+      ]
+     ]
+    },
+    "z80": {
+     "space": "z80",
+     "rows": [
+      [
+       0,
+       163840,
+       20,
+       2,
+       7,
+       "code"
+      ],
+      [
+       33024,
+       163968,
+       64,
+       2,
+       0,
+       "data"
+      ]
+     ]
+    }
+   }
+  }
+ }
+}
