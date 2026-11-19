@@ -1,0 +1,210 @@
+# games/sonic4/game.toml: the Sonic 4 game, described as data.
+#
+# G0b (Empyrean v2 step 0) description, read by sigil's `sigil-build` crate
+# (`crates/sigil-build/src/describe.rs`, `GameDesc`). INERT until the G0b
+# driver cuts over: the current driver (sigil-harness) holds these facts in
+# Rust and ignores this file. Every value is transcribed from the Rust at sigil
+# b0e63d71 (outputs from this tree's build.sh); each row cites its source as
+# `<file>:<line>`, files under sigil `crates/sigil-harness/src/` unless named.
+#
+# Paths are relative to this directory (the game root). Engine facts live in
+# aeon `engine/engine.toml`, never here; this file holds only what names this
+# game or its content.
+
+format = 1
+id = "sonic4"       # sigil-cli main.rs:3169 (`--game sonic4`)
+name = "sonic4"     # native.rs:321 (the canonical profile's name)
+
+engine = { suite_path = "aeon", root = "engine" }
+
+# native.rs:322 (game_root_rel "games/sonic4/game_root.asm").
+sources = { root = ".", residual_as = "game_root.asm" }
+
+# Placement map, format unchanged. native.rs:245-250 (map_path: game_root's sibling map.toml).
+map = "map.toml"
+
+# This game's contract-closure baseline rows.
+baseline = "baseline.toml"
+
+# Exactly one non-empty `text` section (the objdefs). native.rs:352 (and :443, :491, :543).
+require_one_text = true
+
+# deb2 appendix presence floor. native.rs:4830 (SONIC4_APPENDIX_FLOOR), chosen for
+# every sonic4 shape at sigil-cli main.rs:3431-3474.
+appendix_floor = 0x2000
+
+[entry]
+game = "games.sonic4.game"                     # native.rs:324 (manifest_module)
+ram = "games.sonic4.ram"                       # native.rs:323 (game_ram_module)
+constants = "config/constants.emp"             # native.rs:325 (game_constants_rel)
+sound_ids = "config/sound_ids.emp"             # native.rs:326 (game_sound_ids_rel)
+sfx_bank = "data/sound/sfx/sfx_bank.emp"       # native.rs:327 (game_sfx_bank_rel)
+
+# The game's comptime defines, the same in all eight sonic4 profiles (the Rust
+# repeats them in each: :340/:348-350, :436/:439-441, :484/:487-489, :536/:539-541;
+# stress_* copy sonic4_profile(true)).
+[defines]
+HAS_ACT_ART_POOL = 1                 # native.rs:340
+MAX_RING_BUFFER = 128                # native.rs:348
+VRAM_RING_PLACEHOLDER = 0x3E8        # native.rs:349
+COLLECTED_WINDOW_SLOTS = 9           # native.rs:350
+
+# ── Shapes ── `features` drive DEBUG / CRASH_REPORT / SOUND_DRIVER_ENABLED and
+# the AS __DEBUG__ / __MDDBG__, which are derived, never written.
+
+# sonic4_profile(false), name "sonic4". native.rs:319-364 (debug false :328, crash_report :329, sound_on :330).
+[shapes.release]
+features = { debug = false, crash_report = true, sound = true }
+
+# sonic4_profile(true), name "sonic4_debug". native.rs:319-364.
+[shapes.debug]
+features = { debug = true, crash_report = true, sound = true }
+
+# config_a_profile, name "config_a". native.rs:466-499: identical to
+# sonic4_profile(true) (debug :475, crash_report :476, sound_on :477, the same
+# game defines) but for the two dev opt-ins (:482-483). Its frozen table
+# (config_a.txt) is port history and does not move.
+[shapes.config-a]
+extends = "debug"
+defines = { SOUND_DEBUG_HOTKEYS = 1, SOUND_DBG_MIRROR = 1 }
+
+# config_a_keystones_flipped_profile, native.rs:458-460: a thin alias of config A,
+# kept as a regression bar. A fixture: it never ships.
+[shapes.config-a-keystones-flipped]
+extends = "config-a"
+fixture = true
+
+# config_b_profile, name "config_b". native.rs:417-451 (debug :426, crash_report :428, sound_on :429).
+[shapes.config-b]
+features = { debug = false, crash_report = true, sound = false }
+
+# lean_profile, name "lean". native.rs:516-551 (debug :525, crash_report :526, sound_on :527).
+[shapes.lean]
+features = { debug = false, crash_report = false, sound = true }
+
+# stress_evict_profile, name "stress_evict". native.rs:566-575: sonic4_profile(true)
+# with STRESS_EVICT flipped to 1 (:569-573).
+[shapes.stress-evict]
+extends = "debug"
+fixture = true
+defines = { STRESS_EVICT = 1 }
+
+# stress_art_profile, name "stress_art". native.rs:590-595: sonic4_profile(true)
+# with fixture_placement (:593), whose relocated sections are native.rs:3373
+# (GROWABLE, relocate_fixture_pool).
+[shapes.stress-art]
+extends = "debug"
+fixture = true
+fixture_placement = { relocate = ["OJZ_Act_Pool_Page0", "OJZ_Sec0_Blocks", "OJZ_Sec0_LocalMap"] }
+
+# Output stem per shape: aeon build.sh:130 (s4), :133 (.debug suffix), :153
+# (s4.stress), :182 (s4.stressart). config-a, config-b and lean have no build.sh
+# stem (build.sh refuses them, :641-660) and the alias is test-only, so none here.
+[outputs]
+release = "s4"
+debug = "s4.debug"
+stress-evict = "s4.stress"
+stress-art = "s4.stressart"
+
+# ── Module gating: the sonic4 rows of module_roots.rs:129-165 (SHAPE_GATES,
+# 17 game rows of 23; the 6 engine rows are in engine/engine.toml). ──
+
+# DEBUG equipment, ShapeGate::Debug (module_roots.rs:134-143).
+[[gate]]
+modules = "games.sonic4.object_test_state"    # module_roots.rs:134
+place_in = { feature = "debug" }
+
+[[gate]]
+modules = "games.sonic4.test_player"          # module_roots.rs:135
+place_in = { feature = "debug" }
+
+[[gate]]
+modules = "games.sonic4.test_enemy"           # module_roots.rs:136
+place_in = { feature = "debug" }
+
+[[gate]]
+modules = "games.sonic4.test_animated"        # module_roots.rs:137
+place_in = { feature = "debug" }
+
+[[gate]]
+modules = "games.sonic4.test_particle"        # module_roots.rs:138
+place_in = { feature = "debug" }
+
+[[gate]]
+modules = "games.sonic4.test_emitter"         # module_roots.rs:139
+place_in = { feature = "debug" }
+
+[[gate]]
+modules = "games.sonic4.test_parent"          # module_roots.rs:140
+place_in = { feature = "debug" }
+
+[[gate]]
+modules = "games.sonic4.test_stress_emitter"  # module_roots.rs:141
+place_in = { feature = "debug" }
+
+[[gate]]
+modules = "games.sonic4.test_churn"           # module_roots.rs:142
+place_in = { feature = "debug" }
+
+[[gate]]
+modules = "games.sonic4.particle_anims"       # module_roots.rs:143
+place_in = { feature = "debug" }
+
+# Sound-on only, ShapeGate::SoundOn (module_roots.rs:150-158).
+[[gate]]
+modules = "games.sonic4.dac_banks"            # module_roots.rs:150
+place_in = { feature = "sound" }
+
+[[gate]]
+modules = "games.sonic4.mt_bank_blob"         # module_roots.rs:154
+place_in = { feature = "sound" }
+
+[[gate]]
+modules = "games.sonic4.mt_bank"              # module_roots.rs:155
+place_in = { feature = "sound" }
+
+[[gate]]
+modules = "games.sonic4.sfx_bank_blob"        # module_roots.rs:156
+place_in = { feature = "sound" }
+
+[[gate]]
+modules = "games.sonic4.soundbankhead"        # module_roots.rs:157
+place_in = { feature = "sound" }
+
+[[gate]]
+modules = "games.sonic4.song_bank2"           # module_roots.rs:158
+place_in = { feature = "sound" }
+
+# The config A dev opt-in, ShapeGate::SoundDebugHotkeys (module_roots.rs:163).
+[[gate]]
+modules = "games.sonic4.game_debug"
+place_in = { feature = "SOUND_DEBUG_HOTKEYS" }
+
+# A sigil negative-probe fixture the tree carries, never a build root.
+# module_roots.rs:180 (SIGIL_PROBE_FIXTURES).
+[[gate]]
+modules = "games.sonic4.sigil_objroutine_probe"
+place_in = { shapes = [] }
+
+# ── Alignment stronger than "even" for this game's labels: the 5 sound-bank rows
+# of section_align.rs:135-142 (the sixth, ObjCodeBase, is an engine label and
+# lives in engine/engine.toml). ──
+[[align]]
+label = "Dac_Temp_Blip"          # section_align.rs:135 (Z80 SetBank window), data/sound/dac_banks.emp
+align = 0x8000
+
+[[align]]
+label = "SoundTablesZ80_Head"    # section_align.rs:136, data/sound/soundbankhead.emp
+align = 0x8000
+
+[[align]]
+label = "SongBank2_Head"         # section_align.rs:137, data/sound/song_bank2.emp
+align = 0x8000
+
+[[align]]
+label = "Sfx_33"                 # section_align.rs:139 (SFX mod-8), data/sound/sfx_bank_blob.emp
+align = 8
+
+[[align]]
+label = "Song_MovingTrucks"      # section_align.rs:140 (MT mod-8), data/sound/mt_bank.emp
+align = 8

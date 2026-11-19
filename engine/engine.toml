@@ -1,0 +1,151 @@
+# engine/engine.toml: what is true for EVERY game built on the Aeon engine.
+#
+# G0b (Empyrean v2 step 0) description, read by sigil's `sigil-build` crate
+# (`crates/sigil-build/src/describe.rs`, `EngineDesc`). INERT until the G0b
+# driver cuts over: the current driver (sigil-harness) holds these facts in
+# Rust and ignores this file. Every value is transcribed from the Rust at sigil
+# b0e63d71; each row cites its source as `<file>:<line>`, files under
+# sigil `crates/sigil-harness/src/`.
+#
+# Paths here are relative to this directory (the engine root). A game names
+# this engine by suite path (`[engine] suite_path = "aeon"`), never by a path.
+#
+# Not here, on purpose: the sound seams' driver files, generated names, driver
+# constant names and bank chain heads (they stay in Rust until G0c, owner Q3),
+# the frozen size tables, AS definedness defines and the 68000 even-base rule
+# (port history / an ISA fact the driver owns).
+
+format = 1
+
+# The pure-comptime helper modules, IN ORDER: the later helper silently wins a
+# duplicate name, so the order is the fact. native.rs:1930-1951 (COMPTIME_HELPERS, 14 rows).
+helpers = [
+    "engine.types",
+    "engine.coords",
+    "engine.constants",
+    "engine.structs",
+    "engine.objects.sst",
+    "engine.objects.aabb",
+    "engine.objects.frames",
+    "engine.objects.objdef",
+    "engine.vdp",
+    "engine.irq",
+    "engine.z80_bus",
+    "engine.level.parallax_dsl",
+    "engine.effects.palette_dsl",
+    "engine.effects.raster_dsl",
+]
+
+# The helpers the focused RAM-address harvest publishes. native.rs:1108-1114 (RAM_HELPERS, 5 rows).
+ram_helpers = [
+    "engine.types",
+    "engine.coords",
+    "engine.constants",
+    "engine.structs",
+    "engine.objects.sst",
+]
+
+# (file, struct, AS prefix): the struct twins whose offsets the residual AS reads.
+# native.rs:992-1001 (STRUCT_OFFSET_TWINS, 8 rows; files there are aeon-relative
+# `engine/...`, here engine-root-relative).
+struct_twins = [
+    ["structs.emp", "Act", "Act"],
+    ["structs.emp", "Sec", "Sec"],
+    ["structs.emp", "DMAEntry", "DMAEntry"],
+    ["structs.emp", "parallax_config", "parallax_config"],
+    ["structs.emp", "VdpShadow", "VDP_Shadow"],
+    ["objects/sst.emp", "Sst", "SST"],
+    ["objects/entity_window.emp", "EntityScanState", "EntityScanState"],
+    ["level/parallax.emp", "band_entry", "band_entry"],
+]
+
+# The engine's synthetic-entry seeds. native.rs:1874 (`let seeds`: contract,
+# game manifest, engine RAM, game RAM; the game's two come from its [entry]).
+entry_seeds = ["engine.game_contract", "engine.ram"]
+
+# The ROM terminus, rooted in every build. module_roots.rs:183 (ENGINE_TERMINUS).
+terminus = "engine.epilogue"
+
+# The fault-handler arms. module_roots.rs:168 (ERROR_HANDLER_MODULE_ID),
+# module_roots.rs:171 (RELEASE_FAULT_MODULE_ID).
+error_handler = "engine.debug.error_handler"
+release_fault = "engine.system.release_fault"
+
+# The label the vendored MD Debugger blob is emitted under. native.rs:4839 (ERROR_HANDLER_BLOB_LABEL).
+error_handler_blob = "ErrorHandlerBlob"
+
+# The fault-handler island heads (release / debug) that fixture placement
+# inserts its relocated sections before. native.rs:3384.
+fault_island_heads = ["ReleaseFault", "BusError"]
+
+# Labels the driver reads out of every build's layout. native.rs:4586
+# (`sigil_native_symbol_listing`: EndOfRom absent is an error); also
+# native.rs:234 (`assembled_len`). EndOfRom is engine/system/epilogue.emp's.
+required_labels = ["EndOfRom"]
+
+# The harvest sources. native.rs:918 (harvest_engine_constants reads
+# engine/system/constants.emp); native.rs:1022 (harvest_engine_struct_offsets
+# reads engine/system/types.emp as the type environment).
+constants = "system/constants.emp"
+types = "system/types.emp"
+
+# The engine's contract-closure baseline rows.
+baseline = "baseline.toml"
+
+# Engine comptime defines every game builds with, at the default every Rust
+# profile of both games carries (a game's shape overrides one).
+[defines]
+SOUND_DEBUG_HOTKEYS = 0  # native.rs:335 (sonic4), :388 (demo), :434, :534; 1 only in config A (:482)
+SOUND_DBG_MIRROR = 0     # native.rs:336, :389, :435, :535; 1 only in config A (:483)
+STRESS_EVICT = 0         # native.rs:344, :391, :437, :485, :537; 1 only in stress-evict (:566-574)
+
+# Alignment stronger than "even" for an ENGINE label. ObjCodeBase is defined in
+# engine/objects/objcodebase.emp. section_align.rs:142 (aeon R1 ruling 2026-08-26).
+[[align]]
+label = "ObjCodeBase"
+align = 0x10000
+
+# The engine rows of the shape gates. module_roots.rs:129-165 (SHAPE_GATES:
+# 6 engine rows of 23). ShapeGate meanings: module_roots.rs:113-124.
+[[gate]]
+modules = "engine.compression_selftest"   # module_roots.rs:133, ShapeGate::Debug
+place_in = { feature = "debug" }
+
+[[gate]]
+modules = "engine.debug.error_handler"    # module_roots.rs:146, ShapeGate::FaultIsland
+place_in = { feature = "debug || crash_report" }
+
+[[gate]]
+modules = "engine.system.release_fault"   # module_roots.rs:147, ShapeGate::LeanFault
+place_in = { feature = "!(debug || crash_report)" }
+
+[[gate]]
+modules = "engine.sound_api"              # module_roots.rs:149, ShapeGate::SoundOn
+place_in = { feature = "sound" }
+
+[[gate]]
+modules = "engine.z80_init"               # module_roots.rs:161, ShapeGate::SoundOff
+place_in = { feature = "!sound" }
+
+[[gate]]
+modules = "engine.debug.sound_debug"      # module_roots.rs:164, ShapeGate::SoundDbgMirror
+place_in = { feature = "SOUND_DBG_MIRROR" }
+
+# What sound_bank_ids.rs holds, checked on every sound-on build: so every label
+# here is one a sound-on game's layout must carry.
+[sound]
+blob_start = "Z80_Sound_Start"            # sound_bank_ids.rs:45 (BLOB_START, engine/system/boot_data.emp)
+blob_end = "Z80_Sound_End"                # sound_bank_ids.rs:46 (BLOB_END)
+dac_head = "DacSampleTable"               # sound_bank_ids.rs:48 (DAC_HEAD)
+dac_blip_bank = "Dac_Temp_Blip"           # sound_bank_ids.rs:50 (DAC_BLIP_BANK)
+dac_shared_bank = "Dac_SharedBank_Start"  # sound_bank_ids.rs:51 (DAC_SHARED_BANK)
+
+# sound_bank_ids.rs:30 (BLOB_BANK_ID_CONSTS, 2 rows) with the labels each must
+# bank, sound_bank_ids.rs:36-42 (blob_const_bank_labels).
+[[sound.blob_bank_ids]]
+name = "SND_ENGINE_TABLE_BANK"
+banks = ["SoundTablesZ80_Head"]
+
+[[sound.blob_bank_ids]]
+name = "SFX_BLOB_BANK"
+banks = ["SfxBlobWinTab", "Sfx_33"]

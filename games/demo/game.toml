@@ -1,0 +1,65 @@
+# games/demo/game.toml: the demo game (the engine's game-agnostic proof), as data.
+#
+# G0b (Empyrean v2 step 0) description, read by sigil's `sigil-build` crate
+# (`crates/sigil-build/src/describe.rs`, `GameDesc`). INERT until the G0b
+# driver cuts over: the current driver (sigil-harness) holds these facts in
+# Rust and ignores this file. Every value is transcribed from the Rust at sigil
+# b0e63d71 (outputs from this tree's build.sh); each row cites its source as
+# `<file>:<line>`, files under sigil `crates/sigil-harness/src/` unless named.
+#
+# Paths are relative to this directory (the game root). Engine facts live in
+# aeon `engine/engine.toml`, never here.
+
+format = 1
+id = "demo"         # sigil-cli main.rs:3170 (`--game demo`)
+name = "demo"       # native.rs:371 (the profile's name)
+
+engine = { suite_path = "aeon", root = "engine" }
+
+# native.rs:372 (game_root_rel "games/demo/game_root.asm").
+sources = { root = ".", residual_as = "game_root.asm" }
+
+# Placement map, format unchanged. native.rs:245-250 (map_path).
+map = "map.toml"
+
+# This game's contract-closure baseline rows. The demo-family baseline axis
+# (contract_baseline.rs:316-318, is_demo_family) keys on this file, not on a
+# module-id literal.
+baseline = "baseline.toml"
+
+# No objdefs, so the one-text guard is off. native.rs:399.
+require_one_text = false
+
+# deb2 appendix presence floor. native.rs:4832 (DEMO_APPENDIX_FLOOR), chosen at
+# sigil-cli main.rs:3443.
+appendix_floor = 0x1000
+
+[entry]
+game = "games.demo.game"                 # native.rs:374 (manifest_module)
+ram = "games.demo.ram"                   # native.rs:373 (game_ram_module)
+constants = "config/constants.emp"       # native.rs:378 (game_constants_rel)
+# No sound ids and no SFX bank: native.rs:379-380 (None).
+
+# The game's comptime defines, the same in both demo profiles.
+[defines]
+HAS_ACT_ART_POOL = 0                 # native.rs:390
+MAX_RING_BUFFER = 16                 # native.rs:395
+VRAM_RING_PLACEHOLDER = 0x3E4        # native.rs:396
+COLLECTED_WINDOW_SLOTS = 4           # native.rs:397
+
+# demo_profile(false), name "demo". native.rs:369-411 (debug :381, crash_report :382, sound_on :383).
+[shapes.release]
+features = { debug = false, crash_report = true, sound = false }
+
+# demo_profile(true), name "demo_debug". native.rs:369-411.
+[shapes.debug]
+features = { debug = true, crash_report = true, sound = false }
+
+# Output stem per shape: aeon build.sh:130 (other games use their own name),
+# :133 (.debug suffix).
+[outputs]
+release = "demo"
+debug = "demo.debug"
+
+# No gate rows: SHAPE_GATES (module_roots.rs:129-165) names no games.demo module.
+# No align rows: none of section_align.rs:135-142's exceptions is a demo label.

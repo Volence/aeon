@@ -1,0 +1,34 @@
+# games/sonic4/baseline.toml: Sonic 4's contract-closure baseline rows.
+#
+# G0b description (`BaselineDesc` in sigil `crates/sigil-build/src/describe.rs`),
+# INERT until cutover. Transcribed from sigil b0e63d71
+# `crates/sigil-harness/src/contract_baseline.rs`, which keeps the reasoning
+# for every row. Rows here name a sonic4 proc (games/sonic4/...); the engine's
+# rows are in aeon engine/baseline.toml. See that file's header for how a
+# shape's gate unions the two.
+
+format = 1
+
+# [call.live-clobbered] (D1c), every shape: the sonic4-proc rows of
+# contract_baseline.rs:137-225 (D1C_BASELINE). A multiset: repeated rows are
+# separate call sites.
+d1c = [
+    ["Air_Collide", "Air_WallProbeLeft", "d4"],                    # :145 player/player_air.emp
+    ["Air_Collide", "Air_WallProbeRight", "d4"],                   # :146
+    ["Air_Collide", "Player_SensorCeiling", "d0"],                 # :162
+    ["Air_Collide", "Player_SensorCeiling", "d1"],                 # :163
+    ["Air_WallProbeLeft", "Player_SensorWallAt", "d0"],            # :173
+    ["Air_WallProbeRight", "Player_SensorWallAt", "d0"],           # :174
+    ["GameState_ObjectTestChurn_Init", "AllocDynamic", "a1"],      # :181 test/object_test_state.emp
+    ["GameState_ObjectTest_Init", "AllocDynamic", "a1"],           # :182
+    ["Ground_Move_Cap", "Player_SensorWallDir", "d0"],             # :183 player/player_ground.emp
+    ["PState_Climb", "Climb_WallDist", "d0"],                      # :191 player/player_climb.emp
+    ["PState_Climb", "Climb_WallDist", "d0"],                      # :192
+    ["PState_GlideFall", "Glide_Collide", "d0"],                   # :198 player/player_glide.emp
+    ["PState_Ground", "Player_SensorCeiling", "d0"],               # :209 player/player_ground.emp
+    ["PState_Roll", "Player_SensorCeiling", "d0"],                 # :210
+    ["PState_Spindash", "Player_SensorFloor", "d0"],               # :211 player/player_spindash.emp
+    ["PState_Spindash", "Player_SensorFloor", "d1"],               # :212
+    ["TestPlayer_Main", "Player_SensorFloor", "d0"],               # :221 objects/test_player.emp
+    ["TestPlayer_Main", "Player_SensorFloor", "d2"],               # :222
+]

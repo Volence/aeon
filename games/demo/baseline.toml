@@ -1,0 +1,17 @@
+# games/demo/baseline.toml: the demo game's contract-closure baseline rows.
+#
+# G0b description (`BaselineDesc` in sigil `crates/sigil-build/src/describe.rs`),
+# INERT until cutover. Transcribed from sigil b0e63d71
+# `crates/sigil-harness/src/contract_baseline.rs`. This file is the demo-family
+# axis (contract_baseline.rs:316-318, is_demo_family): a game whose description
+# names it gets these rows, with no module-id literal involved.
+
+format = 1
+
+# [call.live-clobbered] (D1c), every demo shape: contract_baseline.rs:272-274
+# (D1C_DEMO_EXTRA). The proc is the engine's (engine/level/parallax.emp), but
+# only demo's Game.SCANLINE_CAPS (no CAP_BAND_DRIFT) assembles the arm that
+# fires it, so it is a fact about building this game.
+d1c = [
+    ["Parallax_Update", "Decode_Factor_B", "d2"],                  # :273
+]

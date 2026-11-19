@@ -1,0 +1,58 @@
+# engine/baseline.toml: the engine's contract-closure baseline rows.
+#
+# G0b description (`BaselineDesc` in sigil `crates/sigil-build/src/describe.rs`),
+# INERT until cutover. Transcribed from sigil b0e63d71
+# `crates/sigil-harness/src/contract_baseline.rs`, which keeps the reasoning
+# for every row (do not re-adjudicate here).
+#
+# The split is by where the proc lives: rows naming an ENGINE proc (engine/...)
+# are here, rows naming a game proc are in that game's baseline.toml. A shape's
+# gate is the multiset union of this file and its game's file, plus `d1c_debug`
+# on a debug shape. NOTE for the driver: the closure today analyses the whole
+# aeon corpus, both games, on every shape (sigil-frontend-emp corpus_contracts.rs
+# bind_corpus_interfaces: "The ANALYSIS module set is unchanged"), so today's
+# demo shapes also fire the sonic4 rows; the per-game union matches only once
+# a build's corpus is its own game plus the engine (G0b two-root resolution).
+
+format = 1
+
+# [proc.out-unverified], Z80: (proc, unit). contract_baseline.rs:56-63, 6 rows,
+# all engine/sound procs (sound_sfx.emp, z80_sound_driver.emp).
+z80_out_unverified = [
+    ["Sfx_MusicChanPtr", "iy"],   # :57
+    ["Sfx_ResolveBlob", "d"],     # :58
+    ["Sfx_ResolveBlob", "e"],     # :59
+    ["Sfx_SelectVoice", "d"],     # :60
+    ["Snd_DacLookup", "h"],       # :61
+    ["Snd_DacLookup", "l"],       # :62
+]
+
+# [proc.out-unverified], 68000: contract_baseline.rs:94 (empty, a live gate surface).
+out_unverified = []
+
+# [proc.inout-unverified]: contract_baseline.rs:107 (empty, a live gate surface).
+inout_unverified = []
+
+# [call.live-clobbered] (D1c), every shape: the engine-proc rows of
+# contract_baseline.rs:137-225 (D1C_BASELINE, 27 rows: 9 engine, 18 sonic4).
+d1c = [
+    ["CreateChild_Complex", "AllocDynamic", "a1"],                 # :175 engine/objects/children.emp
+    ["CreateChild_FlipAware", "AllocDynamic", "a1"],               # :176
+    ["CreateChild_Linked", "AllocDynamic", "a1"],                  # :177
+    ["CreateChild_Normal", "AllocDynamic", "a1"],                  # :178
+    ["CreateEffect_Normal", "AllocEffect", "a1"],                  # :179
+    ["CreateEffect_Simple", "AllocEffect", "a1"],                  # :180
+    ["Load_Object", "AllocDynamic", "a1"],                         # :185 engine/objects/load_object.emp
+    ["Parallax_Update", "Decode_Factor_A", "d2"],                  # :213 engine/level/parallax.emp
+    ["TileCache_FillRow", "TileCache_FindStagedBlock", "a1"],      # :224 engine/level/tile_cache.emp
+]
+
+# [call.live-clobbered] (D1c), debug shapes only: contract_baseline.rs:232-238
+# (D1C_DEBUG_EXTRA, 5 rows, all engine procs). Input_Tick twice on purpose (two call sites).
+d1c_debug = [
+    ["Collected_UpdateCenter", "Collected_ParkSlot", "d2"],        # :233 engine/objects/entity_window.emp
+    ["EntityWindow_RescanY", "EntityWindow_RescanRings", "d5"],    # :234
+    ["EntityWindow_Scan", "EntityWindow_ScanRingsRight", "d5"],    # :235
+    ["Input_Tick", "Replay_Hash", "d0"],                           # :236 engine/system/replay.emp
+    ["Input_Tick", "Replay_Hash", "d0"],                           # :237
+]
