@@ -209,3 +209,174 @@ align = 8
 [[align]]
 label = "Song_MovingTrucks"      # section_align.rs:140 (MT mod-8), data/sound/mt_bank.emp
 align = 8
+
+# Every other game module a map `order` row places, in every shape (closed gating,
+# G0b Task 5: a placed module no rule names is refused).
+
+[[gate]]
+modules = "games.sonic4.header"
+place_in = "all"
+
+[[gate]]
+modules = "games.sonic4.player_sensors"
+place_in = "all"
+
+[[gate]]
+modules = "games.sonic4.player_common"
+place_in = "all"
+
+[[gate]]
+modules = "games.sonic4.player_ground"
+place_in = "all"
+
+[[gate]]
+modules = "games.sonic4.player_air"
+place_in = "all"
+
+[[gate]]
+modules = "games.sonic4.player_spindash"
+place_in = "all"
+
+[[gate]]
+modules = "games.sonic4.player_fly"
+place_in = "all"
+
+[[gate]]
+modules = "games.sonic4.player_glide"
+place_in = "all"
+
+[[gate]]
+modules = "games.sonic4.player_climb"
+place_in = "all"
+
+[[gate]]
+modules = "games.sonic4.player_instashield"
+place_in = "all"
+
+[[gate]]
+modules = "games.sonic4.sonic"
+place_in = "all"
+
+[[gate]]
+modules = "games.sonic4.tails"
+place_in = "all"
+
+[[gate]]
+modules = "games.sonic4.knuckles"
+place_in = "all"
+
+[[gate]]
+modules = "games.sonic4.characters"
+place_in = "all"
+
+[[gate]]
+modules = "games.sonic4.tails_appendage"
+place_in = "all"
+
+[[gate]]
+modules = "games.sonic4.dust_puff"
+place_in = "all"
+
+[[gate]]
+modules = "games.sonic4.dust_spindash"
+place_in = "all"
+
+[[gate]]
+modules = "games.sonic4.ring_sparkle"
+place_in = "all"
+
+[[gate]]
+modules = "games.sonic4.test_static"
+place_in = "all"
+
+[[gate]]
+modules = "games.sonic4.test_solid"
+place_in = "all"
+
+[[gate]]
+modules = "games.sonic4.scene_registry"
+place_in = "all"
+
+[[gate]]
+modules = "games.sonic4.ojz_effects_editor_act1"
+place_in = "all"
+
+[[gate]]
+modules = "games.sonic4.ojz_effects"
+place_in = "all"
+
+[[gate]]
+modules = "games.sonic4.data.objdefs.test_objects"
+place_in = "all"
+
+[[gate]]
+modules = "games.sonic4.ojz_entity_data_act1"
+place_in = "all"
+
+[[gate]]
+modules = "games.sonic4.ojz_act_pool_act1"
+place_in = "all"
+
+[[gate]]
+modules = "games.sonic4.act_descriptor_ojz_act1"
+place_in = "all"
+
+[[gate]]
+modules = "games.sonic4.ojz_sec_block_blobs_act1"
+place_in = "all"
+
+[[gate]]
+modules = "games.sonic4.ojz_sec_local_maps_act1"
+place_in = "all"
+
+[[gate]]
+modules = "games.sonic4.ojz_act_assets_act1"
+place_in = "all"
+
+[[gate]]
+modules = "games.sonic4.ojz_bg_anim_act1"
+place_in = "all"
+
+[[gate]]
+modules = "games.sonic4.test_mappings"
+place_in = "all"
+
+[[gate]]
+modules = "games.sonic4.dust_data"
+place_in = "all"
+
+[[gate]]
+modules = "games.sonic4.sonic_anims"
+place_in = "all"
+
+[[gate]]
+modules = "games.sonic4.tails_anims"
+place_in = "all"
+
+[[gate]]
+modules = "games.sonic4.knuckles_anims"
+place_in = "all"
+
+[[gate]]
+modules = "games.sonic4.dust_anims"
+place_in = "all"
+
+[[gate]]
+modules = "games.sonic4.tails_data"
+place_in = "all"
+
+[[gate]]
+modules = "games.sonic4.knuckles_data"
+place_in = "all"
+
+[[gate]]
+modules = "games.sonic4.collision_data"
+place_in = "all"
+
+[[gate]]
+modules = "games.sonic4.ojz_scroll_test"
+place_in = "all"
+
+[[gate]]
+modules = "games.sonic4.replay_fixture"
+place_in = "all"

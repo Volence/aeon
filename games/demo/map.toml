@@ -44,10 +44,12 @@ kind = "object_bank"
 
 [[anchor]]
 name = "boot_head"
+holds = "Vectors"     # the order row of the section this anchor places (G0b Task 5)
 at = 0x0
 
 [[anchor]]
 name = "object_bank"
+holds = "ObjCodeBase"     # the order row of the section this anchor places (G0b Task 5)
 at = 0x10000
 
 [[hole]]

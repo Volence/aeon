@@ -64,3 +64,22 @@ debug = "demo.debug"
 
 # No gate rows: SHAPE_GATES (module_roots.rs:129-165) names no games.demo module.
 # No align rows: none of section_align.rs:135-142's exceptions is a demo label.
+
+# Every other game module a map `order` row places, in every shape (closed gating,
+# G0b Task 5: a placed module no rule names is refused).
+
+[[gate]]
+modules = "games.demo.header"
+place_in = "all"
+
+[[gate]]
+modules = "games.demo.demo_box"
+place_in = "all"
+
+[[gate]]
+modules = "games.demo.data.demo_data"
+place_in = "all"
+
+[[gate]]
+modules = "games.demo.demo_state"
+place_in = "all"

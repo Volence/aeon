@@ -193,10 +193,12 @@ when = "sound_on"
 #    inference stays as the [map.undeclared-island] lint) ──
 [[anchor]]
 name = "boot_head"       # the run head (vectors + header), label-less
+holds = "Vectors"     # the order row of the section this anchor places (G0b Task 5)
 at = 0x0
 
 [[anchor]]
 name = "object_bank"     # ObjCodeBase — the 64KB object code bank
+holds = "ObjCodeBase"     # the order row of the section this anchor places (G0b Task 5)
 at = 0x10000
 
 # ── BANK PLACEMENT RULE (ROM re-layout, owner ruling d-28-answered option 2,
@@ -364,11 +366,13 @@ at = 0x10000
 # Matched by ADDRESS, so the section rename is transparent.
 [[anchor]]
 name = "dac_banks"       # dac_banks.emp section head (Dac_Temp_Blip) — bank $15
+holds = "Dac_Temp_Blip"     # the order row of the section this anchor places (G0b Task 5)
 at = 0xA8000
 when = "sound_on"
 
 [[anchor]]
 name = "sound_bank"      # SoundTablesZ80_Head — the MT/SFX phase bank (vma $8000), bank $17
+holds = "SoundTablesZ80_Head"     # the order row of the section this anchor places (G0b Task 5)
 at = 0xB8000
 vma = 0x8000
 when = "sound_on"
@@ -402,6 +406,7 @@ when = "sound_on"
 # (games/sonic4/data/clips/<id>/anchors.toml, derived by tools/clip_anchors.py).
 [[anchor]]
 name = "song_bank_2"     # SongBank2_Head — the second song bank, bank $18
+holds = "SongBank2_Head"     # the order row of the section this anchor places (G0b Task 5)
 at = 0xC0000
 when = "sound_on"
 

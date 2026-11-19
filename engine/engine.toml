@@ -73,6 +73,11 @@ release_fault = "engine.system.release_fault"
 
 # The label the vendored MD Debugger blob is emitted under. native.rs:4839 (ERROR_HANDLER_BLOB_LABEL).
 error_handler_blob = "ErrorHandlerBlob"
+# The vendored blob's length: the deb2 appendix starts at error_handler_blob + this
+# (two `lea`s baked into the blob point there). sigil appendix.rs ERROR_HANDLER_BLOB_LEN.
+error_handler_blob_len = 0xF56
+# The symbol-table tool the deb2 appendix runs, relative to this engine root.
+convsym = "../tools/convsym"
 
 # The fault-handler island heads (release / debug) that fixture placement
 # inserts its relocated sections before. native.rs:3384.
@@ -138,6 +143,166 @@ place_in = { feature = "SOUND_DBG_MIRROR" }
 # and bank labels are the game's, games/sonic4/data/sound/). They sit here rather
 # than in required_labels because [sound] carries the sound-on condition that
 # required_labels lacks (controller ruling M4, G0b Task 2).
+# Every other engine module a map `order` row places, in every shape. Gating is CLOSED
+# (G0b Task 5, spec §5.1): a placed module no rule names is refused, so a new module
+# says here which shapes place it rather than shipping in all of them by default.
+
+[[gate]]
+modules = "engine.bg"
+place_in = "all"
+
+[[gate]]
+modules = "engine.bg_anim"
+place_in = "all"
+
+[[gate]]
+modules = "engine.boot"
+place_in = "all"
+
+[[gate]]
+modules = "engine.boot_data"
+place_in = "all"
+
+[[gate]]
+modules = "engine.buffers"
+place_in = "all"
+
+[[gate]]
+modules = "engine.camera"
+place_in = "all"
+
+[[gate]]
+modules = "engine.collision_lookup"
+place_in = "all"
+
+[[gate]]
+modules = "engine.controllers"
+place_in = "all"
+
+[[gate]]
+modules = "engine.dma_queue"
+place_in = "all"
+
+[[gate]]
+modules = "engine.effects.palette"
+place_in = "all"
+
+[[gate]]
+modules = "engine.effects.preset"
+place_in = "all"
+
+[[gate]]
+modules = "engine.effects.raster"
+place_in = "all"
+
+[[gate]]
+modules = "engine.epilogue"
+place_in = "all"
+
+[[gate]]
+modules = "engine.game_loop"
+place_in = "all"
+
+[[gate]]
+modules = "engine.hblank"
+place_in = "all"
+
+[[gate]]
+modules = "engine.load_art"
+place_in = "all"
+
+[[gate]]
+modules = "engine.math"
+place_in = "all"
+
+[[gate]]
+modules = "engine.objects.animate"
+place_in = "all"
+
+[[gate]]
+modules = "engine.objects.children"
+place_in = "all"
+
+[[gate]]
+modules = "engine.objects.collision"
+place_in = "all"
+
+[[gate]]
+modules = "engine.objects.core"
+place_in = "all"
+
+[[gate]]
+modules = "engine.objects.dplc"
+place_in = "all"
+
+[[gate]]
+modules = "engine.objects.entity_window"
+place_in = "all"
+
+[[gate]]
+modules = "engine.objects.load_object"
+place_in = "all"
+
+[[gate]]
+modules = "engine.objects.objcodebase"
+place_in = "all"
+
+[[gate]]
+modules = "engine.objects.rings"
+place_in = "all"
+
+[[gate]]
+modules = "engine.objects.sprites"
+place_in = "all"
+
+[[gate]]
+modules = "engine.page_cache"
+place_in = "all"
+
+[[gate]]
+modules = "engine.page_in"
+place_in = "all"
+
+[[gate]]
+modules = "engine.parallax"
+place_in = "all"
+
+[[gate]]
+modules = "engine.plane_buffer"
+place_in = "all"
+
+[[gate]]
+modules = "engine.replay"
+place_in = "all"
+
+[[gate]]
+modules = "engine.s4lz"
+place_in = "all"
+
+[[gate]]
+modules = "engine.section"
+place_in = "all"
+
+[[gate]]
+modules = "engine.system.vectors"
+place_in = "all"
+
+[[gate]]
+modules = "engine.tile_cache"
+place_in = "all"
+
+[[gate]]
+modules = "engine.vblank"
+place_in = "all"
+
+[[gate]]
+modules = "engine.vdp_init"
+place_in = "all"
+
+[[gate]]
+modules = "engine.zx0_resume"
+place_in = "all"
+
 [sound]
 blob_start = "Z80_Sound_Start"            # sound_bank_ids.rs:45 (BLOB_START, engine/system/boot_data.emp)
 blob_end = "Z80_Sound_End"                # sound_bank_ids.rs:46 (BLOB_END)
