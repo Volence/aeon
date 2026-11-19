@@ -509,6 +509,7 @@ def test_failed_drive_is_could_not_run_and_writes_nothing(tmp_path, monkeypatch,
         raise errs[exc]
     monkeypatch.setattr(lp, "spawn_pinned", lambda rom, l: Inst())
     monkeypatch.setattr(lp, "provenance", lambda *a: {"harness": {}})
+    monkeypatch.setattr(lp, "rom_sha256", lambda rom, bj=None: "0" * 64)   # the sidecar gate has its own tests
     monkeypatch.setattr(lp, "sha256_file", lambda p: "0" * 64)
     monkeypatch.setattr(leg_run, "run_leg", boom)
     out = tmp_path / "out"
@@ -545,6 +546,7 @@ def test_leg_result_records_its_policy_version(tmp_path, monkeypatch, leg):
         return {"trace": tr, "profile": {"status": "DID NOT RUN"}, "t0": 300}
     monkeypatch.setattr(lp, "spawn_pinned", lambda rom, l: Inst())
     monkeypatch.setattr(lp, "provenance", lambda *a: {"harness": {}})
+    monkeypatch.setattr(lp, "rom_sha256", lambda rom, bj=None: "0" * 64)   # the sidecar gate has its own tests
     monkeypatch.setattr(lp, "sha256_file", lambda p: "0" * 64)
     monkeypatch.setattr(lp, "require_provenance", lambda p: None)
     monkeypatch.setattr(leg_run, "run_leg", fake)

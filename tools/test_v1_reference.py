@@ -243,7 +243,7 @@ def _clean_prov():
                        "source": "vcs", "dirty": False, "sha256": "ab"},
             "aeon": {"commit": "c0ffee", "dirty": False, "dirty_count": 0, "branch": "b",
                      "dirty_paths": []},
-            "rom": {"rom": "s4.bin", "crc32": "193507d9", "size": 1, "game": "sonic4",
+            "rom": {"rom": "s4.bin", "romSha256": "9" * 64, "size": 1, "game": "sonic4",
                     "debug": 0, "target": "x", "sigil_revision": "7630"},
             "harness": {"tool_sha256": "cd"}}
 
