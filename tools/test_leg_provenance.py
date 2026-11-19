@@ -452,6 +452,20 @@ def test_leg_run_without_a_build_export_could_not_run(tmp_path, capsys):
     assert "binds ROM sha256 " + "1" * 64 in capsys.readouterr().err
 
 
+def test_leg_run_without_jsonschema_could_not_run(tmp_path, capsys, monkeypatch):
+    """The reader's environment fault (no `jsonschema`) is COULD NOT RUN, rc 2, naming the
+    dependency: not a traceback and rc 1, which reads like a FAILED cell (final review B-M7)."""
+    import sys
+    import leg_run
+    rom, lst = _synthetic(tmp_path)
+    monkeypatch.setitem(sys.modules, "jsonschema", None)     # import raises ImportError
+    argv = ["--rom", str(rom), "--lst", str(lst), "--leg", "idle", "--phase", "0",
+            "--out", str(tmp_path / "out")]
+    assert leg_run.main(argv) == 2
+    err = capsys.readouterr().err
+    assert "COULD NOT RUN" in err and "jsonschema" in err
+
+
 def test_rom_provenance_reads_the_rom_once(tmp_path, monkeypatch):
     """One read: the CRC, the size and the binding all come from the same bytes."""
     rom, lst = _synthetic(tmp_path)

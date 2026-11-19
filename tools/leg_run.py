@@ -295,7 +295,7 @@ def main(argv=None) -> int:
     build_json = Path(a.build_json).resolve() if a.build_json else None
     try:
         lp.rom_sha256(rom, build_json)   # fail before spawning anything: no sidecar, no run
-    except lp.UnboundRom as e:
+    except (lp.UnboundRom, lp.eb.EnvironmentFault) as e:   # no sidecar, or the reader cannot run here
         print(f"leg_run: COULD NOT RUN — {e}", file=sys.stderr)
         return 2
     try:
@@ -354,7 +354,7 @@ def main(argv=None) -> int:
     try:
         try:
             prov = lp.provenance(lp.load_pin(), inst.handshake, rom, lst, build_json)
-        except (lp.StalePair, lp.PinMismatch, lp.UnboundRom) as e:
+        except (lp.StalePair, lp.PinMismatch, lp.UnboundRom, lp.eb.EnvironmentFault) as e:
             print(f"leg_run: COULD NOT RUN — {e}", file=sys.stderr)
             return 2
         prov["harness"]["leg_drive_sha256"] = lp.sha256_file(TOOLS / "leg_drive.py")

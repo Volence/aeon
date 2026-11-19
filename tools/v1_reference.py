@@ -437,7 +437,7 @@ def _could_not_run():
     from suite_paths import add_client_path
     add_client_path()
     from aether import BusError
-    return (DirtyTree, lp.StalePair, lp.UnboundRom, lp.PinMismatch, lp.MissingProvenance, ld.DriveError,
+    return (DirtyTree, lp.StalePair, lp.UnboundRom, lp.eb.EnvironmentFault, lp.PinMismatch, lp.MissingProvenance, ld.DriveError,
             BusError, ConnectionError, EOFError, asyncio.IncompleteReadError, TimeoutError,
             OSError)
 

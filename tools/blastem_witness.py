@@ -292,7 +292,8 @@ def main(argv=None) -> int:
                                f"!= the result's ROM {want['romSha256']} / {want['size']}")
         syms = ld.resolve_syms(lst)
         bin_ = blastem_binary()
-    except (OSError, KeyError, ValueError, WitnessError, ld.DriveError, lp.StalePair, lp.UnboundRom) as e:
+    except (OSError, KeyError, ValueError, WitnessError, ld.DriveError, lp.StalePair, lp.UnboundRom,
+            lp.eb.EnvironmentFault) as e:
         print(f"blastem_witness: COULD NOT RUN — {type(e).__name__}: {e} (nothing written)",
               file=sys.stderr)
         return 2
