@@ -46,7 +46,23 @@ against the AS-era tree and cite `.asm` paths and line numbers into files that *
 
 ---
 
-## G0B-ENGINE-NAMES-GAME-CONST: an engine module names `SFXID_REV_LOOP`, a constant only sonic4 declares (OPEN, booked 2026-11-20, G0b Task 8 fix round 1; controller to rule before Task 9)
+## G0B-ENGINE-NAMES-GAME-CONST: an engine module names `SFXID_REV_LOOP`, a constant only sonic4 declares (CLOSED 2026-11-20 by G0b Task 9a; booked 2026-11-20, G0b Task 8 fix round 1)
+
+**Closed by G0b Task 9a** (controller ruling: both candidates combined; aeon 58df4539 paired with sigil
+`parcel/g0b-game-as-data` 762cd9fe). `engine/engine.toml` declares `required_consts = ["SFXID_REV_LOOP"]`: a
+constant the engine's own sources name by bare name and every game must declare as a `pub const` in its sources,
+with NO engine default (a silent default is how demo hid the gap). Sigil refuses a game that omits one by name when
+it loads the project (`sigil_build::driver::check_required_consts`: the constant, the `required_consts` row, the
+game), before the closure or any front end reads it. Demo declares it feature-off in
+`games/demo/config/constants.emp` (`pub const SFXID_REV_LOOP : SfxId = -1`, typed as sonic4 types its own); demo's
+ROM bytes are unchanged. Sigil's `--project` contract gate now analyses only the engine root and the built game's
+own root, and reads only the engine's and the game's `baseline.toml` (the other-games rule is deleted). Measured on
+58df4539: the narrowed gate passes on all 10 shapes (demo 80 modules, sonic4 197 of 208), so sonic4 has no blind spot
+of its own. Left open on the sigil side (QUEUE G0B-TASK9A-RESIDUE): how a sound-on game's own value reaches the Z80
+driver is a G0c question (the sound seams still read sonic4's `config/sound_ids.emp` by fixed path).
+
+The finding as booked:
+
 
 `engine/sound/sound_sfx.emp:874-875` (`Sfx_BeginSound`: `if SFXID_REV_LOOP >= 0 { cp SFXID_REV_LOOP`) names
 the constant by bare name, bypassing the `Game.` interface. Its own comment (`:872-873`) calls it "game-declared;
