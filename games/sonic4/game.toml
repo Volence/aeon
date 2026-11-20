@@ -181,6 +181,29 @@ place_in = { feature = "sound" }
 modules = "games.sonic4.game_debug"
 place_in = { feature = "SOUND_DEBUG_HOTKEYS" }
 
+# The sound seams' INPUTS, never build roots (G0b Task 9). sigil lowers each in its own
+# link (sigil-harness seam1/seam2: the DAC payload banks, the SFX bank, its Z80 window
+# table, the MT pitch table) and the ROM embeds the seams' output from the generated
+# root, through games.sonic4.dac_banks / sfx_bank_blob / soundbankhead. They sit under
+# this game's root, so they are build candidates (the build scopes by root, not by id
+# prefix), and `data.dac_samples` defines `Dac_Temp_Blip` as `dac_banks` does: these
+# rows keep them out of every shape, as the id-prefix scope did by accident.
+[[gate]]
+modules = "data.dac_samples"
+place_in = { shapes = [] }
+
+[[gate]]
+modules = "data.sfx_bank"
+place_in = { shapes = [] }
+
+[[gate]]
+modules = "data.sfx_blob_win_tab"
+place_in = { shapes = [] }
+
+[[gate]]
+modules = "data.movingtrucks_pitchtable"
+place_in = { shapes = [] }
+
 # A sigil negative-probe fixture the tree carries, never a build root.
 # module_roots.rs:180 (SIGIL_PROBE_FIXTURES).
 [[gate]]

@@ -41,19 +41,19 @@
 
 module games.sonic4.soundbankhead
 
-pub const _sound_tables = embed("engine/sound/generated/sound_tables_z80.bin")
-pub const _pitchtab     = embed("engine/sound/generated/movingtrucks_pitchtable.bin")
+pub const _sound_tables = embed("generated/sound/sound_tables_z80.bin")
+pub const _pitchtab     = embed("generated/sound/movingtrucks_pitchtable.bin")
 pub const _sfxwin       = if DEBUG == 1 {
-    embed("engine/sound/generated/sfx_blob_win_tab_debug.bin")
+    embed("generated/sound/sfx_blob_win_tab_debug.bin")
 } else {
-    embed("engine/sound/generated/sfx_blob_win_tab.bin")
+    embed("generated/sound/sfx_blob_win_tab.bin")
 }
 pub const _seqop        = if DEBUG == 1 {
-    embed("engine/sound/generated/seq_opcode_tab_debug.bin")
+    embed("generated/sound/seq_opcode_tab_debug.bin")
 } else {
-    embed("engine/sound/generated/seq_opcode_tab.bin")
+    embed("generated/sound/seq_opcode_tab.bin")
 }
-pub const _dacsamp      = embed("engine/sound/generated/dac_sample_tab.bin")
+pub const _dacsamp      = embed("generated/sound/dac_sample_tab.bin")
 
 section soundbankhead (cpu: m68000, vma: $8000) {
     // The generated FM/PSG data tables (4 pure-math LUTs + the PSG/FM vol-env

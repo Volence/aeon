@@ -41,8 +41,8 @@ module games.sonic4.sfx_bank_blob in sfx_bank_blob
 
 use engine.types.{SongId}
 
-const _sfx       = embed("engine/sound/generated/sfx_bank.bin")
-const _sfx_debug = embed("engine/sound/generated/sfx_bank_debug.bin")
+const _sfx       = embed("generated/sound/sfx_bank.bin")
+const _sfx_debug = embed("generated/sound/sfx_bank_debug.bin")
 const _sfx_active = if DEBUG == 1 { _sfx_debug } else { _sfx }
 
 // The whole SFX block (9 blobs + patch banks + the sparse SfxTable) — the head is

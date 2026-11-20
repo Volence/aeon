@@ -48,8 +48,8 @@
 
 module games.sonic4.dac_banks in dac_banks
 
-const _blip   = embed("engine/sound/generated/dac_blip_bank.bin")
-const _shared = embed("engine/sound/generated/dac_shared_bank.bin")
+const _blip   = embed("generated/sound/dac_blip_bank.bin")
+const _shared = embed("generated/sound/dac_shared_bank.bin")
 
 // The blip bring-up sample — alone in its own 0x8000 window at the `dac_banks` anchor.
 pub data Dac_Temp_Blip = _blip

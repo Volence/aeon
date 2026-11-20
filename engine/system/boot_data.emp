@@ -48,8 +48,8 @@ use engine.sound_constants.{SND_STATE_BASE}
 // below infers its type; the embeds are referenced ONLY inside the sound-on
 // comptime branch, so no-sound shapes (demo, config_b) — which never generate
 // these files — never read them.
-const SoundBlobPlain = embed("engine/sound/generated/z80_sound_blob.bin")
-const SoundBlobDebug = embed("engine/sound/generated/z80_sound_blob_debug.bin")
+const SoundBlobPlain = embed("generated/sound/z80_sound_blob.bin")
+const SoundBlobDebug = embed("generated/sound/z80_sound_blob_debug.bin")
 // The shape's blob (referenced only in the sound-on branch below, so no-sound
 // shapes never force either embed).
 const ShapeBlob = if DEBUG == 1 { SoundBlobDebug } else { SoundBlobPlain }
