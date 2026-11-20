@@ -71,6 +71,22 @@ def build_demo(out_dir, rom_name="demo.bin", lst_name=None):
     return rom, lst
 
 
+def build_demo_project(out_dir, rom_name="demo.bin"):
+    """`sigil build --project games/demo --shape release` into `out_dir`: the game-as-data
+    driver, whose module scan is the description's two roots (engine + games/demo, G0b
+    Task 9), not the whole tree. Returns (rom, lst) absolute paths."""
+    os.makedirs(out_dir, exist_ok=True)
+    rom = os.path.join(os.path.abspath(out_dir), rom_name)
+    lst = os.path.join(os.path.abspath(out_dir), os.path.splitext(rom_name)[0] + ".lst")
+    p = subprocess.run([sigil(), "build", "--project", os.path.join(AEON, "games", "demo"),
+                        "--shape", "release", "-o", rom, "--emit-lst", lst],
+                       cwd=AEON, capture_output=True, text=True, timeout=600)
+    if p.returncode != 0 or not os.path.isfile(lst):
+        raise RuntimeError("the --project demo build failed (exit %d):\n%s"
+                           % (p.returncode, (p.stdout + p.stderr)[-3000:]))
+    return rom, lst
+
+
 def aeon_rows(lst):
     """The aeon-root `DIGEST-READ` paths, parsed WITHOUT tools/artifact_provenance.py:
     the mirror must not be built by the code it is used to test."""

@@ -370,6 +370,32 @@ def scan_members(root):
     return sorted(out, key=lambda s: s.encode("utf-8", "surrogateescape"))
 
 
+def build_scan_members(d, aeon):
+    """The module walk THIS listing's build made, re-walked today: aeon-relative members.
+
+    The profile-driven driver walks the whole aeon tree. The game-as-data driver (`sigil
+    build --project`, G0b Task 9) walks its description's two named roots and nothing else:
+    the engine root (`[engine] root` of games/<g>/game.toml) and the game's sources root
+    (`games/<g>/<[sources] root>`). A listing is the game-as-data driver's exactly when its
+    build read its own description (a `DIGEST-READ path=games/<g>/game.toml` row, g being
+    DIGEST-SHAPE's game), which the profile-driven driver never reads. Both roots lie in the
+    tree, so sigil spells their members aeon-relative, as a whole-tree walk would."""
+    game = d["shape"].get("game")
+    desc = f"games/{game}/game.toml"
+    reads = {row["path"] for row in d["reads"] if row["root"] is None}
+    if not game or desc not in reads:
+        return scan_members(aeon)
+    import tomllib
+    with open(os.path.join(aeon, desc), "rb") as f:
+        g = tomllib.load(f)
+    roots = [g["engine"]["root"], os.path.join("games", game, g.get("sources", {}).get("root", "."))]
+    out = []
+    for r in roots:
+        rel = os.path.normpath(r).replace(os.sep, "/")
+        out.extend(f"{rel}/{m}" for m in scan_members(os.path.join(aeon, rel)))
+    return sorted(out, key=lambda s: s.encode("utf-8", "surrogateescape"))
+
+
 def scan_identity(members):
     """`DIGEST-SCAN`'s (files, crc): CRC-32 over the paths sorted by bytes, each + LF."""
     text = "".join(m + "\n" for m in members)
@@ -576,10 +602,10 @@ def check_pair(rom, lst, *, built_after=None, root=None, assembler=None,
                 f"crc={row['crc']:08x} size={row['size']}, the file is now "
                 f"crc={crc32(data):08x} size={len(data)}")
 
-    # The module walk reproduces.
+    # The module walk reproduces (over the roots this build walked: build_scan_members).
     try:
-        members = scan_members(aeon)
-    except OSError as e:
+        members = build_scan_members(d, aeon)
+    except (OSError, KeyError, ValueError) as e:
         v.problems.append(f"DIGEST-SCAN: the aeon root {aeon} cannot be walked ({e})")
     else:
         files, crc = scan_identity(members)

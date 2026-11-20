@@ -17,6 +17,8 @@ WHAT IS ASSERTED, each arm with a control that the same fixture is fresh unmutat
     unknown `tree=` word -> NOT FRESH, each naming its row;
   * `tree=` is reported and never gated: a known word other than the build's is fresh;
   * `built_after` survives as an additional condition (decision (b));
+  * a `--project` build's scan reproduces over its description's two roots (G0b Task 9):
+    another game's new module moves nothing, its own game's does;
   * the CLI's exit codes are 0 and 2 and nothing else.
 """
 
@@ -281,6 +283,41 @@ def test_the_scan_follows_the_walk_rule(tmp_path):
     os.symlink(tmp_path / "outside", r / "linkdir")  # not followed
     os.symlink(r / "a" / "m.emp", r / "alias.emp")   # a non-directory entry: counted
     assert ap.scan_members(str(r)) == ["a/m.emp", "alias.emp", "top.emp"]
+
+
+@pytest.fixture(scope="module")
+def project(tmp_path_factory):
+    """One real plain-demo pair from the game-as-data driver (`--project`)."""
+    d = tmp_path_factory.mktemp("provenance_project")
+    try:
+        rom, lst = pf.build_demo_project(str(d))
+    except pf.NoAssembler as e:
+        pytest.fail(str(e))
+    return {"rom": rom, "lst": lst}
+
+
+def test_a_project_build_scan_is_its_two_roots(project, tmp_path):
+    """G0b Task 9: a `--project` build scans its description's two roots (engine/ and
+    games/demo/), so its DIGEST-SCAN reproduces over THOSE and not over the whole tree:
+    FRESH against the real tree and against a mirror of its read set. A module that
+    appears in ANOTHER game moves nothing (it is no input of this build); one that appears
+    in this game's root moves the scan, naming it."""
+    v = ap.check_pair(project["rom"], project["lst"])
+    assert v.fresh and v.code == ap.FRESH, _verdict_text(v)
+    root = tmp_path / "root"
+    pf.mirror(project["lst"], str(root))
+    assert ap.check_pair(project["rom"], project["lst"], root=str(root)).fresh
+    other = root / "games" / "sonic4" / "zz_other_game.emp"
+    other.parent.mkdir(parents=True, exist_ok=True)
+    other.write_text("module games.sonic4.zz_other_game in x\n")
+    v = ap.check_pair(project["rom"], project["lst"], root=str(root))
+    assert v.fresh, "another game's module moved a --project scan: " + _verdict_text(v)
+    mine = root / "games" / "demo" / "zz_appeared.emp"
+    mine.write_text("module games.demo.zz_appeared in x\n")
+    v = ap.check_pair(project["rom"], project["lst"], root=str(root))
+    assert v.code == ap.UNMEASURABLE, _verdict_text(v)
+    scan = [p for p in v.problems if p.startswith("DIGEST-SCAN")]
+    assert scan and "games/demo/zz_appeared.emp" in scan[0], _verdict_text(v)
 
 
 # ---- built_after survives (decision (b)) -------------------------------------------
