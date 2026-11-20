@@ -46,6 +46,31 @@ against the AS-era tree and cite `.asm` paths and line numbers into files that *
 
 ---
 
+## G0C-SOUND-SEAMS: the sound seams' output path stays in aeon until G0c (booked 2026-11-19, G0b Task 6, `feat/g0b-descriptions`)
+
+Since sigil `parcel/g0b-game-as-data` Task 6, `sigil build` (both drivers, `--check` included)
+writes the sound seams' 15 artifacts into its own private build directory and never into this
+tree; an `embed("engine/sound/generated/...")` resolves through the build's `generated` root,
+which is mounted at that path (sigil `crates/sigil-build/src/build_dir.rs`, gate
+`build_hermetic`). Nothing in aeon changed for it. What stays here until **G0c** (the seams'
+removal, its own design after sonic4's cutover, spec `G0b` §5.4):
+
+1. **The embed sites name the mount path:** `engine/system/boot_data.emp:51-52`,
+   `games/sonic4/data/sound/soundbankhead.emp:44-56`, `dac_banks.emp:51-52`,
+   `sfx_bank_blob.emp:44-45`. G0c turns these into bake steps or comptime.
+2. **`engine/sound/generated/` is gitignored, not checked in** (`.gitignore:40-43`). The G0b plan
+   calls these files "checked-in"; they are build outputs and no commit carries them. The row goes
+   with the seams.
+3. **`build.sh`'s sound preflight still writes the tree:** it runs
+   `emit_sound_blob --aeon . --out-dir engine/sound/generated` (`build.sh:867-883`) on every
+   sound-on run, creating the 15 files here. Since Task 6 the `sigil build` that follows reads its
+   own copies, so these are no longer an input to the ROM. Deleting the preflight (keeping the
+   emitter identity line, which is about `SIGIL_EMIT` itself) is aeon-side cleanup that G0c can
+   take, or earlier; a fresh clone built by `build.sh` therefore still shows
+   `!! engine/sound/generated/` in `git status --ignored`.
+4. sigil's `native::emit_generated` / `ensure_generated` still write a tree's mount, for
+   standalone port gates only (sigil QUEUE `G0B-GENERATED-ROOT-SCOPE`).
+
 ## V2-E1-REFERENCE: what the v1 behaviour reference does NOT yet carry (booked 2026-11-16, `feat/v2-step0-harness`)
 
 `docs/benchmarks/v1-reference/` (tool `tools/v1_reference.py`, v2 E1) holds 10 recordings:
