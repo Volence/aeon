@@ -63,11 +63,25 @@ removal, its own design after sonic4's cutover, spec `G0b` §5.4):
    with the seams.
 3. **`build.sh`'s sound preflight still writes the tree:** it runs
    `emit_sound_blob --aeon . --out-dir engine/sound/generated` (`build.sh:867-883`) on every
-   sound-on run, creating the 15 files here. Since Task 6 the `sigil build` that follows reads its
-   own copies, so these are no longer an input to the ROM. Deleting the preflight (keeping the
-   emitter identity line, which is about `SIGIL_EMIT` itself) is aeon-side cleanup that G0c can
-   take, or earlier; a fresh clone built by `build.sh` therefore still shows
-   `!! engine/sound/generated/` in `git status --ignored`.
+   sound-on run, creating the 15 files here, so a fresh clone built by `build.sh` still shows
+   `!! engine/sound/generated/` in `git status --ignored`. No sigil BUILD reads them: `sigil
+   build` (both drivers, `--check` included) and, since Task 6 fix round 1, sigil's in-process
+   `native::build_emp` emit into a private root of their own (gate
+   `build_hermetic::build_emp_never_reads_the_tree_mount`: absent, provisioned and poisoned tree copies
+   all lower identically). The focused lowerings (`harvest_*`, `name_env_report`) get an empty
+   root, so a read there fails loudly. (The first version of this item said the files were "no
+   longer an input" while `build_emp` still read them; that was false until fix round 1.) The
+   files are still WRITTEN, and some READ, by:
+   - sigil's single-module port gates (`soundbankhead_port`, `dac_bank_port`, `mt_bank_port`,
+     `sfx_bank_port`, `section_row_fixture`, `warn_tier_corpus`, `contract_closure_corpus`,
+     `link_assert_reporting`). They call `native::ensure_generated` to write the
+     mount themselves before reading it, so they never read what the preflight left (item 4);
+   - aeon's own tools: `tools/land_gate.py:203` names the directory as a regenerated prefix, and
+     `tools/test_extern_guard_reachability.py` snapshots it around its sweep.
+
+   Deleting the preflight (keeping the emitter identity line, which is about `SIGIL_EMIT`
+   itself) is aeon-side cleanup that G0c can take. Do it only after those two aeon tools stop
+   expecting the directory.
 4. sigil's `native::emit_generated` / `ensure_generated` still write a tree's mount, for
    standalone port gates only (sigil QUEUE `G0B-GENERATED-ROOT-SCOPE`).
 
