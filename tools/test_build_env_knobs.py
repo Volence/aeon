@@ -431,6 +431,21 @@ def test_a_stem_build_sh_spells_that_disagrees_with_the_description_is_refused()
     assert rc == 0 and _project_result(out).startswith("shape=release "), (out, err)
 
 
+def test_an_unknown_fact_from_the_reader_is_refused(tmp_path):
+    """build.sh takes the reader's facts through a whitelist: a name it does not know (a
+    reader newer than the block, or a typo) is refused, never assigned as a shell variable.
+    The stub reader prints the real facts plus one more."""
+    real = "\n".join("%s=%s" % kv for kv in _desc("release").items())
+    (tmp_path / "game_shape_feature.py").write_text(
+        "print(%r)\nprint('DESC_SURPRISE=1')\n" % real)
+    rc, out, err = _project(GAME="sonic4", TOOLS=str(tmp_path))
+    assert rc == 1 and "printed an unknown fact: DESC_SURPRISE" in out and "RESULT" not in out, (out, err)
+    # Positive control: the same stub without the extra line is accepted.
+    (tmp_path / "game_shape_feature.py").write_text("print(%r)\n" % real)
+    rc, out, err = _project(GAME="sonic4", TOOLS=str(tmp_path))
+    assert rc == 0 and _project_result(out).startswith("shape=release "), (out, err)
+
+
 def test_a_per_game_build_conf_is_refused():
     """build.conf is gone for every game; one that reappears is a second authority."""
     with tempfile.TemporaryDirectory() as td:

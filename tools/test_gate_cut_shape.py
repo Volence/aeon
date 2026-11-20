@@ -220,10 +220,29 @@ def test_digest_canonical_build_under_a_stress_name_is_refused(tmp_path, capsys)
     assert "COULD NOT RUN" in capsys.readouterr().out
 
 
+def test_a_canonical_artifact_no_outputs_row_names_is_refused(tmp_path, monkeypatch):
+    """Loud on unmeasurable: a canonical artifact whose game description names no row for
+    it cannot be keyed in the new spelling, and that is refused, not skipped. With the
+    profile-driven `(game, game)` spelling gone (G0b Task 10) this is the only way the key
+    can fail, so it is held for both counts the rule refuses: no row, and two rows."""
+    games = tmp_path / "games"
+    for g, outputs in (("sonic4", 'release = "s4"\ndebug = "s4.debug"\n'), ("demo", 'release = "demo"\n')):
+        (games / g).mkdir(parents=True)
+        (games / g / "game.toml").write_text("[outputs]\n" + outputs)
+    monkeypatch.setattr(gcs, "AEON", tmp_path)
+    with pytest.raises(gcs.ShapeClassError, match=r"0 row\(s\) naming 'demo.debug'"):
+        gcs.canonical_build_ids()
+    (games / "demo" / "game.toml").write_text(
+        '[outputs]\nrelease = "demo"\ndebug = "demo.debug"\nalias = "demo.debug"\n')
+    with pytest.raises(gcs.ShapeClassError, match=r"2 row\(s\) naming 'demo.debug'"):
+        gcs.canonical_build_ids()
+
+
 @REAL_DIGEST
 def test_digest_of_a_canonical_target_built_as_an_off_canonical_artifact_is_accepted(tmp_path):
     """The S2CLIP clip-act shapes: off-canonical in their ACT DATA, built through the
-    canonical `--game sonic4` target, and sigil was asked for THIS artifact.
+    canonical sonic4 target (`--project games/sonic4 --shape release|debug`), and sigil was
+    asked for THIS artifact.
 
     This is the case the target proxy could not express. The discriminating pair is this
     row and the rename row above: same target, different DIGEST-ROM path, opposite verdict.

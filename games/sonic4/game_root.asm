@@ -27,7 +27,7 @@
     ; the island makes those equs unresolvable — a hard link error.
     ; __MDDBG__ is pushed by the native driver when `profile.debug || profile.crash_report`,
     ; i.e. in the DEBUG and RELEASE shapes but NOT in the opt-in LEAN shape
-    ; (`sigil build --native --lean`, CRASH_REPORT=0). It is a separate define from
+    ; (`sigil build --project games/sonic4 --shape lean`, CRASH_REPORT=0). It is a separate define from
     ; __DEBUG__ — __DEBUG__ still means exactly "debug shape" (asserts, hotkeys, selftest,
     ; boot autoplay). AS `ifdef` tests DEFINEDNESS, not value, so the axis is push-or-omit:
     ; a `__MDDBG__ = 0` would still take this arm.

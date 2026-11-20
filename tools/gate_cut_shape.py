@@ -193,7 +193,7 @@ def digest_target_problem(lst_path):
     (`--stress-evict`, `--stress-art`), so `target != sonic4` was a free proxy for "not a
     canonical build". The S2CLIP clip-act shapes are not: they are off-canonical in their
     ACT DATA — a throwaway re-bake of the act slot — and are built through the canonical
-    `--game sonic4` target, because a clip act needs no placement change and inventing a
+    sonic4 target (then `--game sonic4`, now `--project games/sonic4 --shape release|debug`), because a clip act needs no placement change and inventing a
     sigil profile for one would be a cross-repo change for a data swap. Under the old rule
     they were refused as renames, which is a true sentence about their target doing a
     bigger sentence's work.

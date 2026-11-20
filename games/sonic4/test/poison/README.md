@@ -30,7 +30,7 @@ Three properties every module in this directory must hold:
 One real build per case, with the poison named as an extra entry:
 
 ```
-sigil build --aeon . --native --game sonic4 -o <scratch>.bin --extra-entry <poison>
+sigil build --project games/sonic4 --shape release -o <scratch>.bin --extra-entry <poison>
 ```
 
 `--extra-entry` evaluates the named module inside the **real build profile** — the same
@@ -54,7 +54,7 @@ Consequences for anyone writing a module here:
   module is written. That is the shape `--extra-entry` reproduces, and adding imports to
   chase a different invocation makes the poison resolve names differently from the build
   it is supposed to be modelling.
-- **Verify a new poison directly**: `sigil build --aeon . --native --game sonic4
+- **Verify a new poison directly**: `sigil build --project games/sonic4 --shape release
   -o <scratch>.bin --extra-entry games/sonic4/test/poison/<new>.emp` (a few seconds), read
   the diagnostic. Red-first still means red-first: confirm the module builds CLEAN
   *before* the guard exists.
