@@ -46,6 +46,35 @@ against the AS-era tree and cite `.asm` paths and line numbers into files that *
 
 ---
 
+## G0B-DEMO-CUTOVER-RESIDUE: demo builds through sigil's game-as-data driver; what still speaks the old names (OPEN, booked 2026-11-20, G0b Task 8, `feat/g0b-descriptions`)
+
+Since G0b Task 8 (paired with sigil `parcel/g0b-game-as-data`), `./build.sh demo` and `DEBUG=1
+./build.sh demo` build with `sigil build --project games/demo --shape release|debug` (the
+`PROJECT_GAME_SHAPE` block of `build.sh`, graded by `tools/test_build_env_knobs.py`), and so does
+the cross-game demo assemble inside a sonic4 build. `games/demo/build.conf` is deleted: its one
+setting (`SOUND_DRIVER_ENABLED=0`) is `games/demo/game.toml`'s `[shapes.*] features.sound =
+false`, which sigil builds from and `build.sh` reads (`tools/game_shape_feature.py`); an
+environment `SOUND_DRIVER_ENABLED` that disagrees is refused. sonic4 stays on the profile-driven
+path until its own cutover (sigil Task 10). Left open:
+
+1. **New demo artifacts carry the new names.** A demo listing's `DIGEST-SHAPE` now says
+   `target=release` / `target=debug` (the description's row) beside `game=demo`, where it said
+   `target=demo`; the build export's `shape.shape` likewise. `tools/leg_provenance.py` records
+   `target` verbatim and needs no code change: leg records made from a new demo build carry
+   `"target": "release"` or `"debug"`. Anything that groups leg records by `target` must key on
+   (`game`, `target`) from here on.
+2. **`tools/gate_cut_shape.py` accepts both spellings** (`canonical_build_ids`: `(game, game)` and
+   `(game, <game.toml [outputs] row>)`), so its rename guard keeps firing for a canonical build
+   under either name (red-first: `test_a_canonical_build_under_its_shape_row_name_renamed_is_refused`,
+   4 rows, all red on the target-only key). Drop the `(game, game)` spelling when sigil Task 10
+   retires the profile-driven driver.
+3. **Tools that still build demo through the old grammar** (`sigil build --aeon . --game demo`):
+   `tools/extern_guard_census.py`, `tools/test_extern_guard_reachability.py`,
+   `tools/anim_frame_bound.py`, `tools/provenance_fixtures.py`, `tools/test_gen_vram_map.py`,
+   `tools/test_provenance_consumers.py`. Both drivers build byte-identical demo artifacts (sigil
+   `scripts/compare-drivers.sh`), so these grade the same bytes; they must move to `--project`
+   before Task 10 removes `--game`.
+
 ## G0C-SOUND-SEAMS: the sound seams' output path stays in aeon until G0c (booked 2026-11-19, G0b Task 6, `feat/g0b-descriptions`)
 
 Since sigil `parcel/g0b-game-as-data` Task 6, `sigil build` (both drivers, `--check` included)

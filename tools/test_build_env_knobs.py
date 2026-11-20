@@ -28,6 +28,11 @@ WHAT IT DOES NOT COVER: that the lanes build.sh guards with `NO_LINT` are the on
 names. The banner lists them by hand; this file checks that the knob reaches NO_LINT and that
 the skip is announced, not which `if` blocks read it.
 
+  PROJECT   (G0b Task 8, the demo cutover) a game sigil builds from its description takes its
+            shape row from DEBUG and its SOUND_DRIVER_ENABLED from the row's `features.sound`
+            (tools/game_shape_feature.py), which games/demo/build.conf used to default; an
+            environment value that disagrees with the description is refused.
+
 RUNNER: build.sh's pre-build tool-suite lane (`pytest tools -m "not needs_build"`), build-fatal.
 Source only, no marker. A NO_LINT=1 build skips that lane and so skips this file too;
 tools/landing_build.sh refuses NO_LINT, so a landing run always reaches it.
@@ -287,3 +292,41 @@ def test_with_a_receipt_neither_shared_lane_runs_and_both_say_so():
     assert "CALLED" not in out, "a shared lane ran although the receipt was honoured:\n" + out
     assert out.count("NOT RUN in this shape") == 2, out
     assert "stub receipt" in out, out
+
+
+# ------------------------------------------------------------------------ PROJECT
+def _project(**env):
+    script = (_block("PROJECT_GAME_SHAPE")
+              + '\necho "RESULT shape=${SIGIL_PROJECT_SHAPE} sound=${SOUND_DRIVER_ENABLED:-unset}"\n')
+    env.setdefault("TOOLS", TOOLS)
+    return _run(script, **env)
+
+
+def _project_result(out):
+    lines = [l for l in out.splitlines() if l.startswith("RESULT ")]
+    assert len(lines) == 1, out
+    return lines[0][len("RESULT "):]
+
+
+def test_demo_takes_its_shape_row_and_sound_axis_from_its_description():
+    for debug, row in ((None, "release"), ("0", "release"), ("1", "debug")):
+        rc, out, err = _project(GAME="demo", DEBUG=debug)
+        assert rc == 0, (out, err)
+        # games/demo/game.toml [shapes.release|debug] features.sound = false
+        assert _project_result(out) == "shape=%s sound=0" % row, out
+
+
+def test_an_environment_sound_axis_that_disagrees_with_the_description_is_refused():
+    rc, out, err = _project(GAME="demo", SOUND_DRIVER_ENABLED="1")
+    assert rc == 1, (out, err)
+    assert "SOUND_DRIVER_ENABLED=1 is set, but games/demo/game.toml" in out, out
+    assert "RESULT" not in out, out
+    rc, out, err = _project(GAME="demo", SOUND_DRIVER_ENABLED="0")
+    assert rc == 0 and _project_result(out) == "shape=release sound=0", (out, err)
+
+
+def test_a_profile_driven_game_is_left_alone():
+    rc, out, err = _project(GAME="sonic4", DEBUG="1")
+    assert rc == 0, (out, err)
+    assert _project_result(out) == "shape= sound=unset", out
+

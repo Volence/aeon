@@ -142,7 +142,7 @@ def test_a_committed_off_canonical_cut_is_refused(tmp_path, capsys):
     assert rc == 1 and "COMMITTED cut for off-canonical" in out
 
 
-def _listing(tmp_path, target, rom_path="s4.stress.bin", name="s4.stress.lst"):
+def _listing(tmp_path, target, rom_path="s4.stress.bin", name="s4.stress.lst", game="sonic4"):
     """A minimal listing whose Source Digest parses (the reader's own grammar).
 
     `rom_path` is the artifact sigil was ASKED to write (DIGEST-ROM path=), which is what
@@ -157,7 +157,7 @@ def _listing(tmp_path, target, rom_path="s4.stress.bin", name="s4.stress.lst"):
     lst.write_text("\n".join([
         "DIGEST-FORMAT 1",
         "DIGEST-ASSEMBLER sigil version=0 revision=0 tree=clean",
-        "DIGEST-SHAPE target=%s game=sonic4 debug=1 extra-entries=none" % target,
+        "DIGEST-SHAPE target=%s game=%s debug=1 extra-entries=none" % (target, game),
         "DIGEST-SCAN pattern=*.emp files=1 crc=00000000",
         read,
         "DIGEST-AGGREGATE crc=%s reads=1" % agg,
@@ -238,3 +238,65 @@ def test_digest_missing_is_refused(tmp_path):
     lst = tmp_path / "s4.stress.lst"
     lst.write_text("no digest here\n")
     assert "cannot be read" in gcs.digest_target_problem(lst)
+
+
+# ── G0b Task 8: the game-as-data driver names a build by its `[shapes.*]` row ──
+#
+# sigil's game-as-data driver (`sigil build --project games/<g> --shape <row>`) writes
+# `DIGEST-SHAPE target=<row> game=<g>`, where the profile-driven driver wrote
+# `target=<g>` (sigil docs/QUEUE.md G0B-COMPARE-IDENTITY-NAMES). Keyed on the target word
+# alone, a canonical demo build under the new name reads as NOT canonical, so a renamed
+# canonical artifact silently earns a derived cut. The key is (game, target), and both
+# spellings are canonical until sigil's G0b Task 10 retires the old one.
+
+
+@REAL_DIGEST
+@pytest.mark.parametrize("game,row,stem", [("demo", "release", "demo"), ("demo", "debug", "demo.debug"),
+                                           ("sonic4", "release", "s4"), ("sonic4", "debug", "s4.debug")])
+def test_a_canonical_build_under_its_shape_row_name_renamed_is_refused(tmp_path, capsys, game, row, stem):
+    """A canonical build written by the game-as-data driver (target=<row>), renamed to an
+    off-canonical listing name: the rename guard must still fire."""
+    lst = _listing(tmp_path, row, rom_path=stem + ".bin", game=game)
+    problem = gcs.digest_target_problem(lst)
+    assert problem is not None and "CANONICAL build target" in problem, problem
+    fixture = tmp_path / "toy_cut.json"
+    fixture.write_text('{"shapes": {}}')
+    produced = []
+    rc = gcs.derive_for_offcanonical("toy_gate", str(lst), str(fixture),
+                                     lambda f: [], produced.append, lambda p: [])
+    assert rc == 2 and not produced
+    assert "COULD NOT RUN" in capsys.readouterr().out
+
+
+@REAL_DIGEST
+def test_an_off_canonical_row_spelled_the_new_way_is_accepted(tmp_path):
+    """sonic4's `stress-evict` row (target=stress-evict, game=sonic4) is off-canonical in
+    both spellings."""
+    assert gcs.digest_target_problem(_listing(tmp_path, "stress-evict", game="sonic4")) is None
+
+
+def test_canonical_build_ids_carry_both_spellings_for_every_canonical_artifact():
+    """Expectations from source: each CANONICAL_SHAPES artifact is canonical as
+    (game, game) and as (game, the games/<game>/game.toml [outputs] row naming its stem)."""
+    import tomllib
+    ids = gcs.canonical_build_ids()
+    for rom, (game, _debug) in artifact_provenance.CANONICAL_SHAPES.items():
+        outputs = tomllib.loads((gcs.AEON / "games" / game / "game.toml").read_text())["outputs"]
+        rows = [r for r, stem in outputs.items() if stem == rom[:-len(".bin")]]
+        assert len(rows) == 1, (rom, outputs)
+        assert (game, game) in ids and (game, rows[0]) in ids, (rom, sorted(ids))
+    # A row naming no canonical artifact (sonic4's stress shapes) is not canonical.
+    assert ("sonic4", "stress-evict") not in ids
+
+
+def test_a_canonical_artifact_no_outputs_row_names_is_refused(tmp_path, monkeypatch):
+    """Loud on unmeasurable: a canonical artifact whose game description names no row for
+    it cannot be keyed in the new spelling, and that is refused, not skipped."""
+    games = tmp_path / "games"
+    for g, outputs in (("sonic4", 'release = "s4"\ndebug = "s4.debug"\n'), ("demo", 'release = "demo"\n')):
+        (games / g).mkdir(parents=True)
+        (games / g / "game.toml").write_text("[outputs]\n" + outputs)
+    monkeypatch.setattr(gcs, "AEON", tmp_path)
+    with pytest.raises(gcs.ShapeClassError, match="demo.debug"):
+        gcs.canonical_build_ids()
+

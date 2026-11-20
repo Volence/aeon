@@ -488,11 +488,48 @@ gate_summary() {
     echo "###########################################################################"
 }
 
-# Per-game build config (optional): may set defaults, e.g. SOUND_DRIVER_ENABLED
-# (demo sets SOUND_DRIVER_ENABLED=0 — it ships no sound bank yet).
+# Per-game build config (optional): may set shell defaults for this script's own lanes.
+# No game carries one today: demo's (`SOUND_DRIVER_ENABLED=0`) was folded into its game
+# description at the G0b cutover, below.
 if [[ -f "games/${GAME}/build.conf" ]]; then
     source "games/${GAME}/build.conf"
 fi
+
+# GAME-AS-DATA GAMES (G0b Task 8, the demo cutover). sigil builds these from the game's
+# description, `sigil build --project games/<g> --shape <row>`, instead of the profile-driven
+# `--aeon . --game <g>` path; sonic4 keeps the profile path until its own cutover. The shape
+# row is `release`, or `debug` under DEBUG=1, and its output stem is the description's
+# `[outputs]` row (games/demo/game.toml: demo, demo.debug), the names ROM_NAME already holds.
+#
+# THE SOUND AXIS IS THE DESCRIPTION'S. For such a game SOUND_DRIVER_ENABLED (which decides
+# this script's emit_sound_blob preflight and emitter line) is read from the shape row's
+# `features.sound`, the same fact sigil builds from (tools/game_shape_feature.py), never a
+# shell default. A value set in the environment that disagrees is REFUSED: it would run the
+# lanes of a shape sigil is not building.
+# tools/test_build_env_knobs.py lifts the block between these markers and runs it, so the
+# markers are load-bearing.
+# >>> PROJECT_GAME_SHAPE
+PROJECT_GAMES=(demo)
+SIGIL_PROJECT_SHAPE=""
+for _pg in "${PROJECT_GAMES[@]}"; do
+    if [[ "$GAME" == "$_pg" ]]; then
+        if [[ "${DEBUG:-0}" == "1" ]]; then SIGIL_PROJECT_SHAPE="debug"; else SIGIL_PROJECT_SHAPE="release"; fi
+    fi
+done
+if [[ -n "${SIGIL_PROJECT_SHAPE}" ]]; then
+    _desc_sound="$(python3 "${TOOLS:-tools}/game_shape_feature.py" --game "${GAME}" --shape "${SIGIL_PROJECT_SHAPE}" --feature sound)" || {
+        echo "ERROR: cannot read the sound feature of games/${GAME}/game.toml [shapes.${SIGIL_PROJECT_SHAPE}] (see above)."
+        exit 1
+    }
+    if [[ -n "${SOUND_DRIVER_ENABLED:-}" && "${SOUND_DRIVER_ENABLED}" != "${_desc_sound}" ]]; then
+        echo "ERROR: SOUND_DRIVER_ENABLED=${SOUND_DRIVER_ENABLED} is set, but games/${GAME}/game.toml"
+        echo "  [shapes.${SIGIL_PROJECT_SHAPE}] says features.sound=${_desc_sound}, and that is the shape sigil builds."
+        echo "  The description is the authority for a game-as-data game; unset the variable."
+        exit 1
+    fi
+    SOUND_DRIVER_ENABLED="${_desc_sound}"
+fi
+# <<< PROJECT_GAME_SHAPE
 
 # Parse flags. -pe (asl print-errors-only) is now a no-op — the native build always
 # streams errors — but stays accepted for CLI compatibility.
@@ -636,8 +673,8 @@ fi
 #   debug + hotkeys+mirror -> sigil build --native --config-a
 # (Building an UNPROVEN sound-toggle combo from here would ship bytes no golden gates,
 # so build.sh refuses rather than emit something unverifiable. The full toggle matrix
-# folds back in with the Stage-3 debug-runtime work.) demo's SOUND_DRIVER_ENABLED=0 is
-# its canonical state, not an override, so this only guards sonic4.
+# folds back in with the Stage-3 debug-runtime work.) demo's sound axis is its game
+# description's (games/demo/game.toml, enforced above), so this only guards sonic4.
 if [[ "$GAME" == "sonic4" ]]; then
     if [[ "${SOUND_DRIVER_ENABLED:-1}" != "1" \
        || "${SOUND_DEBUG_HOTKEYS:-0}" == "1" \
@@ -1500,6 +1537,14 @@ else
     NATIVE_FLAGS="--game ${GAME}"
     if [[ "${DEBUG:-0}" == "1" ]]; then NATIVE_FLAGS="${NATIVE_FLAGS} --debug"; fi
 fi
+# The driver: a game-as-data game is built from its description (see PROJECT_GAMES above);
+# every other shape takes the profile-driven path. Both run the contract closure gate first.
+if [[ -n "${SIGIL_PROJECT_SHAPE}" ]]; then
+    SIGIL_DRIVER_ARGS=(--project "games/${GAME}" --shape "${SIGIL_PROJECT_SHAPE}")
+else
+    # shellcheck disable=SC2206 # NATIVE_FLAGS is a word list by construction
+    SIGIL_DRIVER_ARGS=(--aeon . --native ${NATIVE_FLAGS})
+fi
 # CONTRACT CLOSURE GATE — default ON.
 #
 # `sigil build` runs the whole-corpus contract closure before it links. The
@@ -1525,7 +1570,7 @@ echo "Building ${MAIN_ASM} (sigil)..."
 # Source Digest to reproduce (the ROM it names, every file the build read, the scan,
 # the assembler). A stale pair is exit 2 at every one of them.
 SIGIL_T0=$(date +%s)
-"${SIGIL_BUILD}" build --aeon . --native ${NATIVE_FLAGS} "${ANCHOR_OVERLAY_ARGS[@]}" \
+"${SIGIL_BUILD}" build "${SIGIL_DRIVER_ARGS[@]}" "${ANCHOR_OVERLAY_ARGS[@]}" \
     -o "${ROM_NAME}.bin" --emit-lst "${ROM_NAME}.lst"
 
 ROM_SIZE=$(stat -c%s "${ROM_NAME}.bin")
@@ -1618,7 +1663,9 @@ fi
 if [[ "${GAME}" == "sonic4" && "${FAST:-0}" != "1" ]]; then
     _xg_out="$(mktemp -d)"
     echo "Evaluating the other game's link-time guards (assemble only, scratch output)..."
-    if ! "${SIGIL_BUILD}" build --aeon . --native --game demo \
+    # demo is a game-as-data game since the G0b cutover, so its assemble here takes the
+    # same driver `./build.sh demo` ships it with.
+    if ! "${SIGIL_BUILD}" build --project games/demo --shape release \
             -o "${_xg_out}/demo.bin" --emit-lst "${_xg_out}/demo.lst" >"${_xg_out}/log" 2>&1; then
         echo "ERROR: the demo assemble failed — a cross-game guard is red, or demo is broken." >&2
         sed -n '1,40p' "${_xg_out}/log" >&2

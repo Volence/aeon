@@ -18,7 +18,8 @@ build hold them in step (a const crossing a `use` between resident modules, or a
 seam-1's injected list) are sigil changes, out of this repo's reach — the same reasoning, and
 the same measurements, as tools/test_ym_floor_single_authority.py, which this file follows.
 
-It also runs where the ensures cannot. games/demo/build.conf sets `SOUND_DRIVER_ENABLED=0`, so
+It also runs where the ensures cannot. games/demo/game.toml's shapes say `sound = false` (the
+`SOUND_DRIVER_ENABLED=0` games/demo/build.conf carried until the G0b cutover), so
 build.sh never invokes emit_sound_blob for demo and engine/sound/sound_sequencer.emp is not
 elaborated in either demo shape — its ensures are dead there. This lane is shape-independent.
 

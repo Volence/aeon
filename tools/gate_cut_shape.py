@@ -117,10 +117,39 @@ def drift_pin_not_measured(fixture_name, lst_path):
             % (fixture_name, os.path.basename(str(lst_path))))
 
 
-def canonical_targets():
-    """The digest `target=` words a canonical build carries: its game's name (sigil
-    `digest_target`: Sonic4 -> sonic4, Demo -> demo), from CANONICAL_SHAPES' games."""
-    return {game for game, _debug in artifact_provenance.CANONICAL_SHAPES.values()}
+def canonical_build_ids():
+    """The (game, target) pairs a CANONICAL build's Source Digest carries, both spellings.
+
+    sigil's profile-driven driver writes `DIGEST-SHAPE target=<game>` (its `digest_target`:
+    Sonic4 -> sonic4, Demo -> demo). Its game-as-data driver (`sigil build --project
+    games/<g> --shape <row>`, G0b) writes `target=<row>`, the game description's
+    `[shapes.*]` row, beside `game=<g>`. Keyed on the target word alone, a canonical build
+    under the new spelling (`target=release`) reads as off-canonical and the rename guard
+    below silently stops firing, so the key is the pair (sigil docs/QUEUE.md
+    G0B-COMPARE-IDENTITY-NAMES). Both spellings are canonical until sigil's G0b Task 10
+    retires the old one.
+
+    The new spelling's row is DERIVED: the `games/<game>/game.toml` `[outputs]` row whose
+    stem is the canonical artifact's (`release = "demo"` for demo.bin). A canonical
+    artifact no row names, or two rows name, is refused rather than guessed at."""
+    import tomllib
+    out = set()
+    for rom, (game, _debug) in artifact_provenance.CANONICAL_SHAPES.items():
+        out.add((game, game))
+        path = AEON / "games" / game / "game.toml"
+        try:
+            outputs = tomllib.loads(path.read_text()).get("outputs", {})
+        except (OSError, tomllib.TOMLDecodeError) as e:
+            raise ShapeClassError("cannot read %s to name canonical %s's shape row: %s"
+                                  % (path, rom, e))
+        stem = rom[:-len(".bin")]
+        rows = [row for row, s in outputs.items() if s == stem]
+        if len(rows) != 1:
+            raise ShapeClassError(
+                "%s [outputs] has %d row(s) naming %r (canonical %s), so its game-as-data "
+                "target cannot be keyed; it needs exactly one" % (path, len(rows), stem, rom))
+        out.add((game, rows[0]))
+    return out
 
 
 def digest_target_problem(lst_path):
@@ -155,10 +184,15 @@ def digest_target_problem(lst_path):
         d = artifact_provenance.read_digest(str(lst_path))
     except (OSError, artifact_provenance.DigestError) as e:
         return "its Source Digest cannot be read (%s)" % e
-    target = d.get("shape", {}).get("target")
+    shape = d.get("shape", {})
+    target = shape.get("target")
     if target is None:
         return "its Source Digest carries no DIGEST-SHAPE target"
-    if target not in canonical_targets():
+    try:
+        canonical = (shape.get("game"), target) in canonical_build_ids()
+    except ShapeClassError as e:
+        return "the canonical build ids cannot be derived (%s)" % e
+    if not canonical:
         return None
     named = (d.get("rom") or {}).get("path")
     if named is None:
@@ -201,9 +235,9 @@ def derive_for_offcanonical(gate, lst_path, fixture, committed_shapes, produce, 
                   "(tools/gate_cut_shape.py); remove that key." % (gate, fixture, name))
             return 1
     # The NAME says off-canonical; the listing must say so too. sigil's Source Digest
-    # names the build target (`DIGEST-SHAPE target=`; canonical builds carry target ==
-    # game, the fixture profiles `stress-evict` / `stress-art`), so a canonical build
-    # renamed to a stress name cannot earn a derived cut.
+    # names the build (`DIGEST-SHAPE target= game=`; a canonical build carries target ==
+    # game or its game.toml shape row, the fixture shapes `stress-evict` / `stress-art`),
+    # so a canonical build renamed to a stress name cannot earn a derived cut.
     problem = digest_target_problem(lst_path)
     if problem:
         print("%s: COULD NOT RUN — %r is named as an off-canonical shape, but %s. No "

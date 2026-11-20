@@ -41,7 +41,7 @@ Assembler: **sigil** — `sigil build` IS the build (Spec-5 Stage 2 flip). The A
 - `SIGIL_BUILD` — path to the sigil repo's release `sigil` binary
 - `SIGIL_EMIT` — path to the sigil repo's release `emit_sound_blob` binary (needed for any sound-ON game, i.e. every sonic4 build)
 
-Source is `.emp` — the `.asm` CODE twins are deleted. The only surviving `.asm` files are the per-game residual root `games/<game>/game_root.asm` (defines/externs only, emits no bytes) and the vendored MD Debugger (`engine/debug/debugger.asm`). Mixed 68000 + Z80 in a single project. `build.sh [game]` selects the game (default `sonic4` → `s4.bin`; `demo` → `demo.bin`, sound off via its `build.conf`).
+Source is `.emp` — the `.asm` CODE twins are deleted. The only surviving `.asm` files are the per-game residual root `games/<game>/game_root.asm` (defines/externs only, emits no bytes) and the vendored MD Debugger (`engine/debug/debugger.asm`). Mixed 68000 + Z80 in a single project. `build.sh [game]` selects the game (default `sonic4` → `s4.bin`; `demo` → `demo.bin`, built by sigil's game-as-data driver from `games/demo/game.toml`, whose shapes say sound off).
 
 Shapes: build.sh ships the two canonical shapes only — plain (release) and `DEBUG=1` — and both carry the MD Debugger island + deb2 symbols (crash-report ruling 2026-08-04). A plain `./build.sh` builds with sound (`SOUND_DRIVER_ENABLED` defaults ON); non-canonical sonic4 sound shapes (silent, `SOUND_DEBUG_HOTKEYS`, `SOUND_DBG_MIRROR`) and `CRASH_REPORT=0` are **refused** by build.sh — they are named off-canonical sigil profiles (`sigil build --native --config-a/--config-b/--lean`) gated by their own goldens. `CONTRACTS=0` is the emergency opt-out for the contract-closure gate, not a normal knob.
 

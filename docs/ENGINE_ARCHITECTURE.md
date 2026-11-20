@@ -273,9 +273,11 @@ BUSREQ) corrupts fetched opcodes, not just data.
 
 Per-game build hooks, both optional and sourced/invoked by `build.sh` before assembly:
 
-- `games/<game>/build.conf` — sourced early; sets build-flag defaults (e.g.
-  `games/demo/build.conf` defaults `SOUND_DRIVER_ENABLED=0` since the demo ships no sound
-  bank yet).
+- `games/<game>/build.conf` — sourced early; sets build-flag defaults for `build.sh`'s own
+  lanes. No game carries one today: demo's (`SOUND_DRIVER_ENABLED=0`, it ships no sound bank
+  yet) was folded into `games/demo/game.toml` at the G0b cutover, whose `[shapes.*]
+  features.sound = false` both sigil (`sigil build --project games/demo --shape <row>`) and
+  `build.sh` (`tools/game_shape_feature.py`) read.
 - `games/<game>/prebuild.sh` — invoked if executable; runs the game's content generators
   (art-pool compression, collision baking, SFX transcoding, etc.) before the assembler runs.
   `games/sonic4/prebuild.sh` holds everything sonic4-specific; the engine core (salvador
