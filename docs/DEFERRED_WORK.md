@@ -54,8 +54,10 @@ constant the engine's own sources name by bare name and every game must declare 
 with NO engine default (a silent default is how demo hid the gap). Sigil refuses a game that omits one by name when
 it loads the project (`sigil_build::driver::check_required_consts`: the constant, the `required_consts` row, the
 game), before the closure or any front end reads it. Demo declares it feature-off in
-`games/demo/config/constants.emp` (`pub const SFXID_REV_LOOP : SfxId = -1`, typed as sonic4 types its own); demo's
-ROM bytes are unchanged. Sigil's `--project` contract gate now analyses only the engine root and the built game's
+`games/demo/config/constants.emp`; demo's ROM bytes are unchanged. (G0b Task 9: it is now an UNTYPED `-1`. The
+`: SfxId = -1` spelling bound -1 silently because sigil's range check stopped at newtypes; sigil now refuses a const
+outside its newtype's primitive range, and -1 is not a u8 SfxId. Sigil also refuses an ENGINE `pub const` of a
+required name, `[engine.required-const-default]`.) Sigil's `--project` contract gate now analyses only the engine root and the built game's
 own root, and reads only the engine's and the game's `baseline.toml` (the other-games rule is deleted). Measured on
 58df4539: the narrowed gate passes on all 10 shapes (demo 80 modules, sonic4 197 of 208), so sonic4 has no blind spot
 of its own. Left open on the sigil side (QUEUE G0B-TASK9A-RESIDUE): how a sound-on game's own value reaches the Z80
@@ -122,12 +124,13 @@ path until its own cutover (sigil Task 10). Left open:
 
 Since sigil `parcel/g0b-game-as-data` Task 6, `sigil build` (both drivers, `--check` included)
 writes the sound seams' 15 artifacts into its own private build directory and never into this
-tree; an `embed("engine/sound/generated/...")` resolves through the build's `generated` root,
-which is mounted at that path (sigil `crates/sigil-build/src/build_dir.rs`, gate
-`build_hermetic`). Nothing in aeon changed for it. What stays here until **G0c** (the seams'
+tree (gate `build_hermetic`). Since Task 9 the sources NAME that root: `embed("generated/sound/<file>")`
+resolves in the build's `generated` root and nowhere else (sigil `sigil_span::roots`); the old
+`engine/sound/generated/` prefix alias is gone (the legacy driver alone keeps a mapping for the step-0
+reference tree, deleted with it at Task 11). What stays here until **G0c** (the seams'
 removal, its own design after sonic4's cutover, spec `G0b` §5.4):
 
-1. **The embed sites name the mount path:** `engine/system/boot_data.emp:51-52`,
+1. **The embed sites name the generated root** (G0b Task 9, 13 embeds): `engine/system/boot_data.emp:51-52`,
    `games/sonic4/data/sound/soundbankhead.emp:44-56`, `dac_banks.emp:51-52`,
    `sfx_bank_blob.emp:44-45`. G0c turns these into bake steps or comptime.
 2. **`engine/sound/generated/` is gitignored, not checked in** (`.gitignore:40-43`). The G0b plan
@@ -155,7 +158,20 @@ removal, its own design after sonic4's cutover, spec `G0b` §5.4):
    itself) is aeon-side cleanup that G0c can take. Do it only after those two aeon tools stop
    expecting the directory.
 4. sigil's `native::emit_generated` / `ensure_generated` still write a tree's mount, for
-   standalone port gates only (sigil QUEUE `G0B-GENERATED-ROOT-SCOPE`).
+   standalone port gates only (sigil QUEUE `G0B-GENERATED-ROOT-SCOPE`, closed at Task 9 with this residue).
+   Since Task 9 the three gates that embed the artifacts (`soundbankhead_port`, `sfx_bank_port`,
+   `dac_bank_port`) read them from a generated root of their own (`native::standalone_sound_roots`).
+
+## G0B-UNROOTED-TREE-READS: aeon spellings that name no root (OPEN, booked 2026-11-20, G0b Task 9, `feat/g0b-descriptions`)
+
+Sigil resolves `.emp` modules, `embed` and AS `include` by named root since G0b Task 9: `engine/...` (this
+`engine/`), `game/...` (the game's directory), `generated/...` (the build's generated root). An UNROOTED path
+that no root holds still resolves against this checkout, as a transitional rule and only for a game inside it;
+an out-of-tree game gets `[root.unrooted]`. The spellings that ride it, counted at this branch's Task 9 commit:
+68 `games/sonic4/data/...` (including generator output: `tools/ojz_block_gen.py`, the `bg_emit`/`effects_gen`
+emitters, `smps_import`), 12 `art/...` at this checkout's root, 2 `games/sonic4/test/...`. Respell them
+`game/...` (and the generators' templates), give the shared `art/` a root, then sigil deletes the fallback
+(sigil QUEUE `G0B-UNROOTED-TREE-READS`). A G0c item.
 
 ## V2-E1-REFERENCE: what the v1 behaviour reference does NOT yet carry (booked 2026-11-16, `feat/v2-step0-harness`)
 
