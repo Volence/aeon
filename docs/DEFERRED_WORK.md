@@ -223,6 +223,33 @@ removal, its own design after sonic4's cutover, spec `G0b` §5.4):
    Since Task 9 the three gates that embed the artifacts (`soundbankhead_port`, `sfx_bank_port`,
    `dac_bank_port`) read them from a generated root of their own (`native::standalone_sound_roots`).
 
+## G0B-DELETED-DRIVER-CITATIONS: prose that still cites sigil's deleted profile-driven driver (OPEN, booked 2026-11-20, G0b Task 11, `feat/g0b-descriptions`)
+
+Sigil `parcel/g0b-game-as-data` Task 11 deleted the profile-driven driver: `crates/sigil-harness/src/native.rs`
+shrank to the sound-seam glue and re-exports, and `section_align.rs`, `module_roots.rs`, the profiles,
+`SHAPE_GATES`, `FROZEN_TABLES`, `contract_baseline.rs`'s tables and `sound_bank_ids.rs`'s literals are gone.
+`sigil build` takes only `--project <games/g> --shape <row>`; `--aeon`/`--game`/`--native`/`--legacy`/
+`--closure-scope` are refused as unexpected arguments. Updated in the same change: the description headers
+(`engine/engine.toml` `[sound]`, both `game.toml`s: the `<file>:<line>` row cites are AT b0e63d71),
+`games/sonic4/map.toml`'s consumer line and deb2 guard cite, both `game_root.asm` headers, the
+`emp_defines`/`harvest_game_constants`/registry/`section_align`/`SHAPE_GATES` cites in five `.emp` comments,
+`CODING_CONVENTIONS.md` (the lean shape's invocation, whole-file gating by `[[gate]]` row) and `build.sh`'s
+driver comment. The helper list moved earlier (aeon 50a96ab9: `tools/emp_helper_closure.py` reads
+`engine/engine.toml` `helpers`; sigil QUEUE `G0B-HELPER-CLOSURE-LOCATOR`).
+
+Still citing the deleted files, deliberately not edited here:
+1. **Tool docstrings and comments** (`tools/clip_rom_bake.py`, `emp_expect_fail.py`, `extern_guard_census.py`,
+   `s4budget.py`, `test_effects_gen.py`): `native.rs` / `section_align::DECLARED` as where a rule lived. The rules
+   now live in `sigil-build` (`appendix.rs`, `guards.rs`, `align.rs`) and in the descriptions' `[[align]]` rows.
+2. **`tools/effects_gen.py` EMITS the text** `the binding above is the name section_align::DECLARED carries.`
+   into generated `.emp`, and `test_effects_gen.py` reads that block: changing it is a generator change with a
+   regenerated output (comment-only, byte-inert), its own small item.
+3. **Records** (dated `docs/` notes and older DEFERRED_WORK entries) keep their citations: they are records of
+   what was true then (CODING_CONVENTIONS "RECORDS vs LIVE prose").
+4. `games/sonic4/map.toml`'s "WHAT PLACES A SECTION" / "REACH" blocks describe the old walk (frozen-row
+   provisional bases, `load_frozen_table`); a note above them says so. Rewriting them to the game-as-data walk
+   (`sigil-build` `walk::true_bases`: an island is exactly what an `[[anchor]]` `holds`) is the close.
+
 ## G0B-UNROOTED-TREE-READS: aeon spellings that name no root (OPEN, booked 2026-11-20, G0b Task 9, `feat/g0b-descriptions`)
 
 Sigil resolves `.emp` modules, `embed` and AS `include` by named root since G0b Task 9: `engine/...` (this

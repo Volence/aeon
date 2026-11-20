@@ -128,8 +128,8 @@ use games.sonic4.ojz_effects_editor_act1.{EditorReelBindings_OJZ_Act1}
 // the tree — the field existed since C2 and was 0 in every preset, i.e. an authoring surface
 // that had never once executed.
 // TWO LINES, AND BOTH ARE LOAD-BEARING (scanline-P1 Task 9). The name list is the symbol;
-// the WHOLE-PATH line is the CLOSURE EDGE. games.sonic4.scene_registry is not in sigil's
-// module registry (crates/sigil-harness/src/native.rs) — it is placed by being reached —
+// the WHOLE-PATH line is the CLOSURE EDGE. games.sonic4.scene_registry has no map `order`
+// row (the module registry, sigil's native.rs until G0b Task 11) — it is placed by being reached —
 // and a selective import alone injects a clone of the imported name into THIS scope without
 // elaborating the callee (Task 5's probe). Cut the whole-path line and the registry's
 // capability-subset ensure, every guard in engine/level/scene_dsl.emp behind it, and the
@@ -163,7 +163,7 @@ use engine.level.scene_dsl.*
 // assumed: deleting this line leaves both shapes byte-identical. engine.effects.raster_dsl
 // is a COMPTIME_HELPERS member, and the native harness DROPS every source `use` whose base
 // is a helper module, then prepends one glob per helper to every module
-// (`normalize_helper_imports`, sigil crates/sigil-harness/src/native.rs:1077-1126). So this
+// (`normalize_helper_imports`, sigil crates/sigil-build/src/harvest.rs). So this
 // exact line is deleted and regenerated on every build; it cannot be load-bearing.
 // It stays because the fixtures below call raster_dsl's constructors (`fire`, `stream_cram`,
 // `reg_sh_on`, `region_boundary`, `raster_program`, `raster_words`, `first_mismatch`) as bare

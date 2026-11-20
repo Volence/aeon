@@ -195,7 +195,7 @@ That gives three build shapes across two flags (`DEBUG`, `CRASH_REPORT`):
 
 `CRASH_REPORT` is an ordinary comptime define (`1` in every profile except `lean`), not a special-cased one. The predicate for anything on the crash-report axis is always `DEBUG == 1 || CRASH_REPORT == 1` — never bare `DEBUG == 1`, or the debugger vanishes from release. On the AS side the axis is a *definedness* define, `__MDDBG__`, pushed by the native driver whenever `debug || crash_report` (AS `ifdef` tests definedness, not value, so a `=0` would still take the arm — the axis has to be push-or-omit). `__DEBUG__` keeps its old meaning; the two are independent.
 
-**lean** is a full off-canonical build profile, not an env toggle: `sigil build --aeon . --native --lean`. It exists so the "no debugger at all" shape stays buildable and gated, and it is the only shape whose fault vectors route at `ReleaseFault` (`engine/system/release_fault.emp` — mask, red backdrop, freeze).
+**lean** is a full off-canonical build shape, not an env toggle: `sigil build --project games/sonic4 --shape lean` (`SHAPE=lean ./build.sh`; the shape is the `[shapes.lean]` row of `games/sonic4/game.toml`). It exists so the "no debugger at all" shape stays buildable and gated, and it is the only shape whose fault vectors route at `ReleaseFault` (`engine/system/release_fault.emp` — mask, red backdrop, freeze).
 
 Four idioms, in order of preference.
 
@@ -238,7 +238,7 @@ ensure(SOUND_DEBUG_HOTKEYS == 0 || DEBUG == 1, "SOUND_DEBUG_HOTKEYS requires DEB
 **4. Whole-file gating — registry-level module exclusion.** A module-level comptime `if` wrapping items is not expressible in `.emp`, so the **file** is the gated unit and the exclusion happens in the build registry, not in the source. `engine/debug/compression_selftest.emp` is gated on `debug` (equipment); `engine/debug/error_handler.emp` is gated on `debug || crash_report` and `engine/system/release_fault.emp` on the `else` of the same predicate (the crash-report axis). Worked example, `engine/debug/compression_selftest.emp`:
 
 - the source carries no gate at all;
-- the module spec is pushed only in the debug shape — `if debug { specs.push(m!("engine.compression_selftest", …)) }` in `sigil/crates/sigil-harness/src/native.rs`;
+- the module is placed only in the debug shape — its `[[gate]]` row in `engine/engine.toml` (`modules = "engine.compression_selftest"`, `place_in = { feature = "debug" }`; gating is closed, so a module no row names is refused);
 - its pin carries `plain_len: 0x0` — the region resolves against the debug listing only;
 - the name stays in the union `order` list in `games/sonic4/map.toml`, which spans both shapes.
 

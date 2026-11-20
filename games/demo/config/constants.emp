@@ -6,13 +6,13 @@
 // `use games.demo.constants`; the game manifest (game.emp's ENTRY_ID) and the
 // game-AGNOSTIC engine `.emp` (rings.emp / ram.emp) read them through the
 // ownership-flip export — the build harvests every `pub const` here and injects it
-// as a guarded `-D` define plus a link EquSym (harvest_game_constants,
-// native.rs), so the engine's `ensure(extern("X") == X)` drift guards cross-check
+// as a guarded `-D` define plus a link EquSym (sigil-build driver.rs, the
+// `game_constants` harvest), so the engine's `ensure(extern("X") == X)` drift guards cross-check
 // their local copy against this authority.
 //
 // The three engine-VARYING GAME->ENGINE interface values (MAX_RING_BUFFER,
 // VRAM_RING_PLACEHOLDER, COLLECTED_WINDOW_SLOTS) are NOT declared here: they are
-// per-profile `-D`s (native.rs `emp_defines`, demo 16 / $3E4 / 4), the same
+// per-game `-D`s (game.toml `[defines]`, demo 16 / $3E4 / 4), the same
 // `-D`-not-in-`.emp` rule the sonic4 constants module follows. Byte-identity is
 // their drift net.
 module games.demo.constants
@@ -39,7 +39,7 @@ pub const GS_DEMO                 = 2
 // VRAM_DEMO_OBJ (tile 992): demo box art (4 solid tiles), with the blank ring
 // slot right after it. VRAM_RING_PLACEHOLDER (= VRAM_DEMO_OBJ + 4, the engine
 // ring-art slot DrawRings renders from) is the game-varying `-D` homed in
-// native.rs `emp_defines` ($3E4), not declared here — recorded in the TOML as a
+// game.toml `[defines]` ($3E4), not declared here — recorded in the TOML as a
 // sigil-D authority; T1's define emission makes the TOML feed it.
 // >>> GENERATED: vram map (tools/gen_vram_map.py) — DO NOT HAND-EDIT <<<
 // Emitted from games/demo/vram.toml — edit THAT, then run:

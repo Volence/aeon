@@ -1,7 +1,7 @@
 ; Aeon engine demo — the AS root (Parcel K4 inc-6B, the A1 stub).
 ;
-; The from-scratch ROM layout is the DECLARED sigil map + registry (games/demo/map.toml,
-; crates/sigil-harness/src/native.rs) — main.asm + engine/engine.inc are DELETED. This
+; The from-scratch ROM layout is the DECLARED map + description (games/demo/map.toml,
+; games/demo/game.toml + engine/engine.toml) — main.asm + engine/engine.inc are DELETED. This
 ; file is the minimal AS entry the sigil-frontend-as assembles as the residual root: it
 ; pulls in the one named survivor (the vendored debugger) so its defines/macros/link-
 ; externs enter the residual symbol environment. It EMITS NO BYTES and declares NO orgs —

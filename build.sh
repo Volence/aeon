@@ -1580,8 +1580,8 @@ fi
 # PROJECT_GAME_SHAPE block chose (release / debug, SHAPE=config-a|config-b, or the stress
 # fixtures: stress-evict = sonic4 debug + the STRESS_EVICT define; stress-art = sonic4 debug
 # + fixture placement against the uniquified pool re-baked above). The profile-driven
-# `--aeon . --native --game ...` grammar is not used here since the G0b sonic4 cutover; the
-# driver runs the contract closure gate first.
+# `--aeon . --native --game ...` grammar was deleted from sigil at G0b Task 11 (unused here
+# since the sonic4 cutover); the driver runs the contract closure gate first.
 if [[ -z "${SIGIL_PROJECT_SHAPE}" ]]; then
     echo "ERROR: no description row was chosen for this build (PROJECT_GAME_SHAPE); refusing to guess one."
     exit 1

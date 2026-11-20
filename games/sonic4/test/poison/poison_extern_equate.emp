@@ -15,7 +15,7 @@
 //
 //     declared-chain drift guard FIRED: N error(s); first Some(Diagnostic { .. })
 //
-// with NO `[Error]` token anywhere (sigil crates/sigil-harness/src/native.rs). Case 0
+// with NO `[Error]` token anywhere (sigil crates/sigil-build/src/guards.rs). Case 0
 // therefore says nothing about this phase: the comptime sentinel can keep passing while
 // every link assert in the tree is silently dropped, and 135 guards — every cross-namespace
 // constant mirror and every RAM-reservation span in engine/ and games/ — would go dark

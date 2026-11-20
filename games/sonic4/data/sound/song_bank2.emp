@@ -21,11 +21,10 @@
 // no-straddle link assert over everything here.
 //
 // PLACEMENT. `SongBank2_Head` is the first item and the section's map row (map.toml,
-// after `Sfx_33`). Sigil's `section_align` declares it 0x8000 (walk-ROUNDED, not held: no
-// frozen row, and a refreeze does not add one), so the packing walk puts it on the first
-// window boundary after bank 1, and the map's `song_bank_2` anchor declares that island
-// (sound_bank + 0x8000). See the map.toml comment for what the anchor depends on.
-// A ROM-build module only (sigil SHAPE_GATES: SoundOn); seam-2 never lowers it, so its
+// after `Sfx_33`). game.toml's `[[align]]` row declares it 0x8000 and the map's
+// `song_bank_2` anchor HOLDS it at sound_bank + 0x8000, the first window boundary after
+// bank 1 (until G0b Task 11 the profile-driven driver's walk ROUNDED it there instead). See the map.toml comment for what the anchor depends on.
+// A ROM-build module only (game.toml `[[gate]]`, sound-on shapes); seam-2 never lowers it, so its
 // embeds are ordinary aeon-root paths.
 // ===========================================================================
 

@@ -9,7 +9,7 @@
 // read them via `use games.sonic4.sound_ids`; the residual AS and the game-
 // AGNOSTIC engine `.emp` modules read them through the ownership-flip export —
 // the build harvests every `pub const` here and injects it as a guarded AS `-D`
-// define + link EquSym (`harvest_game_constants`, native.rs). So engine `.emp`
+// define + link EquSym (the `game_constants` harvest, sigil-build driver.rs). So engine `.emp`
 // modules that cannot `use` a specific game's module — sound_api's typed
 // `SFXID_RING_*`/`SONG_MOVINGTRUCKS` mirrors, boot's `moveq #SONG_MOVINGTRUCKS`,
 // sound_api's `assert.w d0, ls, #SONG_COUNT` — resolve against this authority via

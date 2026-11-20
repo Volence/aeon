@@ -6,11 +6,14 @@
 # R2; the map DRIVES order in K5, once the synthetic-named AS residual is gone)~~.
 # K5 has landed: read in sigil's source at 6884bfba, this `order` list IS the packing
 # walk's sequence, and the post-resolve check confirms the build honoured it.
-# Consumed by the sigil chainer (crates/sigil-harness/src/native.rs); the frozen
-# tables (golden/offcanonical_sizes/s4*.txt, config_*.txt) remain the per-label
-# provisional-base MEASUREMENT cache ~~the order-derivation sorts~~. What that cache
-# still decides (the ISLANDS) and what it does not (every other section's base) is
-# the "WHAT PLACES A SECTION" block after the BANK PLACEMENT RULE below.
+# Consumed by sigil's packing walk (crates/sigil-build/src/walk.rs), which reads no frozen
+# table: an island is exactly a section an `[[anchor]]` `holds`, every other section packs
+# at the running cursor rounded to its declared alignment. (Until G0b Task 11 the chainer in
+# crates/sigil-harness/src/native.rs read the frozen tables, golden/offcanonical_sizes/
+# s4*.txt and config_*.txt, as its provisional-base cache; it is deleted, and those files
+# are now freeze records the gates measure against, never build inputs.) The "WHAT PLACES
+# A SECTION" block after the BANK PLACEMENT RULE below predates that and describes the old
+# walk.
 #
 # Covers the four sonic4-rooted targets: s4, s4_debug (add CompressionSelfTest),
 # config_a (adds Debug_MusicToggle / Sound_DebugMirror / CompressionSelfTest, sound+debug),
@@ -57,8 +60,8 @@
 # fails, and every backtrace line prints `<unknown>`). NOTHING may be appended after the
 # island: `Replay_OJZ_Fixture` therefore sits BEFORE `ReleaseFault`/`BusError`, not after.
 # See the WARNING block at the top of engine/debug/error_handler.emp for the mechanism,
-# and the hard build guard in sigil crates/sigil-harness/src/native.rs
-# (`append_deb2_appendix`), which fails the build if this order ever drifts back.
+# and the hard build guard in sigil crates/sigil-build/src/appendix.rs
+# (`check_error_handler_is_last`), which fails the build if this order ever drifts back.
 
 fill = 0x00
 

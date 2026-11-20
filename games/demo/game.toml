@@ -4,9 +4,10 @@
 # (`crates/sigil-build/src/describe.rs`, `GameDesc`). Since the G0b demo
 # cutover (sigil Task 8) build.sh builds both demo shapes from it:
 # `sigil build --project games/demo --shape <row>`. Every value was transcribed
-# from the Rust at sigil b0e63d71, whose profile-driven driver still holds them
-# until G0b Task 11 deletes it; each row cites its source as `<file>:<line>`,
-# files under sigil `crates/sigil-harness/src/` unless named.
+# from the Rust at sigil b0e63d71, whose profile-driven driver held them until
+# G0b Task 11 deleted it; each row cites its source as `<file>:<line>` AT THAT
+# REVISION, files under sigil `crates/sigil-harness/src/` unless named. This file
+# is now the only spelling.
 #
 # Paths are relative to this directory (the game root). Engine facts live in
 # aeon `engine/engine.toml`, never here.

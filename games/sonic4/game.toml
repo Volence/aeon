@@ -5,9 +5,10 @@
 # cutover (sigil Task 10) build.sh builds every sonic4 shape from it:
 # `sigil build --project games/sonic4 --shape <row>`, and build.sh reads its
 # shape facts (tools/game_shape_feature.py). Every value was transcribed from the
-# Rust at sigil b0e63d71, whose profile-driven driver still holds them until G0b
-# Task 11 deletes it; each row cites its source as `<file>:<line>`, files under
-# sigil `crates/sigil-harness/src/` unless named.
+# Rust at sigil b0e63d71, whose profile-driven driver held them until G0b Task 11
+# deleted it (and with it `section_align.rs`, `module_roots.rs` and the profiles);
+# each row cites its source as `<file>:<line>` AT THAT REVISION, files under sigil
+# `crates/sigil-harness/src/` unless named. This file is now the only spelling.
 #
 # Paths are relative to this directory (the game root). Engine facts live in
 # aeon `engine/engine.toml`, never here; this file holds only what names this

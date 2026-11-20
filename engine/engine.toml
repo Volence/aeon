@@ -168,7 +168,9 @@ place_in = { feature = "!sound" }
 modules = "engine.debug.sound_debug"      # module_roots.rs:164, ShapeGate::SoundDbgMirror
 place_in = { feature = "SOUND_DBG_MIRROR" }
 
-# What sound_bank_ids.rs holds, checked on every sound-on build. The labels here
+# What sigil's sound bank-id check reads (`crates/sigil-harness/src/sound_bank_ids.rs`;
+# it held these as Rust literals until G0b Task 11 deleted them, and the row cites below
+# are to that file at b0e63d71), checked on every sound-on build. The labels here
 # (and in [[sound.blob_bank_ids]] banks) are GAME-DEFINED labels the sound engine
 # requires when sound is on: a sound-on game's layout must carry every one
 # (blob_start/blob_end are the engine's own, engine/system/boot_data.emp; the dac_*
