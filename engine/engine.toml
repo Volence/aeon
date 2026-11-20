@@ -1,19 +1,20 @@
 # engine/engine.toml: what is true for EVERY game built on the Aeon engine.
 #
 # G0b (Empyrean v2 step 0) description, read by sigil's `sigil-build` crate
-# (`crates/sigil-build/src/describe.rs`, `EngineDesc`). INERT until the G0b
-# driver cuts over: the current driver (sigil-harness) holds these facts in
-# Rust and ignores this file. Every value is transcribed from the Rust at sigil
-# b0e63d71; each row cites its source as `<file>:<line>`, files under
-# sigil `crates/sigil-harness/src/`.
+# (`crates/sigil-build/src/describe.rs`, `EngineDesc`): every `sigil build
+# --project` of a game on this engine builds from it. The profile-driven driver
+# that held these facts in Rust is deleted (G0b Task 11). The rows written in
+# G0b Task 2 were transcribed from that Rust at sigil b0e63d71 and cite their
+# source there as `<file>:<line>` (files under `crates/sigil-harness/src/`, at
+# that revision); rows added later say where they came from.
 #
 # Paths here are relative to this directory (the engine root). A game names
 # this engine by suite path (`[engine] suite_path = "aeon"`), never by a path.
 #
 # Not here, on purpose: the sound seams' driver files, generated names, driver
 # constant names and bank chain heads (they stay in Rust until G0c, owner Q3),
-# the frozen size tables, AS definedness defines and the 68000 even-base rule
-# (port history / an ISA fact the driver owns).
+# the frozen size tables, the `SIGIL_EMP_*` AS definedness defines and the
+# 68000 even-base rule (port history / an ISA fact the driver owns).
 
 format = 1
 
@@ -82,6 +83,28 @@ convsym = "../tools/convsym"
 # The fault-handler island heads (release / debug) that fixture placement
 # inserts its relocated sections before. native.rs:3384.
 fault_island_heads = ["ReleaseFault", "BusError"]
+
+# The defines the residual AS side (each game's game_root.asm) receives, = 1 on a
+# shape whose features satisfy `when`. game_root.asm includes the MD Debugger glue
+# under `ifdef __MDDBG__`, exactly when the error_handler island is placed.
+# Moved from sigil-build driver.rs (`assemble_as`) by G0b Task 11.
+as_feature_defines = [
+    { name = "SOUND_DRIVER_ENABLED", when = "sound" },
+    { name = "__DEBUG__", when = "debug" },
+    { name = "__MDDBG__", when = "debug || crash_report" },
+]
+
+# The RAM floor: the focused RAM harvest hands the residual AS every label and
+# equate of a section placed at or above it (aeon's RAM sections sit at the
+# sign-extended $FFFF0000 and up). Moved from driver.rs by G0b Task 11.
+ram_floor = 0xF00000
+
+# Residual-AS equates derived from a struct twin's size: SST_interact is the last
+# word of the object slot (objects/sst.emp `interact_off()` = sizeof(Sst) - 2).
+# Moved from driver.rs (`struct_offsets`) by G0b Task 11.
+struct_tail_equates = [
+    { name = "SST_interact", of = "Sst", from_end = 2 },
+]
 
 # Labels the driver reads out of every build's layout. native.rs:4586
 # (`sigil_native_symbol_listing`: EndOfRom absent from the resolved layout is an
