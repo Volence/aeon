@@ -88,6 +88,15 @@ fault_island_heads = ["ReleaseFault", "BusError"]
 # error). EndOfRom is engine/system/epilogue.emp's.
 required_labels = ["EndOfRom"]
 
+# Comptime constants the ENGINE's own sources name by bare name and EVERY game must
+# declare, as a `pub const` in the game's sources. No default: a game that leaves one
+# out is refused by name before anything reads it (sigil-build
+# `driver::check_required_consts`, G0b Task 9a), so each game states its value rather
+# than inheriting one by accident or resolving it from another game's sources.
+#   SFXID_REV_LOOP: the rev-loop SFX id engine/sound/sound_sfx.emp `Sfx_BeginSound`
+#   compares against (`if SFXID_REV_LOOP >= 0`); -1 = feature off.
+required_consts = ["SFXID_REV_LOOP"]
+
 # The harvest sources. native.rs:918 (harvest_engine_constants reads
 # engine/system/constants.emp); native.rs:1022 (harvest_engine_struct_offsets
 # reads engine/system/types.emp as the type environment).

@@ -17,7 +17,7 @@
 // their drift net.
 module games.demo.constants
 
-use engine.types.{VramTile}
+use engine.types.{VramTile, SfxId}
 use engine.constants.{COLLECTED_MASK_BYTES}
 // The generated vram-map block's authority cross-checks reference these engine
 // names (gen_vram_map.py emits the ensures; the imports are hand-owned here):
@@ -84,3 +84,12 @@ pub const RING_WIDTH              = 16          // collision AABB pixels
 // Rolling collected-window sizing (engine ram.emp cross-checks these).
 pub const COLLECTED_PARK_SLOTS      = 4         // park entries (rolling overwrite)
 pub const COLLECTED_PARK_ENTRY_SIZE = 1 + 2 * COLLECTED_MASK_BYTES // 33 — id byte + collected + killed masks (byte-packed)
+
+// -----------------------------------------------
+// Engine-required game constants (engine/engine.toml `required_consts`)
+// -----------------------------------------------
+// SFXID_REV_LOOP — the rev-loop SFX id engine/sound/sound_sfx.emp `Sfx_BeginSound`
+// special-cases (the legacy spindash-rev retrigger). Every game declares it;
+// -1 = feature off: the demo has no sound and no spindash. Typed as sonic4 types
+// its own (games/sonic4/config/sound_ids.emp).
+pub const SFXID_REV_LOOP            : SfxId = -1
