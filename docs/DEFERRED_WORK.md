@@ -46,6 +46,33 @@ against the AS-era tree and cite `.asm` paths and line numbers into files that *
 
 ---
 
+## G0B-ENGINE-NAMES-GAME-CONST: an engine module names `SFXID_REV_LOOP`, a constant only sonic4 declares (OPEN, booked 2026-11-20, G0b Task 8 fix round 1; controller to rule before Task 9)
+
+`engine/sound/sound_sfx.emp:874-875` (`Sfx_BeginSound`: `if SFXID_REV_LOOP >= 0 { cp SFXID_REV_LOOP`) names
+the constant by bare name, bypassing the `Game.` interface. Its own comment (`:872-873`) calls it "game-declared;
+-1 = feature off", so the engine already treats it as a constant EVERY game must provide. Only sonic4 declares it
+(`games/sonic4/config/sound_ids.emp:108`, `= SFXID_SPINDASH`); demo (sound off) never does. It resolves today only
+because sigil's contract closure analyses the whole checkout scan, sonic4's sources included.
+
+Why it matters: sigil's game-as-data contract gate cannot narrow its corpus to the engine plus the built game
+while this stands. On an engine + demo corpus the condition is `[comptime.unresolved]` and the gate goes blind,
+and because `sound_sfx.emp` is in the ENGINE root, sigil Task 9's two-root corpus does not remove that by itself.
+So settling this is a **prerequisite** for removing the gate's whole-corpus rule
+(sigil `crates/sigil-build/src/baseline.rs`, the other-games rows; sigil QUEUE G0B-DESCRIBE-TASK2-RESIDUE item 3),
+and it is needed by **Cherub (G0b Task 13)**, a game built against the engine alone.
+
+Candidate fixes (NOT implemented; an engine/game contract question for the controller):
+
+- **(i) Every game declares it.** Demo gets `SFXID_REV_LOOP = -1` ("feature off"); a new game must do the same.
+- **(ii) The engine states the contract.** A declared default or a required-constant contract in
+  `engine/engine.toml`, so a game that omits it gets the default (or a named refusal) instead of an unresolved name.
+
+Measured (G0b Task 8 fix round 1, scratch copy of 3557d081 and a scratch sigil patch, nothing committed): with
+option (i) applied to demo and sigil's closure narrowed to `engine.*` + `games.demo.*` (79 of 207 modules),
+diffed against the engine's and demo's baseline rows only, the gate PASSES on demo release and demo debug.
+Without it, both shapes are blind (1 unresolved condition). So on demo this is the only blind spot. sonic4 was not
+measured narrowed.
+
 ## G0B-DEMO-CUTOVER-RESIDUE: demo builds through sigil's game-as-data driver; what still speaks the old names (OPEN, booked 2026-11-20, G0b Task 8, `feat/g0b-descriptions`)
 
 Since G0b Task 8 (paired with sigil `parcel/g0b-game-as-data`), `./build.sh demo` and `DEBUG=1
