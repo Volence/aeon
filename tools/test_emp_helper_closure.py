@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Tests for emp_helper_closure — the COMPTIME_HELPERS name-collision gate."""
+"""Tests for emp_helper_closure — the comptime-helper name-collision gate."""
 
 import os
 import re
@@ -9,12 +9,12 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from emp_helper_closure import (
-    comptime_items, helper_ids_from_native, find_collisions,
-    default_native_rs, module_index, main as closure_main,
+    comptime_items, helper_ids_from_engine, find_collisions,
+    default_engine_toml, module_index, main as closure_main,
 )
 
 AEON = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-SIGIL_NATIVE = default_native_rs(AEON)
+ENGINE_TOML = default_engine_toml(AEON)
 
 # Every declaration form the `.emp` grammar can put in ITEM position, paired with
 # the answer sigil gives for it. `publicize_helper_comptime` force-publicizes
@@ -226,7 +226,7 @@ class TestRealHelperForms(unittest.TestCase):
                              f"Item::Implement, so a consumer's `use ...*` never sees them")
 
     def test_every_helper_module_parses_and_exports_something(self):
-        ids = helper_ids_from_native(SIGIL_NATIVE)
+        ids = helper_ids_from_engine(ENGINE_TOML)
         index = module_index(AEON)
         for mod in ids:
             self.assertIn(mod, index, f"{mod} has no .emp file declaring it")
@@ -235,26 +235,26 @@ class TestRealHelperForms(unittest.TestCase):
 
 class TestHelperList(unittest.TestCase):
 
-    def test_helper_ids_parsed_from_native_rs(self):
-        ids = helper_ids_from_native(SIGIL_NATIVE)
+    def test_helper_ids_parsed_from_engine_toml(self):
+        ids = helper_ids_from_engine(ENGINE_TOML)
         self.assertIn("engine.vdp", ids)
         self.assertIn("engine.level.parallax_dsl", ids)
         self.assertGreaterEqual(len(ids), 12)
 
-    def test_locator_finds_the_paired_sigil_checkout(self):
-        """Not merely "a native.rs exists" — falling through to sigil master is the
-        exact bug this guards, and master's helper list can be a merge behind."""
-        resolved = default_native_rs(AEON)
-        self.assertTrue(os.path.exists(resolved))
-        parts = os.path.abspath(AEON).split(os.sep)
-        if len(parts) >= 3 and parts[-2] == ".worktrees":
-            expected = os.path.join(
-                os.sep.join(parts[:-3]), "sigil", ".worktrees", parts[-1])
-            self.assertTrue(
-                resolved.startswith(expected + os.sep),
-                f"resolved {resolved}, expected the paired worktree under {expected}")
-        else:
-            self.assertNotIn(".worktrees", resolved)
+    def test_the_helper_list_is_this_trees_engine_description(self):
+        """The list is read from THIS tree (no paired sigil checkout to locate, the
+        failure the old locator guarded), and a description without one is refused,
+        not read as an empty, vacuously collision-free set."""
+        self.assertEqual(ENGINE_TOML, os.path.join(AEON, "engine", "engine.toml"))
+        with tempfile.TemporaryDirectory() as d:
+            p = os.path.join(d, "engine.toml")
+            with open(p, "w") as f:
+                f.write('ram_helpers = ["engine.types"]\n')
+            with self.assertRaises(SystemExit):
+                helper_ids_from_engine(p)
+            with open(p, "w") as f:
+                f.write('helpers = ["engine.types", "engine.vdp"]\n')
+            self.assertEqual(helper_ids_from_engine(p), ["engine.types", "engine.vdp"])
 
 
 class TestModuleIndex(unittest.TestCase):
@@ -292,7 +292,7 @@ class TestLiveTree(unittest.TestCase):
 
     def test_the_shipped_helper_set_is_collision_free(self):
         """The live gate. Fails the suite the moment a helper shadows another."""
-        rc = closure_main([AEON, SIGIL_NATIVE])
+        rc = closure_main([AEON, ENGINE_TOML])
         self.assertEqual(rc, 0)
 
 

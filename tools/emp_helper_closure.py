@@ -1,9 +1,14 @@
 #!/usr/bin/env python3
 """
-emp_helper_closure — the COMPTIME_HELPERS name-collision gate.
+emp_helper_closure — the comptime-helper name-collision gate.
 
-sigil force-publicizes every PRIVATE comptime item of a COMPTIME_HELPERS module
-(native.rs publicize_helper_comptime) and then injects one `use <helper>.*` glob per
+The helper set is `engine/engine.toml`'s `helpers` list, the list sigil's build driver
+reads (G0b Task 11: sigil's profile-driven driver, whose `COMPTIME_HELPERS` const this
+gate used to parse out of a paired sigil checkout, was deleted; the description is now
+the one spelling, in this tree).
+
+sigil force-publicizes every PRIVATE comptime item of a helper module
+(sigil_build::harvest::publicize_helper_comptime) and then injects one `use <helper>.*` glob per
 helper into EVERY module, in list order (normalize_helper_imports). Between two
 helpers the later silently wins. A name that is currently unresolved in some module —
 degrading to a label reference — would start resolving to an injected const, which is
@@ -13,7 +18,7 @@ So the exported closures must be pairwise disjoint. This checks that.
 
 WHAT COUNTS AS EXPORTED, and why (read against sigil, which is the authority):
 
-  publicize_helper_comptime (sigil-harness/src/native.rs) sets `public = true` on
+  publicize_helper_comptime (sigil-build/src/harvest.rs) sets `public = true` on
   Const / Struct / Enum / Bitfield / Newtype / ComptimeFn / Vars(name.is_some()),
   recursing into `Item::Section` bodies. It deliberately leaves Equ, Data, Proc and
   Context alone.
@@ -40,7 +45,7 @@ gating is NOT inert: `implement` blocks bind contract values with depth-1 `const
 lines, and helper modules gain comptime-fn bodies as the set grows.
 
 Usage:
-    python3 tools/emp_helper_closure.py [AEON_DIR] [NATIVE_RS]
+    python3 tools/emp_helper_closure.py [AEON_DIR] [ENGINE_TOML]
 """
 
 from __future__ import annotations
@@ -48,6 +53,7 @@ from __future__ import annotations
 import os
 import re
 import sys
+import tomllib
 from typing import Dict, List, Optional, Set, Tuple
 
 from artifact_provenance import is_nested_checkout_dir
@@ -79,11 +85,7 @@ DATA_NAMED_TY_RE = re.compile(r"^\s*:\s*([A-Za-z_][A-Za-z0-9_]*)\s*(=|$)")
 # irrelevant, they are all exported.
 FORCED_KINDS = frozenset({"const", "fn", "struct", "enum", "bitfield", "newtype"})
 
-HELPERS_RE = re.compile(
-    r"const\s+COMPTIME_HELPERS\s*:\s*&\[&str\]\s*=\s*&\[(.*?)\];", re.DOTALL
-)
-
-NATIVE_RS_TAIL = os.path.join("crates", "sigil-harness", "src", "native.rs")
+ENGINE_TOML_REL = os.path.join("engine", "engine.toml")
 
 MODULE_DECL_RE = re.compile(r"^\s*module\s+([A-Za-z_][A-Za-z0-9_.]*)\s*$")
 
@@ -185,37 +187,21 @@ def comptime_items(path: str) -> Set[str]:
     return names
 
 
-def helper_ids_from_native(native_rs: str) -> List[str]:
-    """The COMPTIME_HELPERS list, read from sigil rather than duplicated here."""
-    with open(native_rs, "r", encoding="utf-8") as fh:
-        src = fh.read()
-    m = HELPERS_RE.search(src)
-    if not m:
-        raise SystemExit(f"{native_rs}: could not find `const COMPTIME_HELPERS`")
-    body = re.sub(r"//[^\n]*", "", m.group(1))
-    return re.findall(r'"([a-z0-9_.]+)"', body)
+def helper_ids_from_engine(engine_toml: str) -> List[str]:
+    """The helper list, `helpers` of the engine description: the list the build reads,
+    in the order it injects the globs. A description without one is refused, never read
+    as an empty set (an empty set would pass this gate vacuously)."""
+    with open(engine_toml, "rb") as fh:
+        desc = tomllib.load(fh)
+    helpers = desc.get("helpers")
+    if not isinstance(helpers, list) or not helpers or not all(isinstance(h, str) for h in helpers):
+        raise SystemExit(f"{engine_toml}: no non-empty `helpers` list of module ids")
+    return helpers
 
 
-def default_native_rs(aeon: str) -> str:
-    """Locate the sigil checkout PAIRED with this aeon checkout.
-
-    A parcel edits aeon and sigil together in matching worktrees, so
-    `<root>/aeon/.worktrees/NAME` must read `<root>/sigil/.worktrees/NAME` rather
-    than sigil master, which may be a merge behind on the helper list.
-    """
-    aeon = os.path.abspath(aeon)
-    candidates: List[str] = []
-    parts = aeon.split(os.sep)
-    if len(parts) >= 3 and parts[-2] == ".worktrees":
-        root = os.sep.join(parts[:-3])
-        candidates.append(os.path.join(root, "sigil", ".worktrees", parts[-1]))
-        candidates.append(os.path.join(root, "sigil"))
-    candidates.append(os.path.join(os.path.dirname(aeon), "sigil"))
-    for base in candidates:
-        path = os.path.join(base, NATIVE_RS_TAIL)
-        if os.path.exists(path):
-            return path
-    return os.path.join(candidates[-1], NATIVE_RS_TAIL)
+def default_engine_toml(aeon: str) -> str:
+    """This tree's engine description."""
+    return os.path.join(os.path.abspath(aeon), ENGINE_TOML_REL)
 
 
 def module_index(aeon: str) -> Dict[str, str]:
@@ -268,8 +254,8 @@ def find_collisions(closures: Dict[str, Set[str]]) -> List[Tuple[str, List[str]]
 
 def main(argv: List[str]) -> int:
     aeon = argv[0] if argv else os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    native_rs = argv[1] if len(argv) > 1 else default_native_rs(aeon)
-    helpers = helper_ids_from_native(native_rs)
+    engine_toml = argv[1] if len(argv) > 1 else default_engine_toml(aeon)
+    helpers = helper_ids_from_engine(engine_toml)
     index = module_index(aeon)
     closures: Dict[str, Set[str]] = {}
     missing: List[str] = []
@@ -280,7 +266,7 @@ def main(argv: List[str]) -> int:
             continue
         closures[mod] = comptime_items(path)
     if missing:
-        print("COMPTIME_HELPERS names a module no .emp file declares:")
+        print("engine.toml `helpers` names a module no .emp file declares:")
         for mod in missing:
             print(f"  {mod}")
         return 2
@@ -289,7 +275,7 @@ def main(argv: List[str]) -> int:
         print(f"{len(collisions)} name collision(s) across {len(helpers)} helpers:")
         for name, mods in collisions:
             print(f"  {name}: {', '.join(mods)}")
-        print("The LAST helper in COMPTIME_HELPERS order wins; a module that was")
+        print("The LAST helper in `helpers` order wins; a module that was")
         print("degrading one of these names to a label reference changes bytes.")
         return 1
     total = sum(len(v) for v in closures.values())
