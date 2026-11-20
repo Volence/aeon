@@ -166,6 +166,21 @@ path until its own cutover (sigil Task 10). Left open:
    `scripts/compare-drivers.sh`), so these grade the same bytes; they must move to `--project`
    before Task 10 removes `--game`.
 
+## G0B-BGANIM-SOUND-OFF: `bganim_room.py` does not model a sound-off shape, so `SHAPE=config-b ./build.sh` does not run it (booked 2026-11-20, G0b Task 10, `feat/g0b-descriptions`)
+
+Found when build.sh gained the `config-a`/`config-b` rows (G0b Task 10). `bganim_room.py --gate` measures
+the BG-anim room as the sound-on `dac_banks` anchor (`games/sonic4/game.toml [[placement]]`,
+`when = "sound_on"`) minus the packed run, and its terminus check proves `Art_Sonic` is the last thing below
+that anchor. `config-b` is sound-off and places no such anchor: run on `s4.configb.lst` the gate fails its
+fixture freshness check (no `dac_banks` label) and, past that, its terminus check (49 labels between
+`0x89D0A` and an anchor the shape does not place), measured 2026-11-20. So build.sh does not run it on a
+sound-off shape and says so: `bganim_room: NOT RUN` on stdout and a `GATE_UNMEASURABLE` row in the roll-up.
+Nothing is narrowed: every sound-on shape (release, debug, config-a, the stress rows) still runs it, and
+config-b's BG authoring is byte-for-byte config-a's (`inject_editor_bg.BGANIM_SECTION_CEILINGS` carries
+`s4.configb.lst` beside the others). **To close:** give the gate a sound-off terminus (the room below the
+next placed region after the packed run, with that region named by the description rather than guessed),
+red-first on a planted overflow in a config-b listing, then drop the skip in build.sh.
+
 ## G0C-SOUND-SEAMS: the sound seams' output path stays in aeon until G0c (booked 2026-11-19, G0b Task 6, `feat/g0b-descriptions`)
 
 Since sigil `parcel/g0b-game-as-data` Task 6, `sigil build` (both drivers, `--check` included)
