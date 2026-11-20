@@ -36,7 +36,7 @@ mailbox (`write_memory` refuses $A0xxxx), so the call has to be in the ROM. As i
      sample id — and nothing else. The Z80 driver, `sound_api.emp`, the sequencer
      and every song are untouched: the probe supplies only the caller the game
      does not have.
-  3. `sigil build --native --config-a` writes both ROMs to a scratch dir.
+  3. `sigil build --project games/sonic4 --shape config-a` writes both ROMs to a scratch dir.
   4. The file is restored from the committed baseline and the restore VERIFIED, in
      a `finally`.
 
@@ -191,8 +191,8 @@ def build_config_a(out_dir, tag, out):
                       "dotfile; export it before running this witness.")
     binp = Path(out_dir) / f"{tag}.bin"
     lstp = Path(out_dir) / f"{tag}.lst"
-    r = subprocess.run([sigil, "build", "--aeon", str(AEON), "--native", "--config-a",
-                        "-o", str(binp), "--emit-lst", str(lstp)],
+    r = subprocess.run([sigil, "build", "--project", str(Path(AEON) / "games" / "sonic4"),
+                        "--shape", "config-a", "-o", str(binp), "--emit-lst", str(lstp)],
                        cwd=AEON, capture_output=True, text=True)
     if r.returncode != 0:
         raise Unmeasurable(f"the {tag} config-A build FAILED (rc={r.returncode}):\n"

@@ -16,9 +16,10 @@ set -euo pipefail
 # carry is equipment: asserts, SOUND_DEBUG_HOTKEYS, SOUND_DBG_MIRROR, boot autoplay,
 # CompressionSelfTest, the sound-debug mirror.
 #
-# The one shape without the debugger is the opt-in LEAN profile, which is NOT reachable
-# from here (it is a named off-canonical profile, like config-a/config-b):
-#   sigil build --aeon . --native --lean -o lean.bin
+# The one shape without the debugger is the opt-in LEAN row of games/sonic4/game.toml,
+# which is NOT reachable from here (it has no `[outputs]` stem; config-a/config-b are, by
+# name, SHAPE=config-a|config-b):
+#   sigil build --project games/sonic4 --shape lean -o lean.bin
 # Lean routes every fault vector at ReleaseFault (mask, red backdrop, freeze) instead.
 #
 # ARTIFACT LEDGER (post-flip): the assembled anchor — the header-neutral prefix
@@ -456,11 +457,12 @@ gate() {
 
 # The end-of-build unmeasurable roll-up, replayed once at the very end (idempotent).
 #
-# ⚠ IT HAS NO LIVE PRODUCER TODAY, AND THAT IS EXPECTED, NOT ROT. The only thing that
-# appends to GATE_UNMEASURABLE is `gate`'s `triage` arm, and no call site below is
-# declared `triage` (the 2026-09-10 ruling in the block above). So this prints nothing
-# on every build that can currently be run. What would give it a producer: changing one
-# call site's `strict` to `triage`. It is not an abandoned scaffold — it is the half of
+# ONE LIVE PRODUCER (G0b Task 10): the bganim_room site appends itself when the shape is
+# sound-off (SHAPE=config-b), a gate that does not model that shape and so is not run on
+# it. Otherwise only `gate`'s `triage` arm appends, and no call site below is declared
+# `triage` (the 2026-09-10 ruling in the block above), so this prints nothing on the
+# canonical shapes. A further producer: changing one call site's `strict` to `triage`.
+# It is not an abandoned scaffold — it is the half of
 # a two-part mechanism whose other half is a policy decision, and the reason it exists
 # now is that "collect them and say so at the end" is the requirement that makes exit-2
 # triage safe at all: a single line 2,400 tests ago is how a gate stops being a gate.
@@ -488,47 +490,109 @@ gate_summary() {
     echo "###########################################################################"
 }
 
-# Per-game build config (optional): may set shell defaults for this script's own lanes.
-# No game carries one today: demo's (`SOUND_DRIVER_ENABLED=0`) was folded into its game
-# description at the G0b cutover, below.
+# No per-game build config. `games/<g>/build.conf` used to set shell defaults for this
+# script's lanes; demo's one setting (`SOUND_DRIVER_ENABLED=0`) became its game description's
+# `features.sound` at the G0b demo cutover and sonic4 never had one. Every shape fact build.sh
+# needs now comes from the description (below), so a build.conf that reappears would be a
+# second authority: refused rather than sourced.
 if [[ -f "games/${GAME}/build.conf" ]]; then
-    source "games/${GAME}/build.conf"
+    echo "ERROR: games/${GAME}/build.conf exists, but build.sh reads no per-game build config:"
+    echo "  a shape's facts are its games/${GAME}/game.toml [shapes.*] row (G0b). Move the"
+    echo "  setting into the description, or delete the file."
+    exit 1
 fi
 
-# GAME-AS-DATA GAMES (G0b Task 8, the demo cutover). sigil builds these from the game's
-# description, `sigil build --project games/<g> --shape <row>`, instead of the profile-driven
-# `--aeon . --game <g>` path; sonic4 keeps the profile path until its own cutover. The shape
-# row is `release`, or `debug` under DEBUG=1, and its output stem is the description's
-# `[outputs]` row (games/demo/game.toml: demo, demo.debug), the names ROM_NAME already holds.
+# EVERY GAME IS A GAME-AS-DATA GAME (G0b Task 8 cut demo over, Task 10 sonic4). sigil builds
+# the shape from the game's description, `sigil build --project games/<g> --shape <row>`.
+# The ROW:
+#   STRESS_EVICT=1 / STRESS_ART=1   stress-evict / stress-art (the fixtures keep their in-place
+#                                   rebake paths above; only the driver changed)
+#   SHAPE=<row>                     that row, when the description gives it an `[outputs]` stem
+#                                   and it is not a fixture (sonic4: config-a, config-b; also
+#                                   release, debug). lean has no stem: it is not a build.sh shape.
+#   otherwise                       `release`, or `debug` under DEBUG=1 (S2CLIP, STRESS_OBJECTS
+#                                   and STRESS_SIDEKICK build these rows under their own names).
+# The output stem is the row's `[outputs]` stem. For release, debug and the stress rows the
+# literals above already hold it, and a literal that disagrees with the description is
+# refused; for a SHAPE row the stem IS ROM_NAME.
 #
-# THE SOUND AXIS IS THE DESCRIPTION'S. For such a game SOUND_DRIVER_ENABLED (which decides
-# this script's emit_sound_blob preflight and emitter line) is read from the shape row's
-# `features.sound`, the same fact sigil builds from (tools/game_shape_feature.py), never a
-# shell default. A value set in the environment that disagrees is REFUSED: it would run the
-# lanes of a shape sigil is not building.
+# THE SHAPE'S AXES ARE THE DESCRIPTION'S. DEBUG, CRASH_REPORT, SOUND_DRIVER_ENABLED,
+# SOUND_DEBUG_HOTKEYS and SOUND_DBG_MIRROR (which decide this script's own lanes: the
+# emit_sound_blob preflight, the emitter line, every `--shape` a post-sigil gate is handed)
+# are read from the row (tools/game_shape_feature.py --shell), the facts sigil builds from,
+# never a shell default. A value set in the environment that disagrees is REFUSED: it would
+# run the lanes of a shape sigil is not building. (DEBUG under SHAPE included: SHAPE=config-b
+# with DEBUG=1 is refused, not quietly built as release.)
 # tools/test_build_env_knobs.py lifts the block between these markers and runs it, so the
 # markers are load-bearing.
 # >>> PROJECT_GAME_SHAPE
-PROJECT_GAMES=(demo)
 SIGIL_PROJECT_SHAPE=""
-for _pg in "${PROJECT_GAMES[@]}"; do
-    if [[ "$GAME" == "$_pg" ]]; then
-        if [[ "${DEBUG:-0}" == "1" ]]; then SIGIL_PROJECT_SHAPE="debug"; else SIGIL_PROJECT_SHAPE="release"; fi
-    fi
-done
-if [[ -n "${SIGIL_PROJECT_SHAPE}" ]]; then
-    _desc_sound="$(python3 "${TOOLS:-tools}/game_shape_feature.py" --game "${GAME}" --shape "${SIGIL_PROJECT_SHAPE}" --feature sound)" || {
-        echo "ERROR: cannot read the sound feature of games/${GAME}/game.toml [shapes.${SIGIL_PROJECT_SHAPE}] (see above)."
-        exit 1
-    }
-    if [[ -n "${SOUND_DRIVER_ENABLED:-}" && "${SOUND_DRIVER_ENABLED}" != "${_desc_sound}" ]]; then
-        echo "ERROR: SOUND_DRIVER_ENABLED=${SOUND_DRIVER_ENABLED} is set, but games/${GAME}/game.toml"
-        echo "  [shapes.${SIGIL_PROJECT_SHAPE}] says features.sound=${_desc_sound}, and that is the shape sigil builds."
-        echo "  The description is the authority for a game-as-data game; unset the variable."
-        exit 1
-    fi
-    SOUND_DRIVER_ENABLED="${_desc_sound}"
+if [[ "${STRESS_EVICT:-0}" == "1" ]]; then
+    SIGIL_PROJECT_SHAPE="stress-evict"
+elif [[ "${STRESS_ART:-0}" == "1" ]]; then
+    SIGIL_PROJECT_SHAPE="stress-art"
 fi
+if [[ -n "${SHAPE:-}" ]]; then
+    if [[ -n "${SIGIL_PROJECT_SHAPE}" || -n "${S2CLIP:-}" \
+            || "${STRESS_OBJECTS:-0}" == "1" || "${STRESS_SIDEKICK:-0}" == "1" ]]; then
+        echo "ERROR: SHAPE=${SHAPE} names a description row, and the STRESS_* / S2CLIP shapes"
+        echo "  choose their own row and artifact name; the two are mutually exclusive."
+        exit 1
+    fi
+    SIGIL_PROJECT_SHAPE="${SHAPE}"
+elif [[ -z "${SIGIL_PROJECT_SHAPE}" ]]; then
+    if [[ "${DEBUG:-0}" == "1" ]]; then SIGIL_PROJECT_SHAPE="debug"; else SIGIL_PROJECT_SHAPE="release"; fi
+fi
+_desc_facts="$(python3 "${TOOLS:-tools}/game_shape_feature.py" --game "${GAME}" --shape "${SIGIL_PROJECT_SHAPE}" --shell)" || {
+    echo "ERROR: cannot read games/${GAME}/game.toml [shapes.${SIGIL_PROJECT_SHAPE}] (see above)."
+    exit 1
+}
+DESC_DEBUG="" DESC_CRASH_REPORT="" DESC_SOUND="" DESC_SOUND_DEBUG_HOTKEYS="" DESC_SOUND_DBG_MIRROR=""
+DESC_FIXTURE="" DESC_STEM=""
+while IFS='=' read -r _k _v; do
+    case "${_k}" in
+        DESC_DEBUG|DESC_CRASH_REPORT|DESC_SOUND|DESC_SOUND_DEBUG_HOTKEYS|DESC_SOUND_DBG_MIRROR|DESC_FIXTURE|DESC_STEM)
+            printf -v "${_k}" '%s' "${_v}" ;;
+        *) echo "ERROR: tools/game_shape_feature.py --shell printed an unknown fact: ${_k}"; exit 1 ;;
+    esac
+done <<<"${_desc_facts}"
+if [[ -n "${SHAPE:-}" ]]; then
+    if [[ "${DESC_FIXTURE}" == "1" ]]; then
+        echo "ERROR: SHAPE=${SHAPE} is a fixture row of games/${GAME}/game.toml; a fixture never"
+        echo "  ships. The stress fixtures build through STRESS_EVICT=1 / STRESS_ART=1 (their rebake paths)."
+        exit 1
+    fi
+    if [[ -z "${DESC_STEM}" ]]; then
+        echo "ERROR: SHAPE=${SHAPE}: games/${GAME}/game.toml gives [shapes.${SHAPE}] no [outputs] stem,"
+        echo "  so it is not a build.sh shape. Build it directly and diff its own goldens:"
+        echo "    sigil build --project games/${GAME} --shape ${SHAPE} -o ${SHAPE}.bin"
+        exit 1
+    fi
+    ROM_NAME="${DESC_STEM}"
+elif [[ -z "${S2CLIP:-}" && "${STRESS_OBJECTS:-0}" != "1" && "${STRESS_SIDEKICK:-0}" != "1" \
+        && "${ROM_NAME}" != "${DESC_STEM}" ]]; then
+    echo "ERROR: build.sh names the ${GAME} [shapes.${SIGIL_PROJECT_SHAPE}] artifact ${ROM_NAME}, but"
+    echo "  games/${GAME}/game.toml [outputs] says '${DESC_STEM}'. One of the two is wrong; neither is guessed."
+    exit 1
+fi
+for _axis in "DEBUG:DESC_DEBUG:debug" "CRASH_REPORT:DESC_CRASH_REPORT:crash_report" \
+             "SOUND_DRIVER_ENABLED:DESC_SOUND:sound" \
+             "SOUND_DEBUG_HOTKEYS:DESC_SOUND_DEBUG_HOTKEYS:define SOUND_DEBUG_HOTKEYS" \
+             "SOUND_DBG_MIRROR:DESC_SOUND_DBG_MIRROR:define SOUND_DBG_MIRROR"; do
+    IFS=':' read -r _env _desc _what <<<"${_axis}"
+    if [[ -n "${!_env:-}" && "${!_env}" != "${!_desc}" ]]; then
+        echo "ERROR: ${_env}=${!_env} is set, but games/${GAME}/game.toml"
+        echo "  [shapes.${SIGIL_PROJECT_SHAPE}] says ${_what}=${!_desc}, and that is the shape sigil builds."
+        echo "  The description is the authority; unset the variable, or pick the row that has it:"
+        echo "  SHAPE=<row> (sonic4: config-a = debug + sound hotkeys + mirror, config-b = sound off)."
+        if [[ "${_env}" == "CRASH_REPORT" ]]; then
+            echo "  (No debugger, no deb2 symbols is the lean row, which is not a build.sh shape:"
+            echo "   sigil build --project games/sonic4 --shape lean -o lean.bin)"
+        fi
+        exit 1
+    fi
+    printf -v "${_env}" '%s' "${!_desc}"
+done
 # <<< PROJECT_GAME_SHAPE
 
 # Parse flags. -pe (asl print-errors-only) is now a no-op — the native build always
@@ -667,32 +731,21 @@ fi
 # <<< LANDING_LANES_RECEIPT
 
 # The canonical shapes (the frozen goldens) are what build.sh ships: plain + debug,
-# both games. The NON-canonical sonic4 sound shapes (silent / hotkeys / mirror) are
-# named off-canonical profiles now — build them directly and diff their own goldens:
-#   silent sonic4          -> sigil build --native --config-b
-#   debug + hotkeys+mirror -> sigil build --native --config-a
-# (Building an UNPROVEN sound-toggle combo from here would ship bytes no golden gates,
-# so build.sh refuses rather than emit something unverifiable. The full toggle matrix
-# folds back in with the Stage-3 debug-runtime work.) demo's sound axis is its game
-# description's (games/demo/game.toml, enforced above), so this only guards sonic4.
-if [[ "$GAME" == "sonic4" ]]; then
-    if [[ "${SOUND_DRIVER_ENABLED:-1}" != "1" \
-       || "${SOUND_DEBUG_HOTKEYS:-0}" == "1" \
-       || "${SOUND_DBG_MIRROR:-0}" == "1" ]]; then
-        echo "ERROR: non-canonical sonic4 sound shapes are the off-canonical profiles now:"
-        echo "  silent sonic4          -> sigil build --native --config-b -o s4.bin"
-        echo "  debug + hotkeys+mirror -> sigil build --native --config-a -o s4.debug.bin"
-        exit 1
-    fi
-fi
-
-# CRASH_REPORT is not an env axis of this script: the two shapes build.sh ships (release
-# and DEBUG) both carry the MD Debugger island + deb2 symbols, by the 2026-08-04 ruling.
-# The debugger-less shape is the named LEAN profile, gated by its own goldens — same
-# treatment as the non-canonical sound shapes above.
-if [[ "${CRASH_REPORT:-1}" != "1" ]]; then
-    echo "ERROR: CRASH_REPORT=0 is not a build.sh shape — it is the off-canonical lean profile:"
-    echo "  no debugger, no deb2 symbols -> sigil build --aeon . --native --lean -o lean.bin"
+# both games. The sonic4 sound shapes (silent; debug + hotkeys + mirror) are the
+# description's config-b and config-a rows, each gated by its own sigil goldens, and build
+# here only when asked by name (SHAPE=config-b / SHAPE=config-a, the PROJECT_GAME_SHAPE
+# block above). The sound axes themselves (SOUND_DRIVER_ENABLED, SOUND_DEBUG_HOTKEYS,
+# SOUND_DBG_MIRROR) are the row's: an environment value that disagrees is refused there, so
+# no UNPROVEN sound-toggle combination can be built from here (that is what this block used
+# to refuse by hand, before the shapes were data).
+#
+# CRASH_REPORT likewise: every row build.sh writes carries the MD Debugger island + deb2
+# symbols (2026-08-04 ruling). The debugger-less shape is the lean row, gated by its own
+# goldens and given no `[outputs]` stem, so SHAPE=lean is refused above. This check is the
+# backstop for a future row that drops the debugger and is given a stem anyway.
+if [[ "${CRASH_REPORT}" != "1" ]]; then
+    echo "ERROR: [shapes.${SIGIL_PROJECT_SHAPE}] has crash_report=0, which is not a build.sh shape:"
+    echo "  no debugger, no deb2 symbols -> sigil build --project games/${GAME} --shape ${SIGIL_PROJECT_SHAPE} -o ${SIGIL_PROJECT_SHAPE}.bin"
     exit 1
 fi
 
@@ -1523,28 +1576,17 @@ fi
 # AND DO NOT CHECK THIS WITH EITHER GREP. The harness grep skips binaries (-I) and on
 # s4.bin produces literally NOTHING, not even a zero count; /usr/bin/grep prints 0. A
 # magic-bytes check wants a binary-aware tool, not a string search.
-if [[ "${STRESS_EVICT:-0}" == "1" ]]; then
-    # The stress fixture fixes the shape (sonic4 debug + STRESS_EVICT define); it does
-    # NOT combine with --game/--debug (the CLI rejects that).
-    NATIVE_FLAGS="--stress-evict"
-elif [[ "${STRESS_ART:-0}" == "1" ]]; then
-    # The stress-art fixture fixes the shape (sonic4 debug + fixture placement) against
-    # the uniquified pool re-baked above; --stress-art selects the fixture-scoped derived
-    # placement (greedy pack from measured sizes, org anchors held). It does NOT combine
-    # with --game/--debug (the CLI rejects that).
-    NATIVE_FLAGS="--stress-art"
-else
-    NATIVE_FLAGS="--game ${GAME}"
-    if [[ "${DEBUG:-0}" == "1" ]]; then NATIVE_FLAGS="${NATIVE_FLAGS} --debug"; fi
+# The driver: every shape is built from its game's description, the row the
+# PROJECT_GAME_SHAPE block chose (release / debug, SHAPE=config-a|config-b, or the stress
+# fixtures: stress-evict = sonic4 debug + the STRESS_EVICT define; stress-art = sonic4 debug
+# + fixture placement against the uniquified pool re-baked above). The profile-driven
+# `--aeon . --native --game ...` grammar is not used here since the G0b sonic4 cutover; the
+# driver runs the contract closure gate first.
+if [[ -z "${SIGIL_PROJECT_SHAPE}" ]]; then
+    echo "ERROR: no description row was chosen for this build (PROJECT_GAME_SHAPE); refusing to guess one."
+    exit 1
 fi
-# The driver: a game-as-data game is built from its description (see PROJECT_GAMES above);
-# every other shape takes the profile-driven path. Both run the contract closure gate first.
-if [[ -n "${SIGIL_PROJECT_SHAPE}" ]]; then
-    SIGIL_DRIVER_ARGS=(--project "games/${GAME}" --shape "${SIGIL_PROJECT_SHAPE}")
-else
-    # shellcheck disable=SC2206 # NATIVE_FLAGS is a word list by construction
-    SIGIL_DRIVER_ARGS=(--aeon . --native ${NATIVE_FLAGS})
-fi
+SIGIL_DRIVER_ARGS=(--project "games/${GAME}" --shape "${SIGIL_PROJECT_SHAPE}")
 # CONTRACT CLOSURE GATE — default ON.
 #
 # `sigil build` runs the whole-corpus contract closure before it links. The
@@ -1615,7 +1657,7 @@ fi
 # `ensure(extern("Z80_IDLE_SIZE") == 40, ..)`. That module is `when = "sound_off"`
 # and both shipped sonic4 shapes build with sound ON, so sigil reports
 # `[module.unreachable] ... its 1 ensure guard(s) are never evaluated for this
-# target` and the guard is dead here. It fires correctly under `--game demo`,
+# target` and the guard is dead here. It fires correctly in a demo build,
 # which nothing on the per-commit path built -- only the nightly did. So a drift
 # it guards against was caught NIGHTLY AT BEST, not at the commit that caused it.
 #
@@ -2052,7 +2094,22 @@ if [[ "$FAST" == "0" ]]; then
         # (genuinely unmeasurable) AND an argv it does not recognise (a USAGE error, i.e. a
         # typo in the flags on the line below). Anyone flipping this site to `triage` inherits
         # both; the right fix would be in the gate, where a usage error is an exit 1.
-        if ! gate strict "bganim_room.py" python3 "${TOOLS}/bganim_room.py" --lst "${ROM_NAME}.lst" \
+        # A SOUND-OFF shape (sonic4's config-b row, SHAPE=config-b, a build.sh shape since
+        # the G0b sonic4 cutover) is NOT measured here, and the end-of-build roll-up says so.
+        # The tool models the sound-on layout: its room is `dac_banks` (the [[anchor]] that
+        # is `when = "sound_on"`) minus the packed run, and its terminus check proves
+        # Art_Sonic is the last thing below that anchor. A shape with no sound banks has no
+        # such anchor, so the terminus check refuses it (49 labels "between" 0x89D0A and an
+        # anchor this shape does not place; measured 2026-11-20), and its committed cut is a
+        # sound-on listing's (`__align$games.sonic4.dac_banks$0`). Measuring this shape's
+        # BG-anim room is a port of the gate (a different terminus), not a flag; until then
+        # the ruled ceiling is enforced on every sound-on shape, whose BG authoring this
+        # shape shares byte for byte (inject_editor_bg.BGANIM_SECTION_CEILINGS).
+        if [[ "${SOUND_DRIVER_ENABLED}" != "1" ]]; then
+            echo "bganim_room: NOT RUN — ${ROM_NAME}.lst is a sound-off shape and the gate models the"
+            echo "  sound-on layout (room = the dac_banks anchor - the packed run). See build.sh."
+            GATE_UNMEASURABLE+=("bganim_room.py (${ROM_NAME}: a sound-off shape; the gate measures room below the sound-on dac_banks anchor, which this shape does not place)")
+        elif ! gate strict "bganim_room.py" python3 "${TOOLS}/bganim_room.py" --lst "${ROM_NAME}.lst" \
                 --rom "${ROM_NAME}.bin" --built-after "${SIGIL_T0}" \
                 --fixture "${TOOLS}/fixtures/bganim_room_excerpt.lst" --gate \
                 "${ANCHOR_OVERLAY_ARGS[@]}"; then

@@ -100,17 +100,19 @@ AEON = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(AEON / "tools"))
 import extern_guard_census as census  # noqa: E402  (path set above)
 
-# The shapes swept, as (label, extra sigil args). The first four are build.sh's own two
-# canonical shapes per game. The fifth is `--config-a`, one of the named off-canonical
-# profiles build.sh prints in its own refusal message (build.sh:196-197,207-208) — it is
+# The shapes swept, as (label, game, description row): each is `sigil build --project
+# games/<game> --shape <row> --check` (G0b: every game builds from its description; the
+# profile-driven `--game/--debug/--config-a` spellings built the same five shapes). The first
+# four are build.sh's own two canonical shapes per game. The fifth is sonic4's `config-a` row
+# (`SHAPE=config-a ./build.sh`, off-canonical, gated by its own goldens) — it is
 # here because `engine/debug/sound_debug.emp:93` is a real, live guard that ONLY that
 # profile places, and its own header says so ("a canonical `./build.sh` proves nothing
 # about it either way"). Sweeping it turns that guard from excused into covered, which is
 # strictly better than an allowlist entry, and costs one more `--check`.
 #
-# THE TRADEOFF `--config-a` BUYS, named so it can be overruled rather than discovered.
+# THE TRADEOFF `config-a` BUYS, named so it can be overruled rather than discovered.
 # Sweeping it COUPLES a canonical build to an off-canonical profile's health: if
-# `--config-a` stops checking for a reason of its own, this lane reds a `./build.sh` that
+# `config-a` stops checking for a reason of its own, this lane reds a `./build.sh` that
 # would otherwise be fine. The alternative was a sixth allowlist entry for
 # `engine/debug/sound_debug.emp`, and covering beats excusing — an excusal is permanent and
 # silent, a coupling is loud and removable (delete the row and add the excusal). If the
@@ -121,11 +123,11 @@ import extern_guard_census as census  # noqa: E402  (path set above)
 # builds and is skipped wholesale by `FAST=1` (build.sh:245), so the comparison a reader
 # wants is ~6 s against that 22.69 s, not against the 1.15 s ROM assemble.
 SHAPES = [
-    ("sonic4 plain", ["--game", "sonic4"]),
-    ("sonic4 debug", ["--game", "sonic4", "--debug"]),
-    ("demo plain", ["--game", "demo"]),
-    ("demo debug", ["--game", "demo", "--debug"]),
-    ("config_a", ["--config-a"]),
+    ("sonic4 release", "sonic4", "release"),
+    ("sonic4 debug", "sonic4", "debug"),
+    ("demo release", "demo", "release"),
+    ("demo debug", "demo", "debug"),
+    ("sonic4 config-a", "sonic4", "config-a"),
 ]
 
 # ---- THE TWO EXCUSAL CLASSES, AND WHY NEITHER IS A MUTE ----------------------
@@ -164,9 +166,12 @@ CHECKED_RE = re.compile(
 # The unreachable warning, keyed on the FILE in the diagnostic prefix rather than on the
 # module name in the sentence. The two differ: this tree carries 14 `module.path-mismatch`
 # warnings, so a module's dotted name is not a function of its path, and the census's site
-# set is keyed by path. Using the prefix keeps one join key for both authorities.
+# set is keyed by path. Using the prefix keeps one join key for both authorities. The
+# game-as-data driver names the file by its absolute path (`<aeon>/games/sonic4/./x.emp`),
+# the profile-driven one by `./x.emp`; `_unreachable` normalises both to an aeon-relative
+# path, and a path outside this tree is a loud failure, never dropped.
 UNREACHABLE_RE = re.compile(
-    r"^\./(?P<file>\S+?\.emp):\d+:\d+: warning: \[module\.unreachable\] module "
+    r"^(?P<path>\S+?\.emp):\d+:\d+: warning: \[module\.unreachable\] module "
     r"`(?P<module>[\w.]+)`",
     re.M,
 )
@@ -192,9 +197,9 @@ def _sigil() -> str:
     return exe
 
 
-def _run_check(args: list) -> tuple[int, str]:
+def _run_check(game: str, row: str) -> tuple[int, str]:
     p = subprocess.run(
-        [_sigil(), "build", "--aeon", ".", "--native", *args, "--check"],
+        [_sigil(), "build", "--project", os.path.join("games", game), "--shape", row, "--check"],
         cwd=AEON, capture_output=True, text=True,
         env=dict(os.environ, SIGIL_WARNINGS="full"),
     )
@@ -250,15 +255,42 @@ def checks():
     """
     before = _digest_generated()
     results = {}
-    for label, args in SHAPES:
-        rc, out = _run_check(args)
+    for label, game, row in SHAPES:
+        rc, out = _run_check(game, row)
         results[label] = {"rc": rc, "out": out}
     after = _digest_generated()
     return {"shapes": results, "generated_before": before, "generated_after": after}
 
 
 def _unreachable(out: str) -> set:
-    return {m.group("file") for m in UNREACHABLE_RE.finditer(out)}
+    files = set()
+    for m in UNREACHABLE_RE.finditer(out):
+        path = pathlib.Path(m.group("path"))
+        full = pathlib.Path(os.path.normpath(path if path.is_absolute() else AEON / path))
+        try:
+            files.add(full.resolve().relative_to(AEON.resolve()).as_posix())
+        except ValueError:
+            pytest.fail(f"sigil reported an unreachable module at {path}, outside this tree "
+                        f"({AEON}); this lane cannot key it to a census site")
+    return files
+
+
+def _scanned(game: str) -> tuple:
+    """The aeon-relative prefixes a `--project games/<game>` build scans: the engine root its
+    description names and the game's own directory (G0b Task 9: the build scans the two
+    roots, not the tree). A file outside them is in no closure of that shape, and sigil
+    says nothing about it, so silence there must not read as "reachable"."""
+    import tomllib
+    desc = tomllib.loads((AEON / "games" / game / "game.toml").read_text())
+    return (desc["engine"]["root"].rstrip("/") + "/", "games/%s/" % game)
+
+
+def _unreachable_in(checks, label: str, game: str, guard_files) -> set:
+    """The guard files a shape does NOT evaluate: those sigil warns about, plus those
+    outside the roots it scans."""
+    roots = _scanned(game)
+    outside = {f for f in guard_files if not f.startswith(roots)}
+    return _unreachable(checks["shapes"][label]["out"]) | outside
 
 
 def _guard_files(sites) -> dict:
@@ -295,7 +327,7 @@ def test_every_shape_reported(checks):
     nothing to disagree with.
     """
     broken = []
-    for shape, _args in SHAPES:
+    for shape, _game, _row in SHAPES:
         entry = checks["shapes"][shape]
         if entry["rc"] != 0 or not CHECKED_RE.search(entry["out"]):
             tail = " | ".join(entry["out"].strip().splitlines()[-3:])
@@ -325,7 +357,7 @@ def test_no_linkassert_is_inapplicable(checks):
     lane's green is worth. It is kept because it reads a real counter this lane already
     parses and costs nothing — not because it has been demonstrated to work."""
     offenders = []
-    for shape, _args in SHAPES:
+    for shape, _game, _row in SHAPES:
         got = _parse(checks["shapes"][shape], shape)
         if got["inapplicable"] != 0:
             offenders.append(
@@ -366,8 +398,8 @@ def test_every_extern_guard_file_is_reachable_in_some_shape(checks):
 
     unreachable_everywhere = None
     per_shape = {}
-    for shape, _args in SHAPES:
-        unreachable = _unreachable(checks["shapes"][shape]["out"])
+    for shape, game, _row in SHAPES:
+        unreachable = _unreachable_in(checks, shape, game, guard_files)
         per_shape[shape] = unreachable
         here = set(guard_files) & unreachable
         unreachable_everywhere = here if unreachable_everywhere is None else (
@@ -411,7 +443,7 @@ def test_excusals_are_not_stale(checks):
       (b) The file became REACHABLE in some checked shape — `--check` can see it now, so
           it should be covered by the core row rather than excused past it. This is the
           direction that actually happened once already: `engine/debug/sound_debug.emp`
-          would have been an allowlist entry had `--config-a` not been swept, and it is
+          would have been an allowlist entry had `config-a` not been swept, and it is
           covered instead.
       (c) A poison excusal names a file that does not exist — `emp_expect_fail` checks
           this too, but a gate that reads another lane's list must not go green when that
@@ -424,8 +456,8 @@ def test_excusals_are_not_stale(checks):
     excuses = excused()
 
     reachable_somewhere = set()
-    for shape, _args in SHAPES:
-        unreachable = _unreachable(checks["shapes"][shape]["out"])
+    for shape, game, _row in SHAPES:
+        unreachable = _unreachable_in(checks, shape, game, guard_files)
         reachable_somewhere |= (set(guard_files) - unreachable)
 
     print("\nextern()-guard excusals in force (each needs a RUNNER, not a directory):")

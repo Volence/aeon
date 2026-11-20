@@ -50,11 +50,12 @@ Nothing renders a waveform, so "silent" below always means *the DAC enable bit i
 off while the streaming loop keeps writing $2A*, which is what silence is made of
 on this chip — never a measured absence of sound.
 
-SHAPE. This needs the music-capable off-canonical profile — the canonical ROMs
+SHAPE. This needs the music-capable off-canonical config-a row — the canonical ROMs
 CANNOT play music by design (`Sound_PlayMusic`'s only call site is
 `games/sonic4/debug/game_debug.emp`, bound only under SOUND_DEBUG_HOTKEYS):
 
-    sigil build --aeon . --native --config-a -o cfga.bin --emit-lst cfga.lst
+    sigil build --project games/sonic4 --shape config-a -o cfga.bin --emit-lst cfga.lst
+    (or SHAPE=config-a ./build.sh, which writes s4.configa.bin / .lst)
     python3 tools/song_load_mid_drum_witness.py --rom cfga.bin --lst cfga.lst
 
 SEVEN LEGS, count asserted, five drives and two controls:

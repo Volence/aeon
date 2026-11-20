@@ -429,7 +429,7 @@ def test_player_overlay_offsets_parsed_from_source():
 
 
 LST = """\
-DIGEST-SHAPE target=sonic4 game=sonic4 debug=1 extra-entries=none
+DIGEST-SHAPE target=debug game=sonic4 debug=1 extra-entries=none
  Frame_Counter : FFFF8002 C |
  Logic_Tick : FFFF8004 C |
  Ctrl_1_Held : FFFF8028 C |

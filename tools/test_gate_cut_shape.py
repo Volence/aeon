@@ -33,8 +33,36 @@ def test_off_canonical_listings_are_build_sh_stress_shapes():
     assert got == {"s4.stress.lst", "s4.stressart.lst",
                    "s4.s2clip.lst", "s4.s2clip.debug.lst",
                    "s4.stressobj.lst", "s4.stressobj.debug.lst",
-                   "s4.sidekick.lst", "s4.sidekick.debug.lst"}, got
+                   "s4.sidekick.lst", "s4.sidekick.debug.lst",
+                   "s4.configa.lst", "s4.configb.lst"}, got
     assert not (got & gcs.canonical_listings())
+
+
+def test_every_non_canonical_outputs_stem_is_off_canonical():
+    """G0b Task 10: build.sh writes a description row's `[outputs]` stem (SHAPE=config-a ->
+    s4.configa), computed, not a literal. Expectations from source: every stem a
+    games/*/game.toml `[outputs]` row names that is not a CANONICAL_SHAPES artifact is
+    off-canonical; the canonical ones are not."""
+    import tomllib
+    canonical = {b[:-4] for b in artifact_provenance.CANONICAL_SHAPES}
+    got = gcs.off_canonical_listings()
+    stems = set()
+    for desc in sorted((gcs.AEON / "games").glob("*/game.toml")):
+        stems |= set(tomllib.loads(desc.read_text()).get("outputs", {}).values())
+    assert {"s4.configa", "s4.configb"} <= stems     # positive control: the rows exist
+    for stem in stems:
+        assert ((stem + ".lst") in got) == (stem not in canonical), (stem, sorted(got))
+
+
+def test_an_outputs_stem_that_is_canonical_elsewhere_is_refused(tmp_path):
+    """A description naming a canonical artifact under a non-canonical row is two sources
+    disagreeing: refused, not classified."""
+    (tmp_path / "games" / "sonic4").mkdir(parents=True)
+    (tmp_path / "games" / "sonic4" / "game.toml").write_text(
+        '[outputs]\nrelease = "s4"\ndebug = "s4.debug"\nconfig-a = "demo"\n')
+    (tmp_path / "build.sh").write_text("")
+    with pytest.raises(gcs.ShapeClassError, match="demo"):
+        gcs.off_canonical_listings(tmp_path / "build.sh")
 
 
 @pytest.mark.parametrize("lst", ["s4.lst", "s4.debug.lst", "demo.lst", "demo.debug.lst",
@@ -181,7 +209,7 @@ def test_digest_canonical_build_under_a_stress_name_is_refused(tmp_path, capsys)
     all — it describes an off-canonical build — and it passed only because the rule was
     reading the target as a proxy. It could not tell the two rules apart; it can now.
     """
-    lst = _listing(tmp_path, "sonic4", rom_path="s4.bin")
+    lst = _listing(tmp_path, "release", rom_path="s4.bin")
     assert "CANONICAL build target" in gcs.digest_target_problem(lst)
     fixture = tmp_path / "toy_cut.json"
     fixture.write_text('{"shapes": {}}')
@@ -200,7 +228,7 @@ def test_digest_of_a_canonical_target_built_as_an_off_canonical_artifact_is_acce
     This is the case the target proxy could not express. The discriminating pair is this
     row and the rename row above: same target, different DIGEST-ROM path, opposite verdict.
     """
-    lst = _listing(tmp_path, "sonic4", rom_path="s4.s2clip.bin", name="s4.s2clip.lst")
+    lst = _listing(tmp_path, "release", rom_path="s4.s2clip.bin", name="s4.s2clip.lst")
     assert gcs.digest_target_problem(lst) is None
 
 
@@ -223,7 +251,7 @@ def test_a_digest_without_a_rom_line_is_refused_by_the_READER(tmp_path):
     lst.write_text("\n".join([
         "DIGEST-FORMAT 1",
         "DIGEST-ASSEMBLER sigil version=0 revision=0 tree=clean",
-        "DIGEST-SHAPE target=sonic4 game=sonic4 debug=0 extra-entries=none",
+        "DIGEST-SHAPE target=release game=sonic4 debug=0 extra-entries=none",
         "DIGEST-SCAN pattern=*.emp files=1 crc=00000000",
         read,
         "DIGEST-AGGREGATE crc=%s reads=1" % agg,
@@ -240,14 +268,15 @@ def test_digest_missing_is_refused(tmp_path):
     assert "cannot be read" in gcs.digest_target_problem(lst)
 
 
-# ── G0b Task 8: the game-as-data driver names a build by its `[shapes.*]` row ──
+# ── G0b: the game-as-data driver names a build by its `[shapes.*]` row ──
 #
 # sigil's game-as-data driver (`sigil build --project games/<g> --shape <row>`) writes
 # `DIGEST-SHAPE target=<row> game=<g>`, where the profile-driven driver wrote
 # `target=<g>` (sigil docs/QUEUE.md G0B-COMPARE-IDENTITY-NAMES). Keyed on the target word
 # alone, a canonical demo build under the new name reads as NOT canonical, so a renamed
-# canonical artifact silently earns a derived cut. The key is (game, target), and both
-# spellings are canonical until sigil's G0b Task 10 retires the old one.
+# canonical artifact silently earns a derived cut. The key is (game, target). Task 8 took
+# both spellings; since Task 10 (the sonic4 cutover) build.sh builds every shape through
+# `--project`, so only (game, <the [outputs] row>) is canonical.
 
 
 @REAL_DIGEST
@@ -275,28 +304,47 @@ def test_an_off_canonical_row_spelled_the_new_way_is_accepted(tmp_path):
     assert gcs.digest_target_problem(_listing(tmp_path, "stress-evict", game="sonic4")) is None
 
 
-def test_canonical_build_ids_carry_both_spellings_for_every_canonical_artifact():
-    """Expectations from source: each CANONICAL_SHAPES artifact is canonical as
-    (game, game) and as (game, the games/<game>/game.toml [outputs] row naming its stem)."""
+def test_canonical_build_ids_are_the_outputs_rows_only():
+    """Expectations from source: each CANONICAL_SHAPES artifact is canonical as exactly
+    (game, the games/<game>/game.toml [outputs] row naming its stem), and as nothing else:
+    the profile-driven spelling (game, game) was retired with the sonic4 cutover."""
     import tomllib
     ids = gcs.canonical_build_ids()
+    want = set()
     for rom, (game, _debug) in artifact_provenance.CANONICAL_SHAPES.items():
         outputs = tomllib.loads((gcs.AEON / "games" / game / "game.toml").read_text())["outputs"]
         rows = [r for r, stem in outputs.items() if stem == rom[:-len(".bin")]]
         assert len(rows) == 1, (rom, outputs)
-        assert (game, game) in ids and (game, rows[0]) in ids, (rom, sorted(ids))
-    # A row naming no canonical artifact (sonic4's stress shapes) is not canonical.
-    assert ("sonic4", "stress-evict") not in ids
+        want.add((game, rows[0]))
+        assert (game, game) not in ids, (rom, sorted(ids))
+    assert ids == want, sorted(ids)
+    # A row naming no canonical artifact (the stress and config shapes) is not canonical.
+    assert ("sonic4", "stress-evict") not in ids and ("sonic4", "config-a") not in ids
 
 
-def test_a_canonical_artifact_no_outputs_row_names_is_refused(tmp_path, monkeypatch):
-    """Loud on unmeasurable: a canonical artifact whose game description names no row for
-    it cannot be keyed in the new spelling, and that is refused, not skipped."""
-    games = tmp_path / "games"
-    for g, outputs in (("sonic4", 'release = "s4"\ndebug = "s4.debug"\n'), ("demo", 'release = "demo"\n')):
-        (games / g).mkdir(parents=True)
-        (games / g / "game.toml").write_text("[outputs]\n" + outputs)
-    monkeypatch.setattr(gcs, "AEON", tmp_path)
-    with pytest.raises(gcs.ShapeClassError, match="demo.debug"):
-        gcs.canonical_build_ids()
+@REAL_DIGEST
+@pytest.mark.parametrize("game", ["sonic4", "demo"])
+def test_the_profile_driven_spelling_is_not_a_canonical_build(tmp_path, game):
+    """`target=<game>` is what the retired build.sh path wrote; no build.sh build writes it
+    since the cutover, so it is not a canonical build id (a --legacy listing from sigil's
+    comparison job is not a canonical build either). The rename guard keys on the new
+    spelling alone, which the rows above prove still fires."""
+    lst = _listing(tmp_path, game, rom_path="s4.bin", game=game)
+    assert gcs.digest_target_problem(lst) is None
 
+
+@REAL_DIGEST
+def test_a_digest_shape_without_a_game_is_refused_by_the_READER(tmp_path):
+    """The key is (game, target): a DIGEST-SHAPE without `game=` cannot be keyed, and must
+    not read as "not canonical" (which would earn a derived cut).
+
+    MEASURED (G0b Task 10, the "listing without game=" path the brief named): the reader
+    refuses it first (artifact_provenance requires `target game debug extra-entries` on the
+    SHAPE line), so `digest_target_problem`'s own missing-game branch is belt and braces,
+    as the ROM-line row above records for DIGEST-ROM. A reader relaxing the grammar makes
+    that branch live, and this row will say so by changing which message it gets."""
+    lst = _listing(tmp_path, "release", rom_path="s4.bin")
+    lst.write_text(lst.read_text().replace(" game=sonic4 ", " "))
+    problem = gcs.digest_target_problem(lst)
+    assert problem is not None
+    assert "cannot be read" in problem and "['game']" in problem, problem

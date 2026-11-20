@@ -33,7 +33,10 @@ WHERE THE CLASSES COME FROM (no list is typed here).
   * off-canonical: build.sh's own literal `ROM_NAME="<name>"` assignments, each alone on
     its line. The canonical names are computed there (`ROM_NAME="${ROM_NAME}.debug"`,
     `ROM_NAME="s4"` inside an if/else line), so only the fixture shapes' blocks carry a
-    standalone literal. A name that is ALSO canonical is refused, not classified.
+    standalone literal. PLUS (G0b Task 10) every `[outputs]` stem of a games/*/game.toml
+    row that is not a canonical artifact: build.sh writes a SHAPE=<row> build under the
+    row's stem (SHAPE=config-a -> s4.configa), which it reads from the description and so
+    never spells as a literal. A name that is ALSO canonical is refused, not classified.
 """
 
 import os
@@ -85,7 +88,34 @@ def off_canonical_listings(build_sh=None):
             "build.sh assigns %s as a standalone literal ROM_NAME, but "
             "artifact_provenance.CANONICAL_SHAPES calls it canonical; the two sources "
             "disagree and neither is guessed" % ", ".join(sorted(both)))
-    return names
+    return names | _off_canonical_output_listings(path.parent)
+
+
+def _off_canonical_output_listings(aeon):
+    """The listing names of every `<aeon>/games/*/game.toml` `[outputs]` row whose artifact
+    is not canonical (`aeon` is the tree whose build.sh was read). A row naming a canonical artifact other than its own game's canonical row
+    (`config-a = "demo"`) is refused: the two sources disagree."""
+    import tomllib
+    canonical = {rom[:-len(".bin")]: game
+                 for rom, (game, _d) in artifact_provenance.CANONICAL_SHAPES.items()}
+    out = set()
+    for path in sorted((pathlib.Path(aeon) / "games").glob("*/game.toml")):
+        try:
+            outputs = tomllib.loads(path.read_text()).get("outputs", {})
+        except (OSError, tomllib.TOMLDecodeError) as e:
+            raise ShapeClassError("cannot read %s to find its off-canonical shapes: %s"
+                                  % (path, e))
+        game = path.parent.name
+        for row, stem in outputs.items():
+            if stem not in canonical:
+                out.add(stem + ".lst")
+            elif canonical[stem] != game or row not in ("release", "debug"):
+                raise ShapeClassError(
+                    "%s [outputs] %s = %r names a canonical artifact "
+                    "(artifact_provenance.CANONICAL_SHAPES: game %s), which only that game's "
+                    "release/debug row may; the two sources disagree and neither is guessed"
+                    % (path, row, stem, canonical[stem]))
+    return out
 
 
 def classify(lst_path, build_sh=None):
@@ -118,24 +148,23 @@ def drift_pin_not_measured(fixture_name, lst_path):
 
 
 def canonical_build_ids():
-    """The (game, target) pairs a CANONICAL build's Source Digest carries, both spellings.
+    """The (game, target) pairs a CANONICAL build's Source Digest carries.
 
-    sigil's profile-driven driver writes `DIGEST-SHAPE target=<game>` (its `digest_target`:
-    Sonic4 -> sonic4, Demo -> demo). Its game-as-data driver (`sigil build --project
-    games/<g> --shape <row>`, G0b) writes `target=<row>`, the game description's
-    `[shapes.*]` row, beside `game=<g>`. Keyed on the target word alone, a canonical build
-    under the new spelling (`target=release`) reads as off-canonical and the rename guard
-    below silently stops firing, so the key is the pair (sigil docs/QUEUE.md
-    G0B-COMPARE-IDENTITY-NAMES). Both spellings are canonical until sigil's G0b Task 10
-    retires the old one.
+    sigil's game-as-data driver (`sigil build --project games/<g> --shape <row>`, G0b)
+    writes `DIGEST-SHAPE target=<row>`, the game description's `[shapes.*]` row, beside
+    `game=<g>`. Keyed on the target word alone, a canonical build (`target=release`) reads
+    as off-canonical for every game at once and the rename guard below silently stops
+    firing, so the key is the pair (sigil docs/QUEUE.md G0B-COMPARE-IDENTITY-NAMES). The
+    profile-driven driver's spelling (`target=<game>`) was accepted beside it from the demo
+    cutover (G0b Task 8) until the sonic4 cutover (Task 10), after which build.sh builds
+    nothing through that driver: it is not a canonical build id any more.
 
-    The new spelling's row is DERIVED: the `games/<game>/game.toml` `[outputs]` row whose
-    stem is the canonical artifact's (`release = "demo"` for demo.bin). A canonical
-    artifact no row names, or two rows name, is refused rather than guessed at."""
+    The row is DERIVED: the `games/<game>/game.toml` `[outputs]` row whose stem is the
+    canonical artifact's (`release = "demo"` for demo.bin). A canonical artifact no row
+    names, or two rows name, is refused rather than guessed at."""
     import tomllib
     out = set()
     for rom, (game, _debug) in artifact_provenance.CANONICAL_SHAPES.items():
-        out.add((game, game))
         path = AEON / "games" / game / "game.toml"
         try:
             outputs = tomllib.loads(path.read_text()).get("outputs", {})
@@ -188,6 +217,10 @@ def digest_target_problem(lst_path):
     target = shape.get("target")
     if target is None:
         return "its Source Digest carries no DIGEST-SHAPE target"
+    if shape.get("game") is None:
+        # Unreachable through today's reader (it requires `game=`); refused here too, so a
+        # relaxed grammar can never key a build as (None, target), i.e. "not canonical".
+        return "its Source Digest carries no DIGEST-SHAPE game, so the build cannot be keyed"
     try:
         canonical = (shape.get("game"), target) in canonical_build_ids()
     except ShapeClassError as e:
@@ -235,8 +268,8 @@ def derive_for_offcanonical(gate, lst_path, fixture, committed_shapes, produce, 
                   "(tools/gate_cut_shape.py); remove that key." % (gate, fixture, name))
             return 1
     # The NAME says off-canonical; the listing must say so too. sigil's Source Digest
-    # names the build (`DIGEST-SHAPE target= game=`; a canonical build carries target ==
-    # game or its game.toml shape row, the fixture shapes `stress-evict` / `stress-art`),
+    # names the build (`DIGEST-SHAPE target= game=`; a canonical build carries its game.toml
+    # shape row, `release` / `debug`, the fixture shapes `stress-evict` / `stress-art`),
     # so a canonical build renamed to a stress name cannot earn a derived cut.
     problem = digest_target_problem(lst_path)
     if problem:

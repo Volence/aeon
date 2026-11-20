@@ -233,6 +233,16 @@ BGANIM_SECTION_CEILINGS = {
     # borrows spare_nametable tiles: the act's background is the shipped act's.
     "s4.sidekick.lst": BGANIM_SECTION_CEILING_RULED,         # STRESS_SIDEKICK=1
     "s4.sidekick.debug.lst": BGANIM_SECTION_CEILING_RULED,   # STRESS_SIDEKICK=1 DEBUG=1
+    # The sonic4 sound shapes build.sh writes by name since the G0b sonic4 cutover
+    # (games/sonic4/game.toml rows config-a = debug + sound hotkeys/mirror, config-b =
+    # sound off). The same act and the same editor BG sections as the shipped shapes, so
+    # the ruled number carries; the ROOM does not, which is why each is keyed by its own
+    # listing. bganim_room.py measures config-a's; config-b places no sound banks, so the
+    # gate (which measures below the sound-on `dac_banks` anchor) is NOT run on it, and
+    # build.sh lists it as unmeasured at the end of that build. The row stays: the table
+    # names every listing build.sh writes (test_bg_emit derives that population).
+    "s4.configa.lst": BGANIM_SECTION_CEILING_RULED,          # SHAPE=config-a
+    "s4.configb.lst": BGANIM_SECTION_CEILING_RULED,          # SHAPE=config-b
 }
 BGANIM_SECTION_CEILING = min(BGANIM_SECTION_CEILINGS.values())
 

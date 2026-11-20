@@ -1,11 +1,13 @@
 # games/sonic4/game.toml: the Sonic 4 game, described as data.
 #
 # G0b (Empyrean v2 step 0) description, read by sigil's `sigil-build` crate
-# (`crates/sigil-build/src/describe.rs`, `GameDesc`). INERT until the G0b
-# driver cuts over: the current driver (sigil-harness) holds these facts in
-# Rust and ignores this file. Every value is transcribed from the Rust at sigil
-# b0e63d71 (outputs from this tree's build.sh); each row cites its source as
-# `<file>:<line>`, files under sigil `crates/sigil-harness/src/` unless named.
+# (`crates/sigil-build/src/describe.rs`, `GameDesc`). Since the G0b sonic4
+# cutover (sigil Task 10) build.sh builds every sonic4 shape from it:
+# `sigil build --project games/sonic4 --shape <row>`, and build.sh reads its
+# shape facts (tools/game_shape_feature.py). Every value was transcribed from the
+# Rust at sigil b0e63d71, whose profile-driven driver still holds them until G0b
+# Task 11 deletes it; each row cites its source as `<file>:<line>`, files under
+# sigil `crates/sigil-harness/src/` unless named.
 #
 # Paths are relative to this directory (the game root). Engine facts live in
 # aeon `engine/engine.toml`, never here; this file holds only what names this
@@ -98,12 +100,17 @@ extends = "debug"
 fixture = true
 fixture_placement = { relocate = ["OJZ_Act_Pool_Page0", "OJZ_Sec0_Blocks", "OJZ_Sec0_LocalMap"] }
 
-# Output stem per shape: aeon build.sh:130 (s4), :133 (.debug suffix), :153
-# (s4.stress), :182 (s4.stressart). config-a, config-b and lean have no build.sh
-# stem (build.sh refuses them, :641-660) and the alias is test-only, so none here.
+# Output stem per shape: the artifacts build.sh writes for a row (`./build.sh`,
+# `DEBUG=1 ./build.sh`, `STRESS_EVICT=1`, `STRESS_ART=1`, `SHAPE=config-a|config-b`).
+# A row with no stem is not a build.sh shape: lean (the debugger-less profile, proven by
+# sigil's comparison job and its own goldens) and the keystones alias (test-only) are
+# refused by build.sh. build.sh's stress blocks spell their stems as literals too
+# (tools/gate_cut_shape.py reads them there) and refuse a stem that disagrees with this table.
 [outputs]
 release = "s4"
 debug = "s4.debug"
+config-a = "s4.configa"
+config-b = "s4.configb"
 stress-evict = "s4.stress"
 stress-art = "s4.stressart"
 

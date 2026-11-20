@@ -91,7 +91,7 @@ WHAT IT DOES NOT COVER, each a real hole:
     before the hold, never that a particular IRQ6 was excluded.
   * SHAPE GATES. It reads source, so it sees sites in every shape at once, including
     ones no canonical build places (`Sound_DebugMirror` is placed only by
-    `sigil build --native --config-a`). That is a strength here and a mismatch to
+    sonic4's config-a row, `sigil build --project games/sonic4 --shape config-a`). That is a strength here and a mismatch to
     keep in mind when comparing its population against a ROM.
   * THE Z80 SIDE. Nothing about what the Z80 does while stopped.
 

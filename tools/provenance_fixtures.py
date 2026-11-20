@@ -5,7 +5,8 @@ are real `sigil build` output, never hand-typed `DIGEST-` lines, so they cannot 
 the emitter unnoticed: if sigil changes the section, these builds change with it.
 
 PLAIN DEMO ONLY, and the reason is a measurement, not a preference: every file the plain
-demo build reads is tracked (208 aeon-root READ rows, 0 untracked, 2026-09-12), so the
+demo build reads is tracked (208 aeon-root READ rows, 0 untracked, 2026-09-12, on the
+profile-driven driver; 90 on the game-as-data driver, which scans two roots, 2026-11-20), so the
 build works in a clean checkout. The DEBUG shapes also read `engine/debug/generated/*`,
 which only build.sh's gen_compression_vectors step writes; a fresh worktree fails that
 build (measured: `no module engine.compression_vectors found under the scan root`).
@@ -53,7 +54,10 @@ def sigil():
 
 
 def build_demo(out_dir, rom_name="demo.bin", lst_name=None):
-    """`sigil build` the plain demo into `out_dir`; returns (rom, lst) absolute paths.
+    """`sigil build --project games/demo --shape release` into `out_dir`; returns (rom, lst)
+    absolute paths. The game-as-data driver, as build.sh builds demo since the G0b cutover:
+    its module scan is the description's two roots (engine + games/demo, G0b Task 9), not
+    the whole tree.
 
     `rom_name` is the -o name, which is also the path DIGEST-ROM records; building the
     plain shape under a debug NAME is how a mis-shaped canonical artifact is made for real.
@@ -62,27 +66,11 @@ def build_demo(out_dir, rom_name="demo.bin", lst_name=None):
     rom = os.path.join(os.path.abspath(out_dir), rom_name)
     lst = os.path.join(os.path.abspath(out_dir),
                        lst_name or os.path.splitext(rom_name)[0] + ".lst")
-    p = subprocess.run([sigil(), "build", "--aeon", AEON, "--native", "--game", "demo",
-                        "-o", rom, "--emit-lst", lst],
-                       cwd=AEON, capture_output=True, text=True, timeout=600)
-    if p.returncode != 0 or not os.path.isfile(lst):
-        raise RuntimeError("the plain demo build failed (exit %d):\n%s"
-                           % (p.returncode, (p.stdout + p.stderr)[-3000:]))
-    return rom, lst
-
-
-def build_demo_project(out_dir, rom_name="demo.bin"):
-    """`sigil build --project games/demo --shape release` into `out_dir`: the game-as-data
-    driver, whose module scan is the description's two roots (engine + games/demo, G0b
-    Task 9), not the whole tree. Returns (rom, lst) absolute paths."""
-    os.makedirs(out_dir, exist_ok=True)
-    rom = os.path.join(os.path.abspath(out_dir), rom_name)
-    lst = os.path.join(os.path.abspath(out_dir), os.path.splitext(rom_name)[0] + ".lst")
     p = subprocess.run([sigil(), "build", "--project", os.path.join(AEON, "games", "demo"),
                         "--shape", "release", "-o", rom, "--emit-lst", lst],
                        cwd=AEON, capture_output=True, text=True, timeout=600)
     if p.returncode != 0 or not os.path.isfile(lst):
-        raise RuntimeError("the --project demo build failed (exit %d):\n%s"
+        raise RuntimeError("the plain demo build failed (exit %d):\n%s"
                            % (p.returncode, (p.stdout + p.stderr)[-3000:]))
     return rom, lst
 

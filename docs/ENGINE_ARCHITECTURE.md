@@ -232,10 +232,15 @@ selected by environment variable:
   to regenerate `engine/sound/generated/` (the `.bin` blobs the sound-bank `.emp` files
   embed).
 
-The core invocation is `"${SIGIL_BUILD}" build --aeon . --native --game ${GAME} [--debug]
--o "${ROM_NAME}.bin" --emit-lst "${ROM_NAME}.lst"`. `DEBUG=1` adds `--debug`. The
-off-canonical sonic4 sound shapes map to sigil's `--config-a` (sound + debug hotkeys/mirror)
-and `--config-b` (sound off) profiles.
+The core invocation is `"${SIGIL_BUILD}" build --project games/${GAME} --shape <row>
+-o "${ROM_NAME}.bin" --emit-lst "${ROM_NAME}.lst"` (G0b: every game is built from its
+`game.toml`). The row is `release`, or `debug` under `DEBUG=1`; `stress-evict`/`stress-art`
+under `STRESS_EVICT=1`/`STRESS_ART=1`; or `SHAPE=<row>` for a non-fixture row with an
+`[outputs]` stem: the off-canonical sonic4 sound shapes `config-a` (sound + debug
+hotkeys/mirror, `s4.configa`) and `config-b` (sound off, `s4.configb`). `ROM_NAME` is the
+row's `[outputs]` stem, and the shape's axes (`DEBUG`, `CRASH_REPORT`, `SOUND_DRIVER_ENABLED`,
+`SOUND_DEBUG_HOTKEYS`, `SOUND_DBG_MIRROR`) come from the row (`tools/game_shape_feature.py
+--shell`); an environment value that disagrees is refused.
 
 ### Engine_RAM_End — the RAM seam
 
@@ -271,13 +276,13 @@ BUSREQ) corrupts fetched opcodes, not just data.
 
 ### build.conf + prebuild.sh
 
-Per-game build hooks, both optional and sourced/invoked by `build.sh` before assembly:
+Per-game build hooks (build.conf retired; prebuild.sh optional, invoked by `build.sh` before assembly):
 
-- `games/<game>/build.conf` — sourced early; sets build-flag defaults for `build.sh`'s own
-  lanes. No game carries one today: demo's (`SOUND_DRIVER_ENABLED=0`, it ships no sound bank
-  yet) was folded into `games/demo/game.toml` at the G0b cutover, whose `[shapes.*]
+- `games/<game>/build.conf` — RETIRED, and refused by `build.sh` if one reappears (G0b
+  Task 10). demo's one setting (`SOUND_DRIVER_ENABLED=0`, it ships no sound bank yet) was
+  folded into `games/demo/game.toml` at the G0b demo cutover, whose `[shapes.*]
   features.sound = false` both sigil (`sigil build --project games/demo --shape <row>`) and
-  `build.sh` (`tools/game_shape_feature.py`) read.
+  `build.sh` (`tools/game_shape_feature.py`) read; sonic4 never had one.
 - `games/<game>/prebuild.sh` — invoked if executable; runs the game's content generators
   (art-pool compression, collision baking, SFX transcoding, etc.) before the assembler runs.
   `games/sonic4/prebuild.sh` holds everything sonic4-specific; the engine core (salvador
@@ -5402,7 +5407,7 @@ The build tool generates tile budget data that the level editor displays in real
 |---|---|---|---|
 | **debug** (`DEBUG=1`) | yes | yes | `error_handler` per-class stubs |
 | **release** (default) | no | yes | `error_handler` per-class stubs |
-| **lean** (`sigil build --native --lean`) | no | no | `ReleaseFault` |
+| **lean** (`sigil build --project games/sonic4 --shape lean`) | no | no | `ReleaseFault` |
 
 `DEBUG=1` adds the assertion expansions, the debug-only raise sites, and the debug-only modules (`compression_selftest`; `game_debug` at the hotkeys shape), and emits suffixed artifacts (`s4.debug.bin`). Release assembles none of that. Both canonical shapes carry the error-handler island and the deb2 symbol appendix consumed by MD-Debugger, so a player's crash is reportable — the ruling is that the release ROM is ~9% of a 4 MB cart and space does not decide this. Only the opt-in `lean` profile drops the island, and it routes every fault at `ReleaseFault` (mask, red backdrop, freeze) so the loud-failure ruling still holds there.
 

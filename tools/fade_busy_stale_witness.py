@@ -39,7 +39,7 @@ rather than a bent canonical ROM:
      SUBJECT IS UNCHANGED: not one byte of the Z80 driver, `sound_api.emp` or the
      sequencer moves. The probe supplies only the CALL the game does not yet make,
      which is the exact condition the booking describes.
-  3. `sigil build --native --config-a` writes the probe ROM to a scratch dir. The
+  3. `sigil build --project games/sonic4 --shape config-a` writes the probe ROM to a scratch dir. The
      canonical ROMs are never touched; their CRCs are landing pins.
   4. The file is restored from the committed baseline and the restore is VERIFIED,
      in a `finally`, so a crash mid-run cannot leave the tree patched.
@@ -159,8 +159,8 @@ def build_config_a(out_dir, tag, out):
                       "dotfile; export it before running this witness.")
     binp = Path(out_dir) / f"{tag}.bin"
     lstp = Path(out_dir) / f"{tag}.lst"
-    r = subprocess.run([sigil, "build", "--aeon", str(AEON), "--native", "--config-a",
-                        "-o", str(binp), "--emit-lst", str(lstp)],
+    r = subprocess.run([sigil, "build", "--project", str(Path(AEON) / "games" / "sonic4"),
+                        "--shape", "config-a", "-o", str(binp), "--emit-lst", str(lstp)],
                        cwd=AEON, capture_output=True, text=True)
     if r.returncode != 0:
         raise Unmeasurable(f"the {tag} config-A build FAILED (rc={r.returncode}):\n"

@@ -63,7 +63,7 @@ MEASURED 2026-09-06 on eafd1a5b, one build per FILE (messages are unique WITHIN 
 one build proves every guard in it by name), 19 builds, ~37 s wall for the sonic4 sweep:
   sonic4 : 134/135 proved (131 link-assert + 3 via the emit_sound_blob panic path)
            MISS: engine/system/z80_init.emp:50 — world (a), sound-OFF module, not in
-           sonic4's closure. It fires under `--game demo`, which has sound off.
+           sonic4's closure. It fires in a demo build, which has sound off.
   demo   : 29/29 engine-side guards proved, z80_init:50 among them. The 106 sonic4
            game-side guards are absent from demo's closure, which is world (a) and expected.
 Union over the two games: every one of the 135 is proved able to fire in some shipped shape.
@@ -257,8 +257,10 @@ def negate(rel: str, sites: list) -> None:
 def build(game: str, out: str) -> tuple:
     env = dict(os.environ, NATIVE_DEBUG="1")
     t0 = time.time()
-    p = subprocess.run([SIGIL, "build", "--aeon", ".", "--native", "--game", game,
-                        "-o", out],
+    # The game's `release` row (G0b: every game builds from its description; the
+    # profile-driven `--game <g>` spelling built the same shape).
+    p = subprocess.run([SIGIL, "build", "--project", os.path.join("games", game),
+                        "--shape", "release", "-o", out],
                        cwd=AEON, capture_output=True, text=True, env=env)
     return p.returncode, p.stdout + p.stderr, time.time() - t0
 

@@ -75,7 +75,9 @@ def test_a_mirror_of_the_read_set_is_fresh(real, tmp_path):
     read is an aeon root the listing is fresh against."""
     root = tmp_path / "root"
     n = len(pf.mirror(real["lst"], str(root)))
-    assert n > 100, n
+    # Not vacuous: the plain demo reads 90 aeon-root files under the game-as-data driver
+    # (its two roots, G0b; 208 on the whole-tree profile-driven driver). A floor, not a pin.
+    assert n > 50, n
     v = ap.check_pair(real["rom"], real["lst"], built_after=real["t0"], root=str(root))
     assert v.fresh, _verdict_text(v)
 
@@ -290,7 +292,7 @@ def project(tmp_path_factory):
     """One real plain-demo pair from the game-as-data driver (`--project`)."""
     d = tmp_path_factory.mktemp("provenance_project")
     try:
-        rom, lst = pf.build_demo_project(str(d))
+        rom, lst = pf.build_demo(str(d))
     except pf.NoAssembler as e:
         pytest.fail(str(e))
     return {"rom": rom, "lst": lst}

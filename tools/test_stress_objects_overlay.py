@@ -182,8 +182,11 @@ def _build_sh(**env_over):
     """build.sh with SIGIL_BUILD pointed at nothing: every refusal under test sits ABOVE the
     sigil-binary check, so a refused combination stops at its refusal and an accepted one
     stops at the sigil check, both before any work (no re-bake, no artifact)."""
+    # The shape knobs of the build this lane rides in are dropped (a SHAPE=config-b build
+    # runs this lane with SHAPE in its environment; G0b Task 10), so each call states its own.
     env = {k: v for k, v in os.environ.items()
-           if not k.startswith(("STRESS_", "S2CLIP", "FAST", "DEBUG"))}
+           if not k.startswith(("STRESS_", "S2CLIP", "FAST", "DEBUG", "SHAPE", "SOUND_",
+                                "CRASH_REPORT"))}
     env.update(SIGIL_BUILD="/nonexistent/sigil", **env_over)
     p = subprocess.run(["bash", "build.sh"], cwd=AEON_DIR, env=env, capture_output=True,
                        text=True, timeout=120)

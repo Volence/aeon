@@ -53,3 +53,38 @@ def test_the_cli_prints_the_value_or_refuses():
     assert (ok.returncode, ok.stdout) == (0, "0\n"), ok.stderr
     bad = run("--game", "demo", "--shape", "nope", "--feature", "sound")
     assert bad.returncode == 1 and "no [shapes.nope]" in bad.stderr
+
+
+def test_shell_facts_follow_the_chain_defines_fixture_and_stem(tmp_path):
+    """`--shell` (G0b Task 10): the features, the two sound dev opt-in defines (0 when no
+    row sets them), fixture sticky down `extends` (sigil's resolve_shape) and the stem."""
+    g = tmp_path / "games" / "g"
+    g.mkdir(parents=True)
+    (g / "game.toml").write_text(
+        "[defines]\nSOUND_DBG_MIRROR = 0\n"
+        "[shapes.debug]\nfeatures = { debug = true, crash_report = true, sound = true }\n"
+        "[shapes.a]\nextends = \"debug\"\ndefines = { SOUND_DEBUG_HOTKEYS = 1, SOUND_DBG_MIRROR = 1 }\n"
+        "[shapes.fx]\nextends = \"a\"\nfixture = true\n"
+        "[shapes.fxchild]\nextends = \"fx\"\n"
+        "[outputs]\ndebug = \"g.debug\"\na = \"g.a\"\n")
+    f = dict(gsf.shell_facts("g", "a", aeon=tmp_path))
+    assert f == {"DESC_DEBUG": 1, "DESC_CRASH_REPORT": 1, "DESC_SOUND": 1,
+                 "DESC_SOUND_DEBUG_HOTKEYS": 1, "DESC_SOUND_DBG_MIRROR": 1,
+                 "DESC_FIXTURE": 0, "DESC_STEM": "g.a"}
+    d = dict(gsf.shell_facts("g", "debug", aeon=tmp_path))
+    assert (d["DESC_SOUND_DEBUG_HOTKEYS"], d["DESC_SOUND_DBG_MIRROR"], d["DESC_STEM"]) == (0, 0, "g.debug")
+    assert dict(gsf.shell_facts("g", "fxchild", aeon=tmp_path))["DESC_FIXTURE"] == 1
+    assert dict(gsf.shell_facts("g", "fx", aeon=tmp_path))["DESC_STEM"] == ""
+    (g / "game.toml").write_text(
+        "[shapes.r]\nfeatures = { debug = false, crash_report = true, sound = true }\n"
+        "[outputs]\nr = \"../evil\"\n")
+    with pytest.raises(ValueError, match="not a plain file stem"):
+        gsf.shell_facts("g", "r", aeon=tmp_path)
+
+
+def test_sonic4_config_rows_are_build_sh_shapes():
+    """The rows build.sh writes under SHAPE=: a stem, not a fixture; lean is not one."""
+    for row, stem in (("config-a", "s4.configa"), ("config-b", "s4.configb")):
+        f = dict(gsf.shell_facts("sonic4", row))
+        assert (f["DESC_STEM"], f["DESC_FIXTURE"]) == (stem, 0), f
+    assert dict(gsf.shell_facts("sonic4", "lean"))["DESC_STEM"] == ""

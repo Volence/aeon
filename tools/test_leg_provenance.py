@@ -133,7 +133,8 @@ def _synthetic(tmp_path, rom_bytes=b"ROMDATA", digest_crc=None, debug=1, sidecar
     lst.write_text("\n".join([
         "DIGEST-FORMAT 1",
         "DIGEST-ASSEMBLER sigil version=0.1 revision=abc1234 tree=clean",
-        f"DIGEST-SHAPE target=sonic4 game=sonic4 debug={debug} extra-entries=none",
+        # The game-as-data driver's spelling (G0b): target is the game.toml [shapes.*] row.
+        f"DIGEST-SHAPE target={'debug' if debug else 'release'} game=sonic4 debug={debug} extra-entries=none",
         "DIGEST-SCAN pattern=*.emp files=0 crc=00000000",
         read, f"DIGEST-AGGREGATE crc={agg} reads=1",
         f"DIGEST-ROM crc={crc:08x} size={len(rom_bytes)} path=s4.debug.bin",
@@ -155,7 +156,7 @@ def test_rom_provenance_reads_digest_shape(tmp_path, monkeypatch):
     _fresh(monkeypatch)  # freshness itself is check_pair's; this reads the digest fields
     p = lp.rom_provenance(rom, lst)
     assert p["debug"] == 1 and p["sigil_revision"] == "abc1234"
-    assert p["game"] == "sonic4" and p["target"] == "sonic4" and p["extra_entries"] == "none"
+    assert p["game"] == "sonic4" and p["target"] == "debug" and p["extra_entries"] == "none"
     assert p["size"] == 7 and p["rom"] == "s4.debug.bin" and p["tree"] == "clean"
     assert p["crc32Legacy"] == f"{zlib.crc32(b'ROMDATA') & 0xFFFFFFFF:08x}"
     assert "crc32" not in p
@@ -241,7 +242,7 @@ def test_detached_head_is_recorded_not_refused(tmp_path):
         "oracle": {"commit": C, "server_build_id": "x", "source": "s", "dirty": False, "sha256": "h"},
         "aeon": a,
         "rom": {"rom": "s4.bin", "romSha256": "0" * 64, "size": 1, "game": "sonic4", "debug": False,
-                "target": "sonic4", "sigil_revision": "r"},
+                "target": "release", "sigil_revision": "r"},
         "harness": {"tool_sha256": "h"},
     })
 
@@ -317,7 +318,7 @@ def _rebake_listing(tmp_path, built: bytes):
     lst = tmp_path / "s4.stressobj.lst"
     lst.write_text("\n".join([
         "DIGEST-FORMAT 1", "DIGEST-ASSEMBLER sigil version=0.1 revision=abc1234 tree=clean",
-        "DIGEST-SHAPE target=sonic4 game=sonic4 debug=0 extra-entries=none",
+        "DIGEST-SHAPE target=release game=sonic4 debug=0 extra-entries=none",
         "DIGEST-SCAN pattern=*.emp files=0 crc=00000000", read,
         f"DIGEST-AGGREGATE crc={agg} reads=1",
         f"DIGEST-ROM crc={zlib.crc32(b'ROMDATA') & 0xFFFFFFFF:08x} size=7 path=s4.stressobj.bin",

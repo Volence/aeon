@@ -84,8 +84,11 @@ def test_the_replay_delay_is_read_from_the_patch(tmp_path):
 # ---- build.sh refusals (all above the sigil-binary check: nothing is built) -----------------
 
 def _build_sh(**env_over):
+    # The shape knobs of the build this lane rides in are dropped (a SHAPE=config-b build
+    # runs this lane with SHAPE in its environment; G0b Task 10), so each call states its own.
     env = {k: v for k, v in os.environ.items()
-           if not k.startswith(("STRESS_", "S2CLIP", "FAST", "DEBUG"))}
+           if not k.startswith(("STRESS_", "S2CLIP", "FAST", "DEBUG", "SHAPE", "SOUND_",
+                                "CRASH_REPORT"))}
     env.update(SIGIL_BUILD="/nonexistent/sigil", **env_over)
     p = subprocess.run(["bash", "build.sh"], cwd=AEON, env=env, capture_output=True,
                        text=True, timeout=120)

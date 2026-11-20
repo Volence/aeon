@@ -11,7 +11,7 @@ BACKEND — `sigil build --extra-entry <module>`
 ---------------------------------------------
 One real build invocation per case, with the poison named as an extra entry:
 
-    sigil build --aeon . --native --game sonic4 -o <scratch>.bin --extra-entry <poison>
+    sigil build --project games/sonic4 --shape release -o <scratch>.bin --extra-entry <poison>
 
 `--extra-entry` evaluates the named module inside the REAL build profile — the same
 manifest rewrites (`publicize_helper_comptime`, `normalize_helper_imports`) and the same
@@ -734,7 +734,7 @@ def run_build(poison: str, native_debug: bool = False) -> tuple[int, str]:
     with tempfile.TemporaryDirectory() as td:
         out_bin = os.path.join(td, "probe.bin")
         p = subprocess.run(
-            [SIGIL, "build", "--aeon", ".", "--native", "--game", "sonic4", "-o", out_bin,
+            [SIGIL, "build", "--project", "games/sonic4", "--shape", "release", "-o", out_bin,
              "--extra-entry", poison],
             capture_output=True, text=True, cwd=AEON, env=env,
         )

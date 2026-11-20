@@ -91,7 +91,53 @@ diffed against the engine's and demo's baseline rows only, the gate PASSES on de
 Without it, both shapes are blind (1 unresolved condition). So on demo this is the only blind spot. sonic4 was not
 measured narrowed.
 
-## G0B-DEMO-CUTOVER-RESIDUE: demo builds through sigil's game-as-data driver; what still speaks the old names (OPEN, booked 2026-11-20, G0b Task 8, `feat/g0b-descriptions`)
+## G0B-DEMO-CUTOVER-RESIDUE: demo builds through sigil's game-as-data driver; what still speaks the old names (CLOSED 2026-11-20 at G0b Task 10, the sonic4 cutover; booked 2026-11-20, G0b Task 8, `feat/g0b-descriptions`)
+
+**CLOSED (G0b Task 10, paired with sigil `parcel/g0b-game-as-data`).** Every build.sh shape now
+builds with `sigil build --project games/<g> --shape <row>`: sonic4 `release`/`debug` (plain
+and `DEBUG=1`), the new by-name rows `SHAPE=config-a` / `SHAPE=config-b` (stems `s4.configa` /
+`s4.configb` in `games/sonic4/game.toml [outputs]`), and the stress fixtures `stress-evict` /
+`stress-art` (still on their rebake paths). build.sh reads every shape axis from the row
+(`tools/game_shape_feature.py --shell`: DEBUG, CRASH_REPORT, SOUND_DRIVER_ENABLED,
+SOUND_DEBUG_HOTKEYS, SOUND_DBG_MIRROR, the fixture flag and the stem), refuses an environment
+value that disagrees, refuses a fixture or stem-less row under `SHAPE` (lean), and refuses a
+`games/<g>/build.conf` (none exists; sonic4 never had one, so nothing was left to fold).
+`lean` stays out of build.sh (no stem). Per item:
+
+1. **CLOSED.** sonic4 artifacts now say `target=release|debug|config-a|config-b|stress-evict|stress-art`
+   beside `game=sonic4`. Consumers that key on the target, found by grep over `tools/`
+   (`"target"`, `target=`, `target ==`): `tools/gate_cut_shape.py` (item 2, the only one that
+   keyed on it) and `tools/leg_provenance.py`, which records `rom.target` verbatim and compares
+   nothing on it (`REQUIRED` only asks it to be non-empty; `tools/v1_reference.py` reads no
+   target). Its synthetic fixtures (`tools/test_leg_provenance.py`, `tools/test_leg_drive.py`)
+   are respelled to the new form. The committed v1-reference MANIFEST rows keep
+   `"target": "sonic4"`: they record what built those recordings, and nothing groups them.
+2. **CLOSED.** `tools/gate_cut_shape.py` keys a canonical build on `(game, <game.toml [outputs]
+   row>)` only; `(game, game)` is gone (red-first: `test_canonical_build_ids_are_the_outputs_rows_only`,
+   `test_the_profile_driven_spelling_is_not_a_canonical_build`). Its off-canonical class also
+   reads every non-canonical `[outputs]` stem (`s4.configa`, `s4.configb`), which build.sh computes
+   from the description and never spells as a literal (`test_every_non_canonical_outputs_stem_is_off_canonical`).
+   The "listing without `game=`" path: unreachable, because `artifact_provenance`'s reader
+   requires `game=` on DIGEST-SHAPE (recorded by `test_a_digest_shape_without_a_game_is_refused_by_the_READER`);
+   `digest_target_problem` refuses a missing game too, belt and braces.
+3. **CLOSED, and the list was partly wrong.** Of the six tools named, three invoked sigil:
+   `tools/extern_guard_census.py` and `tools/test_extern_guard_reachability.py` (both now
+   `--project ... --shape <row>`; the reachability test's unreachable-file key now reads the
+   driver's absolute paths and counts a guard file outside a shape's two scanned roots as not
+   evaluated there, which the whole-tree scan used to say by warning) and
+   `tools/provenance_fixtures.py` (`build_demo` builds `--project`; `build_demo_project` folded
+   into it). `tools/anim_frame_bound.py`, `tools/test_gen_vram_map.py` and
+   `tools/test_provenance_consumers.py` never invoked sigil: their `--game demo` is their OWN
+   flag (the last builds through `provenance_fixtures`). Three old-grammar callers the list
+   missed were moved too: `tools/emp_expect_fail.py` (`--project games/sonic4 --shape release
+   --extra-entry`, 56/56), `tools/fade_busy_stale_witness.py` and
+   `tools/fm6_foreign_sample_witness.py` (`--shape config-a`). `grep -rn -- '--aeon\|--game '
+   build.sh tools/` finds no sigil invocation on the old grammar (the remaining hits are
+   `emit_sound_blob --aeon`, which is that binary's own grammar, tools' own `--game` flags, and
+   dated measurement notes in `tools/EFFECTS_CONSUMER_CONTRACT.md`).
+
+The text below is the residue as booked at Task 8.
+
 
 Since G0b Task 8 (paired with sigil `parcel/g0b-game-as-data`), `./build.sh demo` and `DEBUG=1
 ./build.sh demo` build with `sigil build --project games/demo --shape release|debug` (the

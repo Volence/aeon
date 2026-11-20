@@ -1,11 +1,12 @@
 # games/demo/game.toml: the demo game (the engine's game-agnostic proof), as data.
 #
 # G0b (Empyrean v2 step 0) description, read by sigil's `sigil-build` crate
-# (`crates/sigil-build/src/describe.rs`, `GameDesc`). INERT until the G0b
-# driver cuts over: the current driver (sigil-harness) holds these facts in
-# Rust and ignores this file. Every value is transcribed from the Rust at sigil
-# b0e63d71 (outputs from this tree's build.sh); each row cites its source as
-# `<file>:<line>`, files under sigil `crates/sigil-harness/src/` unless named.
+# (`crates/sigil-build/src/describe.rs`, `GameDesc`). Since the G0b demo
+# cutover (sigil Task 8) build.sh builds both demo shapes from it:
+# `sigil build --project games/demo --shape <row>`. Every value was transcribed
+# from the Rust at sigil b0e63d71, whose profile-driven driver still holds them
+# until G0b Task 11 deletes it; each row cites its source as `<file>:<line>`,
+# files under sigil `crates/sigil-harness/src/` unless named.
 #
 # Paths are relative to this directory (the game root). Engine facts live in
 # aeon `engine/engine.toml`, never here.
