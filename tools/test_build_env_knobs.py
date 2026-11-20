@@ -58,8 +58,12 @@ def _block(name):
 
 
 def _run(script, args=(), **env_over):
+    # Every knob a test controls is dropped from the inherited environment, so a test that
+    # passes `DEBUG=None` means "unset" even inside a DEBUG=1 build (landing_build.sh runs
+    # this suite inside each shape's build.sh: its s4.debug lane inherited DEBUG=1 and the
+    # demo-shape rows read `debug` where they asked for `release`, G0b Task 9a).
     env = {k: v for k, v in os.environ.items()
-           if k not in ("NO_LINT", "FAST", "SIGIL_EMIT", "SOUND_DRIVER_ENABLED")}
+           if k not in ("NO_LINT", "FAST", "SIGIL_EMIT", "SOUND_DRIVER_ENABLED", "DEBUG", "GAME")}
     env.update({k: v for k, v in env_over.items() if v is not None})
     p = subprocess.run(["bash", "-c", "set -euo pipefail\n" + script, "build.sh", *args],
                        env=env, capture_output=True, text=True, timeout=30)
