@@ -386,11 +386,12 @@ when = "sound_on"
 # tools/clip_anchors.py derives it for a clip's overlay).
 #
 # THIS ANCHOR PLACES BANK 2 AND BANK 1 MUST END BELOW IT. Since G0b Task 11 the walk pins
-# the section this row `holds` (`SongBank2_Head`) at `at`; the placement contract checks
-# the held section starts there (`[map.anchor-absent]` otherwise). Bank 1 (head +
-# Moving-Trucks bank + SFX block + the song tables after it) may grow right up to this
-# address: there is no 0x400 margin any more (the gap inference that needed one is now
-# only the `[map.undeclared-island]` check, against the declared `at`s).
+# the section this row `holds` (`SongBank2_Head`) at `at`; since sigil ef0facb1 (the G0b
+# final-review fix wave) the placement contract checks the held section starts there
+# (`[map.anchor-absent]` otherwise). Bank 1 (head + Moving-Trucks bank + SFX block + the
+# song tables after it) may grow right up to this address: there is no 0x400 margin any
+# more since ef0facb1 (the gap inference that needed one is now only the
+# `[map.undeclared-island]` check, against the declared `at`s).
 #   * bank 1 grows past 0xC0000: the walk refuses `[layout.anchor-overrun]`, naming this
 #     anchor and how many bytes the run overshoots.
 # The old walk ROUNDED bank 2 up to the next 0x8000 instead; that and its two failure
@@ -400,8 +401,8 @@ when = "sound_on"
 # MEASURED GAP, 2026-09-28, after Wing Fortress and Oil Ocean joined bank 2 (sigil 1173bb31;
 # bank 1 ends at the song tables, which follow the SFX block; the engine-table head grew
 # 128 B for Oil Ocean's S2 envelope and the tables 16 B for the two ids): plain bank 1 ends
-# at 0xBDC5C, gap 9,124 B (all growth room since Task 11); DEBUG ends at 0xBF6B4, gap 2,380 B, all of
-# it growth room since Task 11 (DEBUG binds). (Before: 0xBDBCC / 9,268 / 8,244 and 0xBF624 / 2,524 / 1,500.)
+# at 0xBDC5C, gap 9,124 B (all growth room since sigil ef0facb1); DEBUG ends at 0xBF6B4, gap 2,380 B,
+# all of it growth room since ef0facb1 (DEBUG binds). (Before: 0xBDBCC / 9,268 / 8,244 and 0xBF624 / 2,524 / 1,500.)
 # One table entry (a new song id, in either bank) costs 8 B of it, and any head growth costs
 # its bytes here too. Re-measure from the listings (`SongPatchTable` + 4 * SONG_COUNT)
 # whenever bank 1 changes.
