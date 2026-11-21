@@ -2,9 +2,9 @@
 # Lines below `files:` are sha256sum format: <sha256>  <path relative to this directory>.
 empyrean-repo: empyrean
 empyrean-branch: feat/g0b-cherub-path
-empyrean-commit: f3228f9c6410918f5482a3d9f67e5fee332f5859
+empyrean-commit: b7717eca80a865ae8430ddb4e735b713797ae181
 files:
-29a8441e7b83c2d0d3fc386c257674bc5d9ec4c1c8905cdd098cc493972d9c67  empyrean.build-1.schema.json
+258678b04ebc2e5e1c4168581d5700df00714ff3c7779396f5c6ae957613b18d  empyrean.build-1.schema.json
 5acc542bd60f992b4bfe0dcba366cc00fe24866deda2906660a992f99185428c  empyrean_build.py
 9310c8af2e72f7ff80563849eb49ba9656c3fc933a5ba8e2f67e7be2fff8766c  test_empyrean_build.py
 cf8f14b22f133f114cb0ceb20f30b3103f8e794981593320f718c267bc935195  vectors/lookup/z80-banked.json
