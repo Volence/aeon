@@ -373,12 +373,12 @@ def scan_members(root):
 def build_scan_members(d, aeon):
     """The module walk THIS listing's build made, re-walked today: aeon-relative members.
 
-    The profile-driven driver walks the whole aeon tree. The game-as-data driver (`sigil
-    build --project`, G0b Task 9) walks its description's two named roots and nothing else:
+    A listing from sigil's deleted profile-driven driver walked the whole aeon tree. The driver
+    (`sigil build --project`, G0b Task 9) walks its description's two named roots and nothing else:
     the engine root (`[engine] root` of games/<g>/game.toml) and the game's sources root
     (`games/<g>/<[sources] root>`). A listing is the game-as-data driver's exactly when its
     build read its own description (a `DIGEST-READ path=games/<g>/game.toml` row, g being
-    DIGEST-SHAPE's game), which the profile-driven driver never reads. Both roots lie in the
+    DIGEST-SHAPE's game), which the profile-driven driver never read. Both roots lie in the
     tree, so sigil spells their members aeon-relative, as a whole-tree walk would."""
     game = d["shape"].get("game")
     desc = f"games/{game}/game.toml"

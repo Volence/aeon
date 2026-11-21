@@ -169,7 +169,7 @@ path until its own cutover (sigil Task 10). Left open:
 ## G0B-BGANIM-SOUND-OFF: `bganim_room.py` does not model a sound-off shape, so `SHAPE=config-b ./build.sh` does not run it (booked 2026-11-20, G0b Task 10, `feat/g0b-descriptions`)
 
 Found when build.sh gained the `config-a`/`config-b` rows (G0b Task 10). `bganim_room.py --gate` measures
-the BG-anim room as the sound-on `dac_banks` anchor (`games/sonic4/game.toml [[placement]]`,
+the BG-anim room as the sound-on `dac_banks` anchor (`games/sonic4/map.toml` `[[anchor]]` `dac_banks`,
 `when = "sound_on"`) minus the packed run, and its terminus check proves `Art_Sonic` is the last thing below
 that anchor. `config-b` is sound-off and places no such anchor: run on `s4.configb.lst` the gate fails its
 fixture freshness check (no `dac_banks` label) and, past that, its terminus check (49 labels between
@@ -183,7 +183,7 @@ red-first on a planted overflow in a config-b listing, then drop the skip in bui
 
 ## G0C-SOUND-SEAMS: the sound seams' output path stays in aeon until G0c (booked 2026-11-19, G0b Task 6, `feat/g0b-descriptions`)
 
-Since sigil `parcel/g0b-game-as-data` Task 6, `sigil build` (both drivers, `--check` included)
+Since sigil `parcel/g0b-game-as-data` Task 6, `sigil build` (the driver, `--check` included)
 writes the sound seams' 15 artifacts into its own private build directory and never into this
 tree (gate `build_hermetic`). Since Task 9 the sources NAME that root: `embed("generated/sound/<file>")`
 resolves in the build's `generated` root and nowhere else (sigil `sigil_span::roots`); the old
@@ -198,10 +198,10 @@ removal, its own design after sonic4's cutover, spec `G0b` §5.4):
    calls these files "checked-in"; they are build outputs and no commit carries them. The row goes
    with the seams.
 3. **`build.sh`'s sound preflight still writes the tree:** it runs
-   `emit_sound_blob --aeon . --out-dir engine/sound/generated` (`build.sh:867-883`) on every
+   `emit_sound_blob --aeon . --out-dir engine/sound/generated` (`build.sh` ~965-972) on every
    sound-on run, creating the 15 files here, so a fresh clone built by `build.sh` still shows
    `!! engine/sound/generated/` in `git status --ignored`. No sigil BUILD reads them: `sigil
-   build` (both drivers, `--check` included) and, since Task 6 fix round 1, sigil's in-process
+   build` (`--check` included) and, since Task 6 fix round 1, sigil's in-process
    `native::build_emp` emit into a private root of their own (gate
    `build_hermetic::build_emp_never_reads_the_tree_mount`: absent, provisioned and poisoned tree copies
    all lower identically). The focused lowerings (`harvest_*`, `name_env_report`) get an empty
@@ -209,9 +209,10 @@ removal, its own design after sonic4's cutover, spec `G0b` §5.4):
    longer an input" while `build_emp` still read them; that was false until fix round 1.) The
    files are still WRITTEN, and some READ, by:
    - sigil's single-module port gates (`soundbankhead_port`, `dac_bank_port`, `mt_bank_port`,
-     `sfx_bank_port`, `section_row_fixture`, `warn_tier_corpus`, `contract_closure_corpus`,
-     `link_assert_reporting`). They call `native::ensure_generated` to write the
-     mount themselves before reading it, so they never read what the preflight left (item 4);
+     `sfx_bank_port`, `contract_closure_corpus`, `link_assert_reporting`). They call
+     `native::ensure_generated` to write the mount themselves before reading it, so they never read
+     what the preflight left (item 4); `section_row_fixture` and `warn_tier_corpus` stopped writing
+     the reference tree in the G0b final-review fix wave (sigil C-I5);
    - aeon's own tools: `tools/land_gate.py:203` names the directory as a regenerated prefix, and
      `tools/test_extern_guard_reachability.py` snapshots it around its sweep.
 
@@ -222,6 +223,12 @@ removal, its own design after sonic4's cutover, spec `G0b` §5.4):
    standalone port gates only (sigil QUEUE `G0B-GENERATED-ROOT-SCOPE`, closed at Task 9 with this residue).
    Since Task 9 the three gates that embed the artifacts (`soundbankhead_port`, `sfx_bank_port`,
    `dac_bank_port`) read them from a generated root of their own (`native::standalone_sound_roots`).
+5. **`engine/engine.toml` `[sound]` names game-defined labels** (G0b final review D-I5; ledger Task 11 ⚠, ruling M4).
+   `dac_head = "DacSampleTable"`, `dac_blip_bank = "Dac_Temp_Blip"`, `dac_shared_bank = "Dac_SharedBank_Start"`
+   and the `[[sound.blob_bank_ids]]` bank labels are sonic4's (`games/sonic4/data/sound/`), so the engine file
+   states one game's label names and a second sound-on game must copy them. **Exit item for G0c:** the labels a
+   sound-on game must supply move to that game's description (or become the engine's own), and `engine.toml`
+   names none of a game's labels. Pairs with sigil QUEUE `G0C-SOUND-SEAM-GAME-IDENTITY`.
 
 ## G0B-DELETED-DRIVER-CITATIONS: prose that still cites sigil's deleted profile-driven driver (OPEN, booked 2026-11-20, G0b Task 11, `feat/g0b-descriptions`)
 
@@ -249,6 +256,37 @@ Still citing the deleted files, deliberately not edited here:
 4. `games/sonic4/map.toml`'s "WHAT PLACES A SECTION" / "REACH" blocks describe the old walk (frozen-row
    provisional bases, `load_frozen_table`); a note above them says so. Rewriting them to the game-as-data walk
    (`sigil-build` `walk::true_bases`: an island is exactly what an `[[anchor]]` `holds`) is the close.
+5. **Fixed in the G0b final-review fix wave** (seat D Minor 1, in the D-I4 comment commit): the refused commands in
+   `engine/system/release_fault.emp`, `engine/debug/error_handler.emp`, `engine/debug/sound_debug.emp`,
+   `engine/z80_bus.emp` and `games/sonic4/test/poison/README.md`; and the `song_bank_2` anchor comment in
+   `games/sonic4/map.toml`, which now describes the walk that pins the held section.
+
+## G0B-PYCACHE-AUDIT-FRAGILITY: the land-gate audit reads a copied tree as broken tooling (OPEN, booked 2026-11-21, G0b final review D-I5; found 2026-11-19, sigil WALK)
+
+A `cp -a` of an aeon checkout carries `tools/__pycache__`. pytest's rewritten `.pyc` files keep the ORIGINAL
+path as `co_filename` (measured: `.../.aeon-sigil-ref-99cb963d/tools/test_citation_form.py` inside a copy), so
+`land_gate_audit._who()`'s `dirname == _TOOLS` never matches and every docs read is `<unattributed>`: the audit
+goes red on a tree that is fine. The suite's rule since then (sigil QUEUE `WALK-MEASURE-IN-PLACE`, common.md):
+every copied aeon tree drops `__pycache__` (`find <copy> -name __pycache__ -type d -prune -exec rm -rf {} +`) or is
+a `git clone` / `git worktree add`. The audit itself stays fragile: the close is to resolve attribution by a
+path the copy cannot carry (the module's `__file__` at import, or `sys.pycache_prefix` for the lane), so a
+copied tree reads as itself.
+
+## G0B-FINAL-REVIEW-RESIDUE: what the G0b final review found in aeon and did not fix (OPEN, booked 2026-11-21, G0b final-review fix wave)
+
+Each line cites its report id (`final-review-D.md`); none moves a ROM byte today.
+- **D-M4** the export of a release shape depends on build residue: with the gitignored
+  `engine/debug/generated/compression_vectors.emp` present, Cherub's release export has 82 files / 80 analysed
+  modules, from tracked files only 81 / 79 (ROM identical). So `inputsSha256` for the same sources differs by
+  whether `build.sh` once ran in the engine tree. Goes with sigil `G0B-EXPORT-BY-ROOTS`'s "drop the mount"
+  follow-up (or `G0B-SECOND-GAME-FRICTIONS` item 9).
+- **D-M10** `tools/game_shape_feature.py:41` defaults `SOUND_DEBUG_HOTKEYS` / `SOUND_DBG_MIRROR` to 0 from the
+  game file alone; the engine's `[defines]` is the stated default. A second authority, true only while the
+  engine default is 0.
+- **D-M12** the vendored `SOURCE` files (`tools/contract/build/SOURCE:4`, sigil's, oracle's) say
+  `empyrean-branch: feat/g0b-cherub-path`, a branch that will not exist after landing; the commit stays valid.
+  Re-vendor after empyrean lands, or accept (sigil `docs/OVERSEER-REFERENCE.md` landing order).
+- **D deferred 157** `tools/gate_cut_shape.py:192` reads a listing without `game=`; behaviour not verified.
 
 ## G0B-UNROOTED-TREE-READS: aeon spellings that name no root (OPEN, booked 2026-11-20, G0b Task 9, `feat/g0b-descriptions`)
 

@@ -195,7 +195,7 @@ That gives three build shapes across two flags (`DEBUG`, `CRASH_REPORT`):
 
 `CRASH_REPORT` is an ordinary comptime define (`1` in every profile except `lean`), not a special-cased one. The predicate for anything on the crash-report axis is always `DEBUG == 1 || CRASH_REPORT == 1` — never bare `DEBUG == 1`, or the debugger vanishes from release. On the AS side the axis is a *definedness* define, `__MDDBG__`, pushed by the driver per `engine/engine.toml` `as_feature_defines` (`debug || crash_report`) (AS `ifdef` tests definedness, not value, so a `=0` would still take the arm — the axis has to be push-or-omit). `__DEBUG__` keeps its old meaning; the two are independent.
 
-**lean** is a full off-canonical build shape, not an env toggle: `sigil build --project games/sonic4 --shape lean` (`SHAPE=lean ./build.sh`; the shape is the `[shapes.lean]` row of `games/sonic4/game.toml`). It exists so the "no debugger at all" shape stays buildable and gated, and it is the only shape whose fault vectors route at `ReleaseFault` (`engine/system/release_fault.emp` — mask, red backdrop, freeze).
+**lean** is a full off-canonical build shape, not an env toggle: `sigil build --project games/sonic4 --shape lean` (the `[shapes.lean]` row of `games/sonic4/game.toml`; it has no `[outputs]` stem, so `build.sh` refuses it). It exists so the "no debugger at all" shape stays buildable and gated, and it is the only shape whose fault vectors route at `ReleaseFault` (`engine/system/release_fault.emp` — mask, red backdrop, freeze).
 
 Four idioms, in order of preference.
 
