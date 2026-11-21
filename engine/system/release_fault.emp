@@ -1,7 +1,7 @@
 // ===========================================================================
 // engine/system/release_fault.emp — the LEAN-shape loud-failure handler
 // ===========================================================================
-// The LEAN shape (`sigil build --native --lean`, CRASH_REPORT=0) is the one
+// The LEAN shape (`sigil build --project games/sonic4 --shape lean`, CRASH_REPORT=0) is the one
 // build that ships NO MD Debugger / error_handler island — but a fault must
 // still HALT LOUDLY rather than corrupt silently. ReleaseFault is that loud
 // failure: mask every interrupt, reset the VDP command state machine, set the

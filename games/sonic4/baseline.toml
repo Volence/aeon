@@ -1,9 +1,9 @@
 # games/sonic4/baseline.toml: Sonic 4's contract-closure baseline rows.
 #
 # G0b description (`BaselineDesc` in sigil `crates/sigil-build/src/describe.rs`),
-# INERT until cutover. Transcribed from sigil b0e63d71
-# `crates/sigil-harness/src/contract_baseline.rs`, which keeps the reasoning
-# for every row. Rows here name a sonic4 proc (games/sonic4/...); the engine's
+# read by every sonic4 `sigil build --project` contract gate since the cutover (G0b
+# Task 10). Transcribed from sigil b0e63d71 `contract_baseline.rs`, which kept the
+# reasoning (deleted in Task 11). Rows here name a sonic4 proc; the engine's
 # rows are in aeon engine/baseline.toml. See that file's header for how a
 # shape's gate unions the two.
 

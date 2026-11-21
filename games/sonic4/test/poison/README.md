@@ -7,7 +7,7 @@ still fires.
 
 Three properties every module in this directory must hold:
 
-1. **Parsed by every build's manifest scan.** `sigil build` scans the WHOLE `--aeon` tree
+1. **Parsed by every build's manifest scan.** `sigil build --project games/sonic4` scans the whole game root (and the engine's)
    to build the module manifest, so every file under here is parsed on every ordinary
    build and every `emp_expect_fail` run. That means each poison module must stay
    **syntactically valid** `.emp` — a parse error here is indistinguishable from every

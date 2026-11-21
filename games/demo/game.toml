@@ -64,7 +64,7 @@ features = { debug = true, crash_report = true, sound = false }
 release = "demo"
 debug = "demo.debug"
 
-# No gate rows: SHAPE_GATES (module_roots.rs:129-165) names no games.demo module.
+# Gate rows: every games.demo module a map `order` row places, below (all `all`).
 # No align rows: none of section_align.rs:135-142's exceptions is a demo label.
 
 # Every other game module a map `order` row places, in every shape (closed gating,

@@ -5,7 +5,7 @@
 // the canonical shapes prove emptiness. Gate: the call site's
 // `if DEBUG == 1 && SOUND_DRIVER_ENABLED == 1 && SOUND_DBG_MIRROR == 1`
 // (engine/system/vblank.emp) plus placement by the off-canonical config_a profile
-// (`sigil build --native --config-a`). (This read "SIGIL_EMP_SOUND_DEBUG
+// (`sigil build --project games/sonic4 --shape config-a`). (This read "SIGIL_EMP_SOUND_DEBUG
 // (engine.inc)"; engine.inc is deleted and that name exists nowhere in the tree —
 // gap lens sweep A2-17, 2026-09-12.)
 //
@@ -93,7 +93,7 @@ ensure(SEQ_MIRROR_CHBYTES <= SeqChannel_len,
 // the TOTAL. It cannot see the per-slot LAYOUT, which is what an out-of-process consumer
 // actually decodes, and it says nothing about SEQ_MIRROR_CHANNELS matching the shipping
 // song's channel count. It also only evaluates in a shape that PLACES this module — the
-// MIRROR shape (`sigil build --native --config-a`) — so a canonical `./build.sh` proves
+// MIRROR shape (`sigil build --project games/sonic4 --shape config-a`) — so a canonical `./build.sh` proves
 // nothing about it either way.
 ensure(64 + SEQ_MIRROR_HDRCH + SND_SEQ_TRACE_LEN <= extern("Dynamic_Live") - extern("Sound_Dbg_Mirror"),
        "the sound debug mirror window is {64 + SEQ_MIRROR_HDRCH + SND_SEQ_TRACE_LEN} bytes and Sound_Dbg_Mirror reserves only {extern(\"Dynamic_Live\") - extern(\"Sound_Dbg_Mirror\")} — widen the reservation in engine/ram.emp or drop SEQ_MIRROR_CHANNELS / SEQ_MIRROR_CHBYTES, and re-derive the offset map in this file's header")

@@ -128,7 +128,7 @@
 //     built green). Sigil's `[bus.*]` tier also now SEES it: a stray
 //     `move.w #$0000, Z80_BUS_REQUEST` inside the body reports
 //     `[bus.start-without-stop]` in EntryPoint (0 on the old spelling). Note that
-//     tier is REPORT-ONLY (`sigil build --native --report contracts`), not
+//     tier is REPORT-ONLY (`sigil build --project <game> --shape <row> --report contracts`), not
 //     build-fatal, and nothing in sigil checks that a declared bus context is
 //     recognised as one (sigil c64edab4's booked gap).
 //   * INTERPROCEDURAL MASK LOWERING. The gate is per-proc: a `jbsr` between a

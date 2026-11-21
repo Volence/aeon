@@ -104,7 +104,7 @@ fixture_placement = { relocate = ["OJZ_Act_Pool_Page0", "OJZ_Sec0_Blocks", "OJZ_
 # Output stem per shape: the artifacts build.sh writes for a row (`./build.sh`,
 # `DEBUG=1 ./build.sh`, `STRESS_EVICT=1`, `STRESS_ART=1`, `SHAPE=config-a|config-b`).
 # A row with no stem is not a build.sh shape: lean (the debugger-less profile, proven by
-# sigil's comparison job and its own goldens) and the keystones alias (test-only) are
+# sigil's golden lean.bin and step 0's SHAPES 7/7) and the keystones alias (test-only) are
 # refused by build.sh. build.sh's stress blocks spell their stems as literals too
 # (tools/gate_cut_shape.py reads them there) and refuse a stem that disagrees with this table.
 [outputs]

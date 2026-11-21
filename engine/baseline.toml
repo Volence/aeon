@@ -7,8 +7,8 @@
 # every row there (do not re-adjudicate here; G0b Task 11 deleted those tables, so
 # the `contract_baseline.rs:<line>` cites below are AT b0e63d71).
 #
-# The split is by where the proc lives: rows naming an ENGINE proc (engine/...)
-# are here, rows naming a game proc are in that game's baseline.toml. A shape's
+# The split is mostly by where the proc lives (engine rows here, game rows in the
+# game's baseline.toml); a game may also carry an engine-proc row its build fires. A shape's
 # gate is the multiset union of this file and its game's file, plus `d1c_debug`
 # on a debug shape. The closure analyses the engine root plus the shape's own
 # game root (G0b Task 9a, `Project::closure_roots`), never the other game's
