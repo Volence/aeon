@@ -72,7 +72,7 @@
         "type": "object",
         "required": ["root", "path", "lang", "sha256", "size"],
         "properties": {
-          "root": { "enum": ["engine", "game", "generated", "sigil"], "description": "Exactly these four roots; a new root is a major version." },
+          "root": { "enum": ["engine", "game", "generated", "sigil"], "description": "Exactly these four roots; a new root is a major version. path is relative to that root's directory in the build that wrote the file: engine = the engine root, game = the project directory (the one holding game.toml), generated = the build's generated directory, sigil = the sigil checkout. No path carries a game id or a checkout-layout segment; shape.game names the game." },
           "path": { "$ref": "#/$defs/relPath" },
           "lang": { "enum": ["emp", "asm", "z80"] },
           "sha256": { "$ref": "#/$defs/sha256" },

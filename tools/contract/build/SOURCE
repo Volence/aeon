@@ -1,10 +1,10 @@
 # Vendored copy of the empyrean.build 1.x reader and contract (G0a). Do not edit here: change it in empyrean, then re-vendor with tools/vendor_contract_build.py.
 # Lines below `files:` are sha256sum format: <sha256>  <path relative to this directory>.
 empyrean-repo: empyrean
-empyrean-branch: feat/g0a-build-contract
-empyrean-commit: 484fb8a1abebd68ee8dc464d9a8fd5a869262880
+empyrean-branch: feat/g0b-cherub-path
+empyrean-commit: f3228f9c6410918f5482a3d9f67e5fee332f5859
 files:
-c4da8c773733e49e9e65bd96261d1f2ad7e21f7bc79ef6240e8cde98896ff570  empyrean.build-1.schema.json
+29a8441e7b83c2d0d3fc386c257674bc5d9ec4c1c8905cdd098cc493972d9c67  empyrean.build-1.schema.json
 5acc542bd60f992b4bfe0dcba366cc00fe24866deda2906660a992f99185428c  empyrean_build.py
 9310c8af2e72f7ff80563849eb49ba9656c3fc933a5ba8e2f67e7be2fff8766c  test_empyrean_build.py
 cf8f14b22f133f114cb0ceb20f30b3103f8e794981593320f718c267bc935195  vectors/lookup/z80-banked.json
