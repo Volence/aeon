@@ -23,8 +23,8 @@
     ; GATED ON __MDDBG__ (the crash-report axis, owner-ruled 2026-08-04): the include is
     ; valid exactly when error_handler.emp is placed, because the MDDBG__* link externs
     ; its equ table derives off are that module's `pub equ`s — without the island they are
-    ; unresolvable, a hard link error. __MDDBG__ is pushed when
-    ; `profile.debug || profile.crash_report`, so DEBUG and RELEASE include it and only
+    ; unresolvable, a hard link error. __MDDBG__ is pushed by the driver per
+    ; engine/engine.toml `as_feature_defines` (`debug || crash_report`), so DEBUG and RELEASE include it and only
     ; the opt-in LEAN shape does not. The demo's release shape carries the debugger like
     ; any other game: it rides the engine.* registry filter, no exclusion. AS `ifdef`
     ; tests DEFINEDNESS, not value, so the axis is push-or-omit.

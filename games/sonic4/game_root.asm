@@ -25,7 +25,7 @@
     ; its equ table derives off (MDDBG__Debugger_AddressRegisters, …,
     ; MDDBG__Str_OffsetLocation_24bit) are that module's `pub equ`s. Including it without
     ; the island makes those equs unresolvable — a hard link error.
-    ; __MDDBG__ is pushed by the native driver when `profile.debug || profile.crash_report`,
+    ; __MDDBG__ is pushed by the driver per engine/engine.toml `as_feature_defines` (`debug || crash_report`),
     ; i.e. in the DEBUG and RELEASE shapes but NOT in the opt-in LEAN shape
     ; (`sigil build --project games/sonic4 --shape lean`, CRASH_REPORT=0). It is a separate define from
     ; __DEBUG__ — __DEBUG__ still means exactly "debug shape" (asserts, hotkeys, selftest,

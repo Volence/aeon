@@ -1,18 +1,18 @@
 # engine/baseline.toml: the engine's contract-closure baseline rows.
 #
 # G0b description (`BaselineDesc` in sigil `crates/sigil-build/src/describe.rs`),
-# INERT until cutover. Transcribed from sigil b0e63d71
-# `crates/sigil-harness/src/contract_baseline.rs`, which keeps the reasoning
-# for every row (do not re-adjudicate here).
+# read by every `sigil build --project` contract gate since the cutovers (G0b Tasks
+# 8 and 10). Transcribed from sigil b0e63d71
+# `crates/sigil-harness/src/contract_baseline.rs`, which kept the reasoning for
+# every row there (do not re-adjudicate here; G0b Task 11 deleted those tables, so
+# the `contract_baseline.rs:<line>` cites below are AT b0e63d71).
 #
 # The split is by where the proc lives: rows naming an ENGINE proc (engine/...)
 # are here, rows naming a game proc are in that game's baseline.toml. A shape's
 # gate is the multiset union of this file and its game's file, plus `d1c_debug`
-# on a debug shape. NOTE for the driver: the closure today analyses the whole
-# aeon corpus, both games, on every shape (sigil-frontend-emp corpus_contracts.rs
-# bind_corpus_interfaces: "The ANALYSIS module set is unchanged"), so today's
-# demo shapes also fire the sonic4 rows; the per-game union matches only once
-# a build's corpus is its own game plus the engine (G0b two-root resolution).
+# on a debug shape. The closure analyses the engine root plus the shape's own
+# game root (G0b Task 9a, `Project::closure_roots`), never the other game's
+# sources, so a demo shape fires only engine and demo rows.
 
 format = 1
 

@@ -88,6 +88,7 @@ fault_island_heads = ["ReleaseFault", "BusError"]
 # shape whose features satisfy `when`. game_root.asm includes the MD Debugger glue
 # under `ifdef __MDDBG__`, exactly when the error_handler island is placed.
 # Moved from sigil-build driver.rs (`assemble_as`) by G0b Task 11.
+# These exist only while the residual AS does; the table goes when `game_root.asm` goes.
 as_feature_defines = [
     { name = "SOUND_DRIVER_ENABLED", when = "sound" },
     { name = "__DEBUG__", when = "debug" },
