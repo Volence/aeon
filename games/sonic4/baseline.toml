@@ -7,7 +7,7 @@
 # rows are in aeon engine/baseline.toml. See that file's header for how a
 # shape's gate unions the two.
 
-format = 1
+format = 2
 
 # [call.live-clobbered] (D1c), every shape: the sonic4-proc rows of
 # contract_baseline.rs:137-225 (D1C_BASELINE). A multiset: repeated rows are
@@ -29,6 +29,52 @@ d1c = [
     ["PState_Roll", "Player_SensorCeiling", "d0"],                 # :210
     ["PState_Spindash", "Player_SensorFloor", "d0"],               # :211 player/player_spindash.emp
     ["PState_Spindash", "Player_SensorFloor", "d1"],               # :212
+    ["Player_Display", "AnimateSprite", "a0"],                     # step A piece 4: AnimateSprite untargeted jmp -> top
+    ["TailsAppendage_Main", "AnimateSprite", "a0"],                # step A piece 4: AnimateSprite untargeted jmp -> top
+    ["TestAnimated_Main", "AnimateSprite", "a0"],                  # step A piece 4: AnimateSprite untargeted jmp -> top
+    ["TestPlayer_Main", "AnimateSprite", "a0"],                    # step A piece 4: AnimateSprite untargeted jmp -> top
     ["TestPlayer_Main", "Player_SensorFloor", "d0"],               # :221 objects/test_player.emp
     ["TestPlayer_Main", "Player_SensorFloor", "d2"],               # :222
+]
+
+# [proc.clobber-undeclared] unbounded (top) procs, every sonic4 shape (format = 2, step A piece 4):
+# sonic4 procs reaching AnimateSprite or S4LZ_Decompress untargeted 68000 jump tables.
+clobber_unbounded = [
+    "DustPuff_Main",
+    "DustSpindash_Main",
+    "GameState_OJZScroll_Init",
+    "GameState_OJZScroll_Update",
+    "InstaShield_Main",
+    "Player_Display",
+    "Player_Main",
+    "RingSparkle_Main",
+    "Spring_Init",
+    "Spring_Main",
+    "TailsAppendage_Main",
+    "TestAnimated",
+    "TestAnimated_Main",
+    "TestParticle",
+    "TestParticle_Main",
+    "TestPlayer",
+    "TestPlayer_Main",
+]
+
+# [proc.clobber-undeclared] unbounded (top) procs, sonic4 debug shapes only.
+clobber_unbounded_debug = [
+    "Debug_Warp_Consume",
+]
+
+# [proc.preserves-sr-unbalanced] / [proc.with-sr-level-broken] (format = 2, step A piece 4):
+# GameState_OJZScroll_Init declares `preserves(sr.mask)` and calls Tile_Cache_Init -> S4LZ_Decompress
+# (two findings: ojz_scroll_test.emp:863 call site and :1004 rts).
+sr_level = [
+    "GameState_OJZScroll_Init",
+    "GameState_OJZScroll_Init",
+]
+
+# [proc.preserves-unverifiable] word-facet (format = 2, step A piece 4):
+# Player_Main and TestPlayer_Main declare `preserves(d7.w)` and reach AnimateSprite (top).
+word_preserve_unverifiable = [
+    ["Player_Main", "d7.w"],
+    ["TestPlayer_Main", "d7.w"],
 ]

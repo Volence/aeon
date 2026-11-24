@@ -6,7 +6,7 @@
 # G0b Task 11). A game whose description names this file gets these rows, with no
 # module-id literal involved.
 
-format = 1
+format = 2
 
 # [call.live-clobbered] (D1c), every demo shape: contract_baseline.rs:272-274
 # (D1C_DEMO_EXTRA). The proc is the engine's (engine/level/parallax.emp), but

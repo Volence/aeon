@@ -14,7 +14,7 @@
 # game root (G0b Task 9a, `Project::closure_roots`), never the other game's
 # sources, so a demo shape fires only engine and demo rows.
 
-format = 1
+format = 2
 
 # [proc.out-unverified], Z80: (proc, unit). contract_baseline.rs:56-63, 6 rows,
 # all engine/sound procs (sound_sfx.emp, z80_sound_driver.emp).
@@ -44,6 +44,8 @@ d1c = [
     ["CreateEffect_Simple", "AllocEffect", "a1"],                  # :180
     ["Load_Object", "AllocDynamic", "a1"],                         # :185 engine/objects/load_object.emp
     ["Parallax_Update", "Decode_Factor_A", "d2"],                  # :213 engine/level/parallax.emp
+    ["TileCache_FillRow", "TileCache_DecompressBlock", "a5"],      # step A piece 4: S4LZ_Decompress untargeted jmp -> top
+    ["TileCache_FillRow", "TileCache_DecompressBlock", "a6"],      # step A piece 4: S4LZ_Decompress untargeted jmp -> top
     ["TileCache_FillRow", "TileCache_FindStagedBlock", "a1"],      # :224 engine/level/tile_cache.emp
 ]
 
@@ -56,3 +58,33 @@ d1c_debug = [
     ["Input_Tick", "Replay_Hash", "d0"],                           # :236 engine/system/replay.emp
     ["Input_Tick", "Replay_Hash", "d0"],                           # :237
 ]
+
+# [proc.clobber-undeclared] unbounded (top) procs, every shape (format = 2, step A piece 4):
+# engine procs reaching the three untargeted 68000 jump tables (AnimateSprite in
+# engine/objects/animate.emp:149; S4LZ_Decompress in engine/compression/s4lz.emp:157,221).
+clobber_unbounded = [
+    "AnimateSprite",
+    "Art_Decompress",
+    "CompressionSelfTest",
+    "S4LZ_Decompress",
+    "S4LZ_DecompressDict",
+    "TileCache_DecompressBlock",
+    "TileCache_FillAll",
+    "TileCache_FillColumn",
+    "TileCache_FillRow",
+    "TileCache_WarmupBelowRow",
+    "Tile_Cache_Fill",
+    "Tile_Cache_Init",
+]
+
+# [proc.clobber-undeclared] unbounded (top) procs, debug shapes only: EntryPoint calls
+# CompressionSelfTest under `if DEBUG == 1`.
+clobber_unbounded_debug = [
+    "EntryPoint",
+]
+
+# [proc.preserves-sr-unbalanced] / [proc.with-sr-level-broken]: empty in engine.
+sr_level = []
+
+# [proc.preserves-unverifiable] word-facet: empty in engine.
+word_preserve_unverifiable = []

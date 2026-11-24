@@ -16,7 +16,7 @@
 # the frozen size tables, the `SIGIL_EMP_*` AS definedness defines and the
 # 68000 even-base rule (port history / an ISA fact the driver owns).
 
-format = 1
+format = 2
 
 # The pure-comptime helper modules, IN ORDER: the later helper silently wins a
 # duplicate name, so the order is the fact. native.rs:1930-1951 (COMPTIME_HELPERS, 14 rows).

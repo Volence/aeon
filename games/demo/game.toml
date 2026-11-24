@@ -12,7 +12,7 @@
 # Paths are relative to this directory (the game root). Engine facts live in
 # aeon `engine/engine.toml`, never here.
 
-format = 1
+format = 2
 id = "demo"         # sigil-cli main.rs:3170 (`--game demo`)
 name = "demo"       # native.rs:371 (the profile's name)
 

@@ -14,7 +14,7 @@
 # aeon `engine/engine.toml`, never here; this file holds only what names this
 # game or its content.
 
-format = 1
+format = 2
 id = "sonic4"       # sigil-cli main.rs:3169 (`--game sonic4`)
 name = "sonic4"     # native.rs:321 (the canonical profile's name)
 
